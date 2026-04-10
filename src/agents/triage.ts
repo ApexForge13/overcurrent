@@ -71,7 +71,14 @@ export async function triageSources(
   query: string,
   storyId?: string,
 ): Promise<TriageResult> {
-  const truncated = rawSources.slice(0, 100)
+  // Deduplicate by URL before sending to Haiku
+  const seen = new Set<string>()
+  const deduped = rawSources.filter(s => {
+    if (seen.has(s.url)) return false
+    seen.add(s.url)
+    return true
+  })
+  const truncated = deduped.slice(0, 50)
 
   const userPrompt = `Query: ${query}
 
@@ -83,6 +90,7 @@ ${JSON.stringify(truncated, null, 2)}`
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     agentType: 'triage',
+    maxTokens: 8192,
     storyId,
   })
 

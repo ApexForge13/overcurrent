@@ -58,6 +58,7 @@ interface CallClaudeOptions {
   systemPrompt: string
   userPrompt: string
   agentType: string
+  maxTokens?: number
   region?: string
   storyId?: string
   undercurrentReportId?: string
@@ -92,9 +93,10 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
   }
 
   // --- API call ---
+  const maxTokens = options.maxTokens ?? 4096
   const response = await client.messages.create({
     model,
-    max_tokens: 4096,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
   })

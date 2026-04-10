@@ -92,13 +92,16 @@ export async function runVerifyPipeline(
     }
   }
 
-  // Debug: log GDELT results to diagnose sourcecountry issue
-  console.log(`[Pipeline] GDELT returned ${allGdelt.length} results. RSS: ${rssResults.length}. Reddit: ${redditResults.length}.`)
-  if (allGdelt.length > 0) {
-    console.log(`[Pipeline] First GDELT sourcecountry: "${allGdelt[0].sourcecountry}", domain: ${allGdelt[0].domain}`)
-    const sample = allGdelt.slice(0, 5).map(a => a.sourcecountry)
-    console.log(`[Pipeline] First 5 sourcecountries:`, sample)
-  }
+  // Debug: send GDELT diagnostics through SSE
+  const sampleCountries = allGdelt.slice(0, 5).map(a => a.sourcecountry)
+  onProgress('debug', {
+    phase: 'search',
+    message: `GDELT: ${allGdelt.length}, RSS: ${rssResults.length}, Reddit: ${redditResults.length}. Sample countries: ${JSON.stringify(sampleCountries)}`,
+    gdeltCount: allGdelt.length,
+    rssCount: rssResults.length,
+    redditCount: redditResults.length,
+    sampleCountries,
+  })
 
   // Count unique countries and regions from GDELT results
   const countriesFound = new Set(allGdelt.map((a) => a.sourcecountry).filter(Boolean))

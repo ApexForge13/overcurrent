@@ -1,4 +1,4 @@
-import { fetchWithTimeout } from '@/lib/utils'
+import { fetchWithTimeout, sleep } from '@/lib/utils'
 import { fipsToIso } from '@/data/fips-to-iso'
 
 export interface GdeltResult {
@@ -14,6 +14,23 @@ export interface GdeltResult {
 const GDELT_BASE = 'https://api.gdeltproject.org/api/v2/doc/doc'
 const MAX_RECORDS = 75
 const TIMESPAN = '14d'
+const REQUEST_DELAY_MS = 5500 // GDELT rate limit: 1 request per 5 seconds
+
+/**
+ * Quote words containing hyphens for GDELT.
+ * GDELT rejects bare hyphens — "F-15" must be sent as `"F-15"`.
+ */
+function sanitizeQuery(query: string): string {
+  return query
+    .split(/\s+/)
+    .map((word) => {
+      if (word.includes('-') && !word.startsWith('"')) {
+        return `"${word}"`
+      }
+      return word
+    })
+    .join(' ')
+}
 
 /**
  * Get FIPS country codes that belong to a given region.
@@ -22,23 +39,6 @@ function getFipsCodes(region: string): string[] {
   return Object.entries(fipsToIso)
     .filter(([, entry]) => entry.region === region)
     .map(([fips]) => fips)
-}
-
-/**
- * Extract broader keywords from a query string by removing common stop words.
- */
-function extractKeywords(query: string): string {
-  const stopWords = new Set([
-    'the', 'a', 'an', 'in', 'on', 'at', 'of', 'to', 'for', 'and',
-    'or', 'is', 'are', 'was', 'were', 'has', 'have', 'had', 'be',
-    'been', 'being', 'with', 'from', 'by', 'about', 'between', 'its',
-    'this', 'that', 'these', 'those', 'will', 'would', 'could', 'should',
-  ])
-  return query
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !stopWords.has(w.toLowerCase()))
-    .slice(0, 5)
-    .join(' ')
 }
 
 /**
@@ -67,8 +67,10 @@ async function fetchGdeltQuery(query: string): Promise<GdeltResult[]> {
 
     const text = await response.text()
 
-    // GDELT sometimes returns HTML error pages instead of JSON
-    if (text.trimStart().startsWith('<')) return []
+    // GDELT returns plain text errors (not HTML, not JSON) for various issues
+    if (!text.trimStart().startsWith('{') && !text.trimStart().startsWith('[')) {
+      return []
+    }
 
     const data = JSON.parse(text)
     const articles = data?.articles
@@ -89,71 +91,109 @@ async function fetchGdeltQuery(query: string): Promise<GdeltResult[]> {
 }
 
 /**
- * Search GDELT with multiple query variations for maximum coverage.
- * Runs 4 variations:
- *   1. Exact query
- *   2. Query with region-specific terms (if region provided)
- *   3. Query with sourcecountry: filter for countries in the region
- *   4. Broader keywords extracted from query
+ * Run GDELT queries sequentially with rate-limit delays.
+ * Returns deduplicated results across all queries.
+ */
+async function runSequentialQueries(queries: string[]): Promise<GdeltResult[]> {
+  const seen = new Set<string>()
+  const all: GdeltResult[] = []
+
+  for (let i = 0; i < queries.length; i++) {
+    if (i > 0) await sleep(REQUEST_DELAY_MS)
+    const results = await fetchGdeltQuery(queries[i])
+    for (const article of results) {
+      if (article.url && !seen.has(article.url)) {
+        seen.add(article.url)
+        all.push(article)
+      }
+    }
+  }
+
+  return all
+}
+
+/**
+ * Search GDELT globally with smart query strategy.
+ *
+ * Instead of 4 variations × 6 regions (24 requests!), we run a focused set:
+ *   - 1 broad global query (no region filter)
+ *   - 1 query per region with sourcecountry filter (6 queries)
+ *   = 7 total, run sequentially with rate-limit delays (~40s)
+ *
+ * If called WITHOUT a region, runs just 2 queries (global + keywords).
+ * If called WITH a region, runs 1 query with sourcecountry filter.
  */
 export async function searchGdelt(
   query: string,
   region?: string,
 ): Promise<GdeltResult[]> {
-  const queries: string[] = []
+  const safeQuery = sanitizeQuery(query)
 
-  // Variation 1: Exact query
-  queries.push(query)
-
-  // Variation 2: Query with region context
-  if (region) {
-    queries.push(`${query} ${region}`)
-  } else {
-    // Without a region, duplicate exact query slot with a slightly different form
-    queries.push(`"${query}"`)
+  if (!region) {
+    // Global search: 2 queries
+    return runSequentialQueries([
+      safeQuery,
+      `${safeQuery} sourcelang:english`,
+    ])
   }
 
-  // Variation 3: Query with sourcecountry filter
-  if (region) {
-    const fipsCodes = getFipsCodes(region)
-    if (fipsCodes.length > 0) {
-      // GDELT supports OR-ing sourcecountry codes
-      const countryFilter = fipsCodes
-        .slice(0, 5)
-        .map((c) => `sourcecountry:${c}`)
-        .join(' OR ')
-      queries.push(`${query} (${countryFilter})`)
-    }
+  // Region-specific search: 1 query with sourcecountry filter
+  const fipsCodes = getFipsCodes(region)
+  if (fipsCodes.length === 0) {
+    return fetchGdeltQuery(safeQuery)
   }
 
-  // Variation 4: Broader keywords
-  const keywords = extractKeywords(query)
-  if (keywords && keywords !== query) {
-    queries.push(keywords)
-  }
+  const countryFilter = fipsCodes
+    .slice(0, 5)
+    .map((c) => `sourcecountry:${c}`)
+    .join(' OR ')
 
-  // Ensure exactly 4 queries
-  while (queries.length < 4) {
-    queries.push(query)
-  }
+  return fetchGdeltQuery(`${safeQuery} (${countryFilter})`)
+}
 
-  // Run all 4 queries in parallel
-  const results = await Promise.all(
-    queries.slice(0, 4).map((q) => fetchGdeltQuery(q)),
-  )
-
-  // Deduplicate by URL
+/**
+ * Search GDELT across all regions efficiently.
+ * Runs queries sequentially to respect rate limits.
+ * Returns all results with proper sourcecountry fields.
+ */
+export async function searchGdeltAllRegions(
+  query: string,
+  regions: string[],
+  onRegionDone?: (region: string, count: number) => void,
+): Promise<GdeltResult[]> {
+  const safeQuery = sanitizeQuery(query)
   const seen = new Set<string>()
-  const deduped: GdeltResult[] = []
+  const all: GdeltResult[] = []
 
-  for (const batch of results) {
-    for (const article of batch) {
+  function addResults(results: GdeltResult[]) {
+    for (const article of results) {
       if (article.url && !seen.has(article.url)) {
         seen.add(article.url)
-        deduped.push(article)
+        all.push(article)
       }
     }
   }
 
-  return deduped
+  // Query 1: Global broad search
+  const globalResults = await fetchGdeltQuery(safeQuery)
+  addResults(globalResults)
+
+  // Query 2-7: One per region with sourcecountry filter
+  for (const region of regions) {
+    await sleep(REQUEST_DELAY_MS)
+
+    const fipsCodes = getFipsCodes(region)
+    if (fipsCodes.length === 0) continue
+
+    const countryFilter = fipsCodes
+      .slice(0, 5)
+      .map((c) => `sourcecountry:${c}`)
+      .join(' OR ')
+
+    const regionResults = await fetchGdeltQuery(`${safeQuery} (${countryFilter})`)
+    addResults(regionResults)
+    onRegionDone?.(region, regionResults.length)
+  }
+
+  return all
 }

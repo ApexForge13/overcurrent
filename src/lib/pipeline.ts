@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db'
 import { PrismaClient } from '@prisma/client'
 import { slugify, regionList } from '@/lib/utils'
-import { searchGdelt } from '@/ingestion/gdelt'
+import { searchGdeltAllRegions } from '@/ingestion/gdelt'
 import { scanRssFeeds } from '@/ingestion/rss'
 import { searchReddit } from '@/ingestion/reddit'
 import { fetchArticle } from '@/ingestion/article-fetcher'
@@ -43,15 +43,20 @@ export async function runVerifyPipeline(
 
   // ── PHASE 1: SEARCH ──────────────────────────────────────────────────
 
-  // Search GDELT across all 6 regions in parallel, plus RSS + Reddit
-  const [gdeltResults, rssResults, redditResults] = await Promise.all([
-    Promise.all(regionList.map((region) => searchGdelt(query, region))),
+  // Search GDELT across all 6 regions sequentially (rate-limited),
+  // plus RSS + Reddit in parallel with the GDELT search
+  const [allGdelt, rssResults, redditResults] = await Promise.all([
+    searchGdeltAllRegions(query, [...regionList], (region, count) => {
+      onProgress('search_region', {
+        phase: 'search',
+        message: `Searched ${region}: ${count} articles`,
+        region,
+        count,
+      })
+    }),
     scanRssFeeds(query),
     searchReddit(query),
   ])
-
-  // Merge all GDELT results
-  const allGdelt = gdeltResults.flat()
 
   // Deduplicate by URL across all sources
   const seenUrls = new Set<string>()

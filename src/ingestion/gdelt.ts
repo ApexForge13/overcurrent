@@ -1,5 +1,4 @@
-import { fetchWithTimeout, sleep } from '@/lib/utils'
-import { fipsToIso } from '@/data/fips-to-iso'
+import { fetchWithTimeout } from '@/lib/utils'
 
 export interface GdeltResult {
   url: string
@@ -12,9 +11,7 @@ export interface GdeltResult {
 }
 
 const GDELT_BASE = 'https://api.gdeltproject.org/api/v2/doc/doc'
-const MAX_RECORDS = 75
 const TIMESPAN = '14d'
-const REQUEST_DELAY_MS = 5500 // GDELT rate limit: 1 request per 5 seconds
 
 /**
  * Quote words containing hyphens for GDELT.
@@ -33,22 +30,13 @@ function sanitizeQuery(query: string): string {
 }
 
 /**
- * Get FIPS country codes that belong to a given region.
- */
-function getFipsCodes(region: string): string[] {
-  return Object.entries(fipsToIso)
-    .filter(([, entry]) => entry.region === region)
-    .map(([fips]) => fips)
-}
-
-/**
  * Build a GDELT query URL.
  */
-function buildUrl(query: string): string {
+function buildUrl(query: string, maxrecords: number = 250): string {
   const params = new URLSearchParams({
     query,
     mode: 'ArtList',
-    maxrecords: String(MAX_RECORDS),
+    maxrecords: String(maxrecords),
     format: 'json',
     sort: 'DateDesc',
     timespan: TIMESPAN,
@@ -59,16 +47,17 @@ function buildUrl(query: string): string {
 /**
  * Fetch articles from GDELT for a single query string.
  */
-async function fetchGdeltQuery(query: string): Promise<GdeltResult[]> {
+async function fetchGdeltQuery(query: string, maxrecords: number = 250): Promise<GdeltResult[]> {
   try {
-    const url = buildUrl(query)
+    const url = buildUrl(query, maxrecords)
     const response = await fetchWithTimeout(url)
     if (!response.ok) return []
 
     const text = await response.text()
 
-    // GDELT returns plain text errors (not HTML, not JSON) for various issues
+    // GDELT returns plain text errors for rate limits, bad queries, etc.
     if (!text.trimStart().startsWith('{') && !text.trimStart().startsWith('[')) {
+      console.warn('[GDELT] Non-JSON response:', text.substring(0, 100))
       return []
     }
 
@@ -85,115 +74,70 @@ async function fetchGdeltQuery(query: string): Promise<GdeltResult[]> {
       language: String(a.language ?? ''),
       sourcecountry: String(a.sourcecountry ?? ''),
     }))
-  } catch {
+  } catch (err) {
+    console.warn('[GDELT] Fetch error:', err instanceof Error ? err.message : err)
     return []
   }
 }
 
 /**
- * Run GDELT queries sequentially with rate-limit delays.
- * Returns deduplicated results across all queries.
+ * Map a GDELT sourcecountry name to one of the 6 standard regions.
  */
-async function runSequentialQueries(queries: string[]): Promise<GdeltResult[]> {
-  const seen = new Set<string>()
-  const all: GdeltResult[] = []
+const COUNTRY_TO_REGION: Record<string, string> = {
+  // North America
+  'United States': 'North America', 'Canada': 'North America', 'Mexico': 'North America',
+  // Europe
+  'United Kingdom': 'Europe', 'France': 'Europe', 'Germany': 'Europe', 'Italy': 'Europe',
+  'Spain': 'Europe', 'Netherlands': 'Europe', 'Belgium': 'Europe', 'Sweden': 'Europe',
+  'Norway': 'Europe', 'Denmark': 'Europe', 'Finland': 'Europe', 'Poland': 'Europe',
+  'Ireland': 'Europe', 'Switzerland': 'Europe', 'Austria': 'Europe', 'Portugal': 'Europe',
+  'Greece': 'Europe', 'Czech Republic': 'Europe', 'Romania': 'Europe', 'Hungary': 'Europe',
+  'Ukraine': 'Europe', 'Russia': 'Europe', 'Turkey': 'Europe',
+  // Asia-Pacific
+  'China': 'Asia-Pacific', 'Japan': 'Asia-Pacific', 'South Korea': 'Asia-Pacific',
+  'Australia': 'Asia-Pacific', 'New Zealand': 'Asia-Pacific', 'Singapore': 'Asia-Pacific',
+  'Taiwan': 'Asia-Pacific', 'Hong Kong': 'Asia-Pacific', 'Philippines': 'Asia-Pacific',
+  'Thailand': 'Asia-Pacific', 'Vietnam': 'Asia-Pacific', 'Indonesia': 'Asia-Pacific',
+  'Malaysia': 'Asia-Pacific',
+  // Middle East & Africa
+  'Israel': 'Middle East & Africa', 'Iran': 'Middle East & Africa', 'Iraq': 'Middle East & Africa',
+  'Saudi Arabia': 'Middle East & Africa', 'United Arab Emirates': 'Middle East & Africa',
+  'Qatar': 'Middle East & Africa', 'Egypt': 'Middle East & Africa', 'Jordan': 'Middle East & Africa',
+  'Lebanon': 'Middle East & Africa', 'Syria': 'Middle East & Africa', 'Yemen': 'Middle East & Africa',
+  'Kenya': 'Middle East & Africa', 'South Africa': 'Middle East & Africa',
+  'Nigeria': 'Middle East & Africa', 'Ghana': 'Middle East & Africa',
+  // Latin America
+  'Brazil': 'Latin America', 'Argentina': 'Latin America', 'Colombia': 'Latin America',
+  'Chile': 'Latin America', 'Peru': 'Latin America', 'Venezuela': 'Latin America',
+  'Cuba': 'Latin America', 'Uruguay': 'Latin America', 'Ecuador': 'Latin America',
+  // South & Central Asia
+  'India': 'South & Central Asia', 'Pakistan': 'South & Central Asia',
+  'Bangladesh': 'South & Central Asia', 'Sri Lanka': 'South & Central Asia',
+  'Nepal': 'South & Central Asia', 'Afghanistan': 'South & Central Asia',
+}
 
-  for (let i = 0; i < queries.length; i++) {
-    if (i > 0) await sleep(REQUEST_DELAY_MS)
-    const results = await fetchGdeltQuery(queries[i])
-    for (const article of results) {
-      if (article.url && !seen.has(article.url)) {
-        seen.add(article.url)
-        all.push(article)
-      }
-    }
-  }
-
-  return all
+export function getRegionFromCountryName(country: string): string {
+  return COUNTRY_TO_REGION[country] || 'Unknown'
 }
 
 /**
- * Search GDELT globally with smart query strategy.
- *
- * Instead of 4 variations × 6 regions (24 requests!), we run a focused set:
- *   - 1 broad global query (no region filter)
- *   - 1 query per region with sourcecountry filter (6 queries)
- *   = 7 total, run sequentially with rate-limit delays (~40s)
- *
- * If called WITHOUT a region, runs just 2 queries (global + keywords).
- * If called WITH a region, runs 1 query with sourcecountry filter.
+ * Search GDELT with a single efficient query.
+ * Makes just 1 API call with 250 max records — no rate limit issues.
+ * The sourcecountry field on each result lets us assign regions later.
  */
 export async function searchGdelt(
   query: string,
   region?: string,
 ): Promise<GdeltResult[]> {
   const safeQuery = sanitizeQuery(query)
-
-  if (!region) {
-    // Global search: 2 queries
-    return runSequentialQueries([
-      safeQuery,
-      `${safeQuery} sourcelang:english`,
-    ])
-  }
-
-  // Region-specific search: 1 query with sourcecountry filter
-  const fipsCodes = getFipsCodes(region)
-  if (fipsCodes.length === 0) {
-    return fetchGdeltQuery(safeQuery)
-  }
-
-  const countryFilter = fipsCodes
-    .slice(0, 5)
-    .map((c) => `sourcecountry:${c}`)
-    .join(' OR ')
-
-  return fetchGdeltQuery(`${safeQuery} (${countryFilter})`)
+  return fetchGdeltQuery(region ? `${safeQuery} sourcecountry:"${region}"` : safeQuery)
 }
 
 /**
- * Search GDELT across all regions efficiently.
- * Runs queries sequentially to respect rate limits.
- * Returns all results with proper sourcecountry fields.
+ * Search GDELT globally — single API call, 250 results.
+ * Returns results with sourcecountry populated.
  */
-export async function searchGdeltAllRegions(
-  query: string,
-  regions: string[],
-  onRegionDone?: (region: string, count: number) => void,
-): Promise<GdeltResult[]> {
+export async function searchGdeltGlobal(query: string): Promise<GdeltResult[]> {
   const safeQuery = sanitizeQuery(query)
-  const seen = new Set<string>()
-  const all: GdeltResult[] = []
-
-  function addResults(results: GdeltResult[]) {
-    for (const article of results) {
-      if (article.url && !seen.has(article.url)) {
-        seen.add(article.url)
-        all.push(article)
-      }
-    }
-  }
-
-  // Query 1: Global broad search
-  const globalResults = await fetchGdeltQuery(safeQuery)
-  addResults(globalResults)
-
-  // Query 2-7: One per region with sourcecountry filter
-  for (const region of regions) {
-    await sleep(REQUEST_DELAY_MS)
-
-    const fipsCodes = getFipsCodes(region)
-    if (fipsCodes.length === 0) continue
-
-    const countryFilter = fipsCodes
-      .slice(0, 5)
-      .map((c) => `sourcecountry:${c}`)
-      .join(' OR ')
-
-    const regionResults = await fetchGdeltQuery(`${safeQuery} (${countryFilter})`)
-    addResults(regionResults)
-    onRegionDone?.(region, regionResults.length)
-  }
-
-  return all
+  return fetchGdeltQuery(safeQuery, 250)
 }

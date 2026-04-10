@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db'
 import { PrismaClient } from '@prisma/client'
 import { slugify, regionList } from '@/lib/utils'
-import { searchGdeltAllRegions } from '@/ingestion/gdelt'
+import { searchGdeltGlobal, getRegionFromCountryName } from '@/ingestion/gdelt'
 import { scanRssFeeds } from '@/ingestion/rss'
 import { searchReddit } from '@/ingestion/reddit'
 import { fetchArticle } from '@/ingestion/article-fetcher'
@@ -43,17 +43,9 @@ export async function runVerifyPipeline(
 
   // ── PHASE 1: SEARCH ──────────────────────────────────────────────────
 
-  // Search GDELT across all 6 regions sequentially (rate-limited),
-  // plus RSS + Reddit in parallel with the GDELT search
+  // Search GDELT (1 API call), RSS, and Reddit in parallel
   const [allGdelt, rssResults, redditResults] = await Promise.all([
-    searchGdeltAllRegions(query, [...regionList], (region, count) => {
-      onProgress('search_region', {
-        phase: 'search',
-        message: `Searched ${region}: ${count} articles`,
-        region,
-        count,
-      })
-    }),
+    searchGdeltGlobal(query),
     scanRssFeeds(query),
     searchReddit(query),
   ])
@@ -100,12 +92,19 @@ export async function runVerifyPipeline(
     }
   }
 
-  // Count unique countries that have results
-  const countriesFound = new Set(allGdelt.map((a) => a.sourcecountry).filter(Boolean)).size
+  // Count unique countries and regions from GDELT results
+  const countriesFound = new Set(allGdelt.map((a) => a.sourcecountry).filter(Boolean))
+  const regionsFound = new Set(
+    allGdelt
+      .map((a) => getRegionFromCountryName(a.sourcecountry))
+      .filter((r) => r !== 'Unknown'),
+  )
   onProgress('search', {
     phase: 'search',
-    message: `Found ${rawSources.length} sources across ${countriesFound} countries`,
+    message: `Found ${rawSources.length} sources across ${countriesFound.size} countries in ${regionsFound.size} regions`,
     sourceCount: rawSources.length,
+    countryCount: countriesFound.size,
+    regionCount: regionsFound.size,
   })
 
   // ── PHASE 2: TRIAGE ──────────────────────────────────────────────────

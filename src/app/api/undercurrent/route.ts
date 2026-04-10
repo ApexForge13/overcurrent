@@ -1,4 +1,4 @@
-export const maxDuration = 60
+export const maxDuration = 300
 
 export async function POST(request: Request) {
   let query: string
@@ -31,6 +31,15 @@ export async function POST(request: Request) {
         }
       }
 
+      // Send keepalive pings every 10s to prevent timeout
+      const keepalive = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(`: keepalive\n\n`))
+        } catch {
+          clearInterval(keepalive)
+        }
+      }, 10_000)
+
       try {
         const { runUndercurrentPipeline } = await import('@/lib/undercurrent-pipeline')
         await runUndercurrentPipeline(query, startDate, endDate, send)
@@ -41,6 +50,7 @@ export async function POST(request: Request) {
           message: error instanceof Error ? error.message : 'Unknown error',
         })
       } finally {
+        clearInterval(keepalive)
         try {
           controller.close()
         } catch {

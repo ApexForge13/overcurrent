@@ -168,9 +168,6 @@ export async function runVerifyPipeline(
     }
   }
 
-  // Limit silence analysis to max 3 regions to stay within timeout
-  const silenceRegions = regionsWithoutSources.slice(0, 3)
-
   // Run regional + silence analyses in parallel
   const [regionalAnalyses, silenceAnalyses] = await Promise.all([
     Promise.all(
@@ -188,7 +185,7 @@ export async function runVerifyPipeline(
       }),
     ),
     Promise.all(
-      silenceRegions.map(async (region) => {
+      regionsWithoutSources.map(async (region) => {
         const otherRegionsSummary = fetchedArticles
           .filter((s) => s.region !== region)
           .map((s) => `[${s.region}] ${s.outlet}: ${s.title}`)

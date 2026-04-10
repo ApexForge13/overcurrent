@@ -78,7 +78,7 @@ export async function triageSources(
     seen.add(s.url)
     return true
   })
-  const truncated = deduped.slice(0, 50)
+  const truncated = deduped.slice(0, 100)
 
   const userPrompt = `Query: ${query}
 

@@ -1,0 +1,203 @@
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ═══════════════════════════════════════
+// VERIFY MODE MODELS
+// ═══════════════════════════════════════
+
+model Story {
+  id                String   @id @default(cuid())
+  slug              String   @unique
+  headline          String
+  synopsis          String
+  confidenceLevel   String
+  confidenceNote    String?
+  category          String?
+  searchQuery       String
+  sourceCount       Int      @default(0)
+  countryCount      Int      @default(0)
+  regionCount       Int      @default(0)
+  consensusScore    Int      @default(0)
+  totalCost         Float    @default(0)
+  analysisSeconds   Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  sources           Source[]
+  claims            Claim[]
+  discrepancies     Discrepancy[]
+  omissions         Omission[]
+  framings          FramingAnalysis[]
+  silences          RegionalSilence[]
+  followUps         FollowUpQuestion[]
+  costLogs          CostLog[]
+  undercurrentReports UndercurrentReport[] @relation("DominantStory")
+}
+
+model Source {
+  id              String   @id @default(cuid())
+  storyId         String
+  story           Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  url             String
+  title           String
+  outlet          String
+  outletType      String
+  country         String
+  region          String
+  language        String   @default("English")
+  politicalLean   String   @default("unknown")
+  reliability     String   @default("unknown")
+  summary         String?
+  fetchedAt       DateTime @default(now())
+}
+
+model Claim {
+  id              String  @id @default(cuid())
+  storyId         String
+  story           Story   @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  claim           String
+  confidence      String
+  consensusPct    Int     @default(0)
+  supportedBy     String
+  contradictedBy  String
+  notes           String?
+  sortOrder       Int     @default(0)
+}
+
+model Discrepancy {
+  id         String @id @default(cuid())
+  storyId    String
+  story      Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  issue      String
+  sideA      String
+  sideB      String
+  sourcesA   String
+  sourcesB   String
+  assessment String?
+}
+
+model Omission {
+  id           String @id @default(cuid())
+  storyId      String
+  story        Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  outletRegion String
+  missing      String
+  presentIn    String
+  significance String?
+}
+
+model FramingAnalysis {
+  id           String  @id @default(cuid())
+  storyId      String
+  story        Story   @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  region       String
+  framing      String
+  contrastWith String?
+}
+
+model RegionalSilence {
+  id              String  @id @default(cuid())
+  storyId         String
+  story           Story   @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  region          String
+  sourcesSearched Int     @default(0)
+  possibleReasons String?
+  isSignificant   Boolean @default(false)
+}
+
+model FollowUpQuestion {
+  id        String @id @default(cuid())
+  storyId   String
+  story     Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  question  String
+  sortOrder Int    @default(0)
+}
+
+// ═══════════════════════════════════════
+// UNDERCURRENT MODE MODELS (v2)
+// ═══════════════════════════════════════
+
+model UndercurrentReport {
+  id                  String   @id @default(cuid())
+  slug                String   @unique
+  dominantStoryId     String?
+  dominantStory       Story?   @relation("DominantStory", fields: [dominantStoryId], references: [id], onDelete: SetNull)
+  dominantHeadline    String
+  dominantDescription String
+  dateRangeStart      DateTime
+  dateRangeEnd        DateTime
+  searchQuery         String
+  synopsis            String
+  totalCost           Float    @default(0)
+  analysisSeconds     Int      @default(0)
+  createdAt           DateTime @default(now())
+  displacedStories    DisplacedStory[]
+  quietActions        QuietAction[]
+  timingAnomalies     TimingAnomaly[]
+  costLogs            CostLog[]  @relation("UndercurrentCostLogs")
+}
+
+model DisplacedStory {
+  id                  String  @id @default(cuid())
+  reportId            String
+  report              UndercurrentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  headline            String
+  peakCoverage        String
+  dropoffDate         String
+  currentCoverage     String
+  coverageDropPct     Int
+  wasResolved         Boolean @default(false)
+  resolutionNote      String?
+  significance        String
+  sampleSources       String
+  sortOrder           Int     @default(0)
+}
+
+model QuietAction {
+  id              String  @id @default(cuid())
+  reportId        String
+  report          UndercurrentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  actionType      String
+  title           String
+  description     String
+  date            String
+  source          String
+  mediaCoverage   String
+  significance    String
+  sortOrder       Int     @default(0)
+}
+
+model TimingAnomaly {
+  id              String  @id @default(cuid())
+  reportId        String
+  report          UndercurrentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  event           String
+  timing          String
+  pattern         String
+  historicalContext String?
+  significance    String
+  sortOrder       Int     @default(0)
+}
+
+// ═══════════════════════════════════════
+// SHARED
+// ═══════════════════════════════════════
+
+model CostLog {
+  id                  String   @id @default(cuid())
+  storyId             String?
+  story               Story?   @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  undercurrentReportId String?
+  undercurrentReport  UndercurrentReport? @relation("UndercurrentCostLogs", fields: [undercurrentReportId], references: [id], onDelete: SetNull)
+  model               String
+  inputTokens         Int
+  outputTokens        Int
+  costUsd             Float
+  agentType           String
+  region              String?
+  createdAt           DateTime @default(now())
+}

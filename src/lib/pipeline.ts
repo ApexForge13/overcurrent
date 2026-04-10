@@ -95,10 +95,11 @@ export async function runVerifyPipeline(
     }
   }
 
-  const regionsWithResults = new Set(allGdelt.map((a) => a.sourcecountry)).size
+  // Count unique countries that have results
+  const countriesFound = new Set(allGdelt.map((a) => a.sourcecountry).filter(Boolean)).size
   onProgress('search', {
     phase: 'search',
-    message: `Found ${rawSources.length} sources across ${regionsWithResults} regions`,
+    message: `Found ${rawSources.length} sources across ${countriesFound} countries`,
     sourceCount: rawSources.length,
   })
 
@@ -167,6 +168,9 @@ export async function runVerifyPipeline(
     }
   }
 
+  // Limit silence analysis to max 3 regions to stay within timeout
+  const silenceRegions = regionsWithoutSources.slice(0, 3)
+
   // Run regional + silence analyses in parallel
   const [regionalAnalyses, silenceAnalyses] = await Promise.all([
     Promise.all(
@@ -176,7 +180,7 @@ export async function runVerifyPipeline(
         totalCost += result.costUsd
         onProgress('analysis', {
           phase: 'analysis',
-          message: 'Analyzed region',
+          message: `Analyzed ${region}`,
           region,
           type: 'regional',
         })
@@ -184,7 +188,7 @@ export async function runVerifyPipeline(
       }),
     ),
     Promise.all(
-      regionsWithoutSources.map(async (region) => {
+      silenceRegions.map(async (region) => {
         const otherRegionsSummary = fetchedArticles
           .filter((s) => s.region !== region)
           .map((s) => `[${s.region}] ${s.outlet}: ${s.title}`)
@@ -193,7 +197,7 @@ export async function runVerifyPipeline(
         totalCost += result.costUsd
         onProgress('analysis', {
           phase: 'analysis',
-          message: 'Analyzed region',
+          message: `Analyzed ${region} (silence)`,
           region,
           type: 'silence',
         })

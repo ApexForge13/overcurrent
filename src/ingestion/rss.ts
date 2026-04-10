@@ -1,4 +1,3 @@
-import Parser from 'rss-parser'
 import { fetchWithTimeout } from '@/lib/utils'
 import { getOutletsWithRss, getOutletsForRegion } from '@/data/outlets'
 
@@ -47,7 +46,16 @@ export async function scanRssFeeds(
   const keywords = queryToKeywords(query)
   if (keywords.length === 0) return []
 
-  const parser = new Parser()
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  let ParserClass: new () => { parseString: (xml: string) => Promise<{ items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }> }
+  try {
+    const mod = await import('rss-parser')
+    ParserClass = mod.default
+  } catch {
+    console.warn('[RSS] rss-parser not available in this runtime, skipping RSS feeds')
+    return []
+  }
+  const parser = new ParserClass()
   const results: RssResult[] = []
 
   const feedPromises = outlets.map(async (outlet) => {

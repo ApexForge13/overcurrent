@@ -1,6 +1,3 @@
-import { JSDOM } from 'jsdom'
-import { Readability } from '@mozilla/readability'
-
 export interface ArticleContent {
   title: string
   content: string
@@ -38,7 +35,8 @@ function truncateWords(text: string, maxWords: number): string {
 }
 
 /**
- * Fetch a URL and extract the main article content using Readability.
+ * Fetch a URL and extract the main article content.
+ * Uses jsdom + Readability when available, falls back to regex extraction.
  * Returns null if extraction fails.
  * Content is truncated to 3000 words max to control token usage.
  */
@@ -46,7 +44,6 @@ export async function fetchArticle(
   url: string,
 ): Promise<ArticleContent | null> {
   try {
-    // Use fetch directly with AbortController for custom headers
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30_000)
 
@@ -66,28 +63,63 @@ export async function fetchArticle(
       clearTimeout(timeoutId)
     }
 
-    // Parse HTML with JSDOM
-    const dom = new JSDOM(html, { url })
-    const reader = new Readability(dom.window.document)
-    const article = reader.parse()
+    // Try jsdom + Readability first (may not be available in serverless)
+    try {
+      const { JSDOM } = await import('jsdom')
+      const { Readability } = await import('@mozilla/readability')
+      const dom = new JSDOM(html, { url })
+      const reader = new Readability(dom.window.document)
+      const article = reader.parse()
 
-    if (!article || !article.content) return null
+      if (article?.content) {
+        const plainText = stripHtml(article.content)
+        if (plainText) {
+          const truncated = truncateWords(plainText, MAX_WORDS)
+          return {
+            title: article.title ?? '',
+            content: truncated,
+            excerpt: article.excerpt ?? undefined,
+            byline: article.byline ?? undefined,
+            siteName: article.siteName ?? undefined,
+            length: truncated.split(/\s+/).length,
+          }
+        }
+      }
+    } catch {
+      // jsdom not available in this runtime — fall through to regex
+    }
 
-    // Strip HTML to get plain text
-    const plainText = stripHtml(article.content)
-    if (!plainText) return null
+    // Fallback: regex-based extraction
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
+    const title = titleMatch ? stripHtml(titleMatch[1]) : ''
 
-    // Truncate to max words
+    // Try to extract from <article> tag, then <main>, then <body>
+    let bodyHtml = ''
+    const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i)
+    const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i)
+
+    if (articleMatch) {
+      bodyHtml = articleMatch[1]
+    } else if (mainMatch) {
+      bodyHtml = mainMatch[1]
+    } else {
+      // Extract paragraphs
+      const paragraphs = html.match(/<p[^>]*>[\s\S]*?<\/p>/gi)
+      if (paragraphs) {
+        bodyHtml = paragraphs.join(' ')
+      }
+    }
+
+    if (!bodyHtml) return null
+
+    const plainText = stripHtml(bodyHtml)
+    if (plainText.length < 100) return null
+
     const truncated = truncateWords(plainText, MAX_WORDS)
-    const wordCount = truncated.split(/\s+/).length
-
     return {
-      title: article.title ?? '',
+      title,
       content: truncated,
-      excerpt: article.excerpt ?? undefined,
-      byline: article.byline ?? undefined,
-      siteName: article.siteName ?? undefined,
-      length: wordCount,
+      length: truncated.split(/\s+/).length,
     }
   } catch {
     return null

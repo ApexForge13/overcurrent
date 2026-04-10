@@ -92,6 +92,14 @@ export async function runVerifyPipeline(
     }
   }
 
+  // Debug: log GDELT results to diagnose sourcecountry issue
+  console.log(`[Pipeline] GDELT returned ${allGdelt.length} results. RSS: ${rssResults.length}. Reddit: ${redditResults.length}.`)
+  if (allGdelt.length > 0) {
+    console.log(`[Pipeline] First GDELT sourcecountry: "${allGdelt[0].sourcecountry}", domain: ${allGdelt[0].domain}`)
+    const sample = allGdelt.slice(0, 5).map(a => a.sourcecountry)
+    console.log(`[Pipeline] First 5 sourcecountries:`, sample)
+  }
+
   // Count unique countries and regions from GDELT results
   const countriesFound = new Set(allGdelt.map((a) => a.sourcecountry).filter(Boolean))
   const regionsFound = new Set(

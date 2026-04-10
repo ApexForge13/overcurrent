@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && prisma db push --skip-generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint"
@@ -13,10 +13,14 @@
     "@anthropic-ai/sdk": "^0.87.0",
     "@libsql/client": "^0.17.2",
     "@mozilla/readability": "^0.6.0",
+    "@neondatabase/serverless": "^1.0.2",
     "@prisma/adapter-libsql": "^7.7.0",
+    "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
+    "@types/pg": "^8.20.0",
     "jsdom": "^29.0.2",
     "next": "16.2.3",
+    "pg": "^8.20.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "rss-parser": "^3.13.0"

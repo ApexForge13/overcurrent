@@ -1,7 +1,14 @@
-import { runVerifyPipeline } from '@/lib/pipeline'
+export const maxDuration = 60
 
 export async function POST(request: Request) {
-  const { query } = await request.json()
+  let query: string
+
+  try {
+    const body = await request.json()
+    query = body.query
+  } catch {
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
   if (!query || typeof query !== 'string') {
     return Response.json({ error: 'Missing required field: query' }, { status: 400 })
@@ -11,20 +18,30 @@ export async function POST(request: Request) {
     async start(controller) {
       const encoder = new TextEncoder()
       const send = (event: string, data: unknown) => {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ event, ...(data as object) })}\n\n`),
-        )
+        try {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ event, ...(data as object) })}\n\n`),
+          )
+        } catch {
+          // controller may be closed
+        }
       }
 
       try {
-        const slug = await runVerifyPipeline(query, send)
-        send('complete', { slug })
+        const { runVerifyPipeline } = await import('@/lib/pipeline')
+        await runVerifyPipeline(query, send)
       } catch (error) {
+        console.error('Analyze error:', error)
         send('error', {
+          phase: 'error',
           message: error instanceof Error ? error.message : 'Unknown error',
         })
       } finally {
-        controller.close()
+        try {
+          controller.close()
+        } catch {
+          // already closed
+        }
       }
     },
   })

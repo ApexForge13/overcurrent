@@ -4,6 +4,7 @@ import { slugify, regionList } from '@/lib/utils'
 import { searchGdeltGlobal, getRegionFromCountryName } from '@/ingestion/gdelt'
 import { scanRssFeeds } from '@/ingestion/rss'
 import { searchReddit } from '@/ingestion/reddit'
+import { findOutletByDomain } from '@/data/outlets'
 import { fetchArticle } from '@/ingestion/article-fetcher'
 import { triageSources } from '@/agents/triage'
 import { analyzeRegion } from '@/agents/regional'
@@ -54,6 +55,30 @@ export async function runVerifyPipeline(
   const seenUrls = new Set<string>()
   const rawSources: Array<{ url: string; title: string; domain: string; sourcecountry: string }> = []
 
+  // Helper: determine sourcecountry for a domain
+  function getCountryForDomain(domain: string, gdeltCountry?: string): string {
+    // Use GDELT's sourcecountry if available
+    if (gdeltCountry) return gdeltCountry
+    // Fall back to outlet registry
+    const outlet = findOutletByDomain(domain)
+    if (outlet) {
+      // Map ISO country code to country name for consistency
+      const isoToName: Record<string, string> = {
+        US: 'United States', GB: 'United Kingdom', CA: 'Canada', AU: 'Australia',
+        FR: 'France', DE: 'Germany', IT: 'Italy', ES: 'Spain', IE: 'Ireland',
+        NL: 'Netherlands', SE: 'Sweden', NO: 'Norway', BE: 'Belgium', RU: 'Russia',
+        JP: 'Japan', CN: 'China', KR: 'South Korea', SG: 'Singapore', HK: 'Hong Kong',
+        TW: 'Taiwan', TH: 'Thailand', IN: 'India', PK: 'Pakistan', BD: 'Bangladesh',
+        LK: 'Sri Lanka', NP: 'Nepal', QA: 'Qatar', SA: 'Saudi Arabia', IL: 'Israel',
+        TR: 'Turkey', KE: 'Kenya', ZA: 'South Africa', NG: 'Nigeria', AE: 'United Arab Emirates',
+        BR: 'Brazil', AR: 'Argentina', MX: 'Mexico', CO: 'Colombia', CL: 'Chile',
+        PE: 'Peru', VE: 'Venezuela', UY: 'Uruguay',
+      }
+      return isoToName[outlet.country] || outlet.country
+    }
+    return ''
+  }
+
   for (const article of allGdelt) {
     if (article.url && !seenUrls.has(article.url)) {
       seenUrls.add(article.url)
@@ -61,21 +86,26 @@ export async function runVerifyPipeline(
         url: article.url,
         title: article.title,
         domain: article.domain,
-        sourcecountry: article.sourcecountry,
+        sourcecountry: article.sourcecountry || getCountryForDomain(article.domain),
       })
     }
   }
 
-  // Add RSS results
+  // Add RSS results — use outlet registry for country/region
   for (const rss of rssResults) {
     if (rss.url && !seenUrls.has(rss.url)) {
       seenUrls.add(rss.url)
-      rawSources.push({
-        url: rss.url,
-        title: rss.title,
-        domain: new URL(rss.url).hostname,
-        sourcecountry: '',
-      })
+      try {
+        const domain = new URL(rss.url).hostname
+        rawSources.push({
+          url: rss.url,
+          title: rss.title,
+          domain,
+          sourcecountry: getCountryForDomain(domain),
+        })
+      } catch {
+        rawSources.push({ url: rss.url, title: rss.title, domain: '', sourcecountry: '' })
+      }
     }
   }
 
@@ -87,27 +117,16 @@ export async function runVerifyPipeline(
         url: reddit.url,
         title: reddit.title,
         domain: 'reddit.com',
-        sourcecountry: '',
+        sourcecountry: 'United States',
       })
     }
   }
 
-  // Debug: send GDELT diagnostics through SSE
-  const sampleCountries = allGdelt.slice(0, 5).map(a => a.sourcecountry)
-  onProgress('debug', {
-    phase: 'search',
-    message: `GDELT: ${allGdelt.length}, RSS: ${rssResults.length}, Reddit: ${redditResults.length}. Sample countries: ${JSON.stringify(sampleCountries)}`,
-    gdeltCount: allGdelt.length,
-    rssCount: rssResults.length,
-    redditCount: redditResults.length,
-    sampleCountries,
-  })
-
-  // Count unique countries and regions from GDELT results
-  const countriesFound = new Set(allGdelt.map((a) => a.sourcecountry).filter(Boolean))
+  // Count unique countries and regions across ALL sources
+  const countriesFound = new Set(rawSources.map((s) => s.sourcecountry).filter(Boolean))
   const regionsFound = new Set(
-    allGdelt
-      .map((a) => getRegionFromCountryName(a.sourcecountry))
+    rawSources
+      .map((s) => getRegionFromCountryName(s.sourcecountry))
       .filter((r) => r !== 'Unknown'),
   )
   onProgress('search', {

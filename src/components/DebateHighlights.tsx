@@ -80,26 +80,31 @@ function getModelColor(name: string): string {
 function parseR1Content(content: string): KeyFinding[] {
   try {
     const parsed = JSON.parse(content);
+    // Match actual debate-round1.ts output: key_facts array
+    if (parsed.key_facts && Array.isArray(parsed.key_facts)) {
+      return parsed.key_facts.map((f: { fact?: string; finding?: string; confidence?: string }) => ({
+        finding: f.fact || f.finding || JSON.stringify(f),
+        confidence: f.confidence,
+      }));
+    }
     if (parsed.key_findings && Array.isArray(parsed.key_findings)) {
-      return parsed.key_findings.map((f: string | { finding: string; confidence?: string }) =>
-        typeof f === "string" ? { finding: f } : { finding: f.finding, confidence: f.confidence }
-      );
+      return parsed.key_findings.map((f: { fact?: string; finding?: string; confidence?: string }) => ({
+        finding: f.fact || f.finding || (typeof f === 'string' ? f : JSON.stringify(f)),
+        confidence: f.confidence,
+      }));
     }
-    if (parsed.findings && Array.isArray(parsed.findings)) {
-      return parsed.findings.map((f: string | { finding: string }) =>
-        typeof f === "string" ? { finding: f } : { finding: f.finding }
-      );
-    }
-    // Fallback: grab any array-like field
+    // Fallback: grab any array-like field but extract text properly
     for (const key of Object.keys(parsed)) {
       if (Array.isArray(parsed[key]) && parsed[key].length > 0) {
-        return parsed[key].slice(0, 5).map((item: unknown) =>
-          typeof item === "string" ? { finding: item } : { finding: String(item) }
-        );
+        return parsed[key].slice(0, 5).map((item: Record<string, unknown>) => {
+          if (typeof item === "string") return { finding: item };
+          // Try common text fields
+          const text = item.fact || item.finding || item.claim || item.title || item.description;
+          return { finding: typeof text === 'string' ? text : JSON.stringify(item) };
+        });
       }
     }
   } catch {
-    // If not JSON, split by newlines or sentences
     const lines = content
       .split(/\n|(?<=[.!?])\s+/)
       .map((l) => l.trim())
@@ -113,23 +118,37 @@ function parseR2Content(content: string, modelName: string): Challenge[] {
   try {
     const parsed = JSON.parse(content);
     const challenges: Challenge[] = [];
+
+    // Match actual debate-round2.ts output format
     if (parsed.challenges && Array.isArray(parsed.challenges)) {
       for (const c of parsed.challenges) {
         challenges.push({
-          target: c.target_model ?? c.target ?? "Unknown",
+          target: c.other_model ?? c.target_model ?? c.target ?? "Unknown",
           challenger: modelName,
-          claim: c.original_claim ?? c.claim ?? "",
-          challenge: c.challenge ?? c.counter_argument ?? c.rebuttal ?? "",
+          claim: c.their_claim ?? c.original_claim ?? c.claim ?? "",
+          challenge: c.your_challenge ?? c.challenge ?? c.counter_argument ?? "",
         });
       }
     }
-    if (challenges.length === 0 && parsed.cross_examination && Array.isArray(parsed.cross_examination)) {
-      for (const c of parsed.cross_examination) {
+    // Also include corrections
+    if (parsed.corrections && Array.isArray(parsed.corrections)) {
+      for (const c of parsed.corrections) {
         challenges.push({
-          target: c.target_model ?? c.target ?? "Unknown",
+          target: c.other_model ?? "Unknown",
           challenger: modelName,
-          claim: c.claim ?? "",
-          challenge: c.challenge ?? c.argument ?? "",
+          claim: c.issue ?? "",
+          challenge: c.correction ?? "",
+        });
+      }
+    }
+    // Include concessions (model admitting its own errors)
+    if (parsed.concessions && Array.isArray(parsed.concessions)) {
+      for (const c of parsed.concessions) {
+        challenges.push({
+          target: modelName,
+          challenger: modelName,
+          claim: c.your_original_claim ?? "",
+          challenge: `CONCEDED: ${c.revised_position ?? c.why_wrong ?? ""}`,
         });
       }
     }

@@ -24,10 +24,10 @@ const MODEL_COLORS: Record<string, string> = {
 };
 
 const MODEL_POSITIONS = [
-  { x: 50, y: 8 },   // top
-  { x: 92, y: 50 },  // right
-  { x: 50, y: 92 },  // bottom
-  { x: 8, y: 50 },   // left
+  { x: 15, y: 30 },  // top-left: Claude
+  { x: 85, y: 30 },  // top-right: GPT-4o
+  { x: 15, y: 70 },  // bottom-left: Gemini
+  { x: 85, y: 70 },  // bottom-right: Grok
 ];
 
 const MODELS = ["Claude", "GPT-4o", "Gemini", "Grok"];
@@ -185,7 +185,7 @@ export function AnalysisProgress({ events, mode }: AnalysisProgressProps) {
 
         {/* Debate Arena (shown during analysis phase) */}
         {isDebatePhase && !state.isComplete && (
-          <div className="relative w-full aspect-square max-w-[280px] mx-auto my-4">
+          <div className="relative w-full max-w-[400px] mx-auto my-4" style={{ aspectRatio: '5/3' }}>
             {/* Connection lines */}
             <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
               {state.debateRound >= 2 &&

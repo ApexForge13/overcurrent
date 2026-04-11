@@ -138,23 +138,45 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
 
 export function parseJSON<T = unknown>(text: string): T {
   // Strip markdown code fences if present
-  const stripped = text
-    .replace(/^```(?:json)?\s*\n?/i, '')
-    .replace(/\n?```\s*$/i, '')
+  let stripped = text
+    .replace(/^```(?:json)?\s*\n?/gi, '')
+    .replace(/\n?```\s*$/gi, '')
     .trim()
 
+  // Try direct parse
   try {
     return JSON.parse(stripped) as T
   } catch {
-    // Fallback: extract first JSON object via regex
-    const match = stripped.match(/\{[\s\S]*\}/)
-    if (match) {
+    // pass
+  }
+
+  // Try extracting JSON object via regex
+  const match = stripped.match(/\{[\s\S]*\}/)
+  if (match) {
+    try {
+      return JSON.parse(match[0]) as T
+    } catch {
+      // Try fixing truncated JSON — close open brackets/braces
+      let fixable = match[0]
+      const openBraces = (fixable.match(/\{/g) || []).length
+      const closeBraces = (fixable.match(/\}/g) || []).length
+      const openBrackets = (fixable.match(/\[/g) || []).length
+      const closeBrackets = (fixable.match(/\]/g) || []).length
+
+      // Remove trailing comma before closing
+      fixable = fixable.replace(/,\s*$/, '')
+
+      // Close unclosed arrays/objects
+      for (let i = 0; i < openBrackets - closeBrackets; i++) fixable += ']'
+      for (let i = 0; i < openBraces - closeBraces; i++) fixable += '}'
+
       try {
-        return JSON.parse(match[0]) as T
+        return JSON.parse(fixable) as T
       } catch {
-        // fall through
+        // pass
       }
     }
-    throw new Error('Failed to parse JSON from response')
   }
+
+  throw new Error('Failed to parse JSON from response')
 }

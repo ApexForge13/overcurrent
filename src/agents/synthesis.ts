@@ -61,6 +61,24 @@ export interface SynthesisResult {
     hypotheses: string[]
     evidenceStatus: string
   }>
+  propagationTimeline: Array<{
+    hour: number
+    label: string
+    description: string
+    regions: Array<{
+      region_id: string
+      status: string
+      coverage_volume: number
+      dominant_quote: string
+      outlet_count: number
+      key_outlets: string[]
+    }>
+    flows: Array<{
+      from: string
+      to: string
+      type: string
+    }>
+  }>
   costUsd: number
 }
 
@@ -95,6 +113,29 @@ ${ANTI_HALLUCINATION_RULES}
 ${LANGUAGE_RULES}
 
 ${JSON_RULES}
+
+PROPAGATION TIMELINE:
+
+After completing the main analysis, generate a propagation_timeline showing how this story traveled across regions over time. Analyze:
+1. Which region/outlet published first (check source timestamps)
+2. Which outlets are wire copies vs. original reporting
+3. How the narrative changed as it crossed borders (check framing data per region)
+4. Which regions amplified reframed or contradictory versions
+5. Which regions remained silent throughout
+
+Structure the timeline in 5-8 time steps:
+- Step 0: Story breaks (origin region only)
+- Step 1: First 2 hours (wire services push)
+- Step 2: 6 hours (most major outlets covered)
+- Step 3: 12-24 hours (counter-narratives emerge)
+- Step 4: 24-48 hours (narrative fully diverges)
+- Step 5+: 48-72 hours (final settled version)
+
+For each step, list active regions with status (original | wire_copy | reframed | contradicted | silent), coverage_volume (0-100), dominant_quote (~10 words of how they frame it), outlet_count, and key_outlets.
+
+If you cannot determine publication order from available data, note timestamps are approximate.
+
+Use these region IDs: us, ca, mx, la, uk, eu, ru, tr, me, ir, il, af, in, cn, jp, kr, sea, au, pk
 
 Response shape:
 {
@@ -155,6 +196,17 @@ Response shape:
       "question": "string",
       "hypotheses": ["string"],
       "evidence_status": "string"
+    }
+  ],
+  "propagation_timeline": [
+    {
+      "hour": 0,
+      "label": "+0 hrs",
+      "description": "Story breaks",
+      "regions": [
+        { "region_id": "us", "status": "original", "coverage_volume": 10, "dominant_quote": "...", "outlet_count": 2, "key_outlets": ["..."] }
+      ],
+      "flows": []
     }
   ]
 }`
@@ -315,6 +367,27 @@ ${JSON.stringify(
     }
   })
 
+  // --- propagation_timeline ---
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const propagationTimeline = (parsed.propagation_timeline ?? parsed.propagationTimeline ?? []).map((frame: any) => ({
+    hour: Number(frame.hour ?? 0),
+    label: String(frame.label ?? ''),
+    description: String(frame.description ?? ''),
+    regions: (frame.regions ?? []).map((r: any) => ({
+      region_id: String(r.region_id ?? ''),
+      status: String(r.status ?? 'silent'),
+      coverage_volume: Number(r.coverage_volume ?? 0),
+      dominant_quote: String(r.dominant_quote ?? ''),
+      outlet_count: Number(r.outlet_count ?? 0),
+      key_outlets: Array.isArray(r.key_outlets) ? r.key_outlets.map(String) : [],
+    })),
+    flows: (frame.flows ?? []).map((f: any) => ({
+      from: String(f.from ?? ''),
+      to: String(f.to ?? ''),
+      type: String(f.type ?? 'wire_copy'),
+    })),
+  }))
+
   return {
     headline,
     confidenceLevel,
@@ -330,6 +403,7 @@ ${JSON.stringify(
     regionalCoverage,
     silenceExplanation,
     followUpQuestions,
+    propagationTimeline,
     costUsd,
   }
 }

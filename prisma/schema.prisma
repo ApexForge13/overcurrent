@@ -13,6 +13,8 @@ generator client {
 model Story {
   id                String   @id @default(cuid())
   slug              String   @unique
+  status            String   @default("review")
+  publishedAt       DateTime?
   headline          String
   synopsis          String
   confidenceLevel   String
@@ -160,6 +162,7 @@ model SocialDraft {
 model UndercurrentReport {
   id                  String   @id @default(cuid())
   slug                String   @unique
+  status              String   @default("review")
   dominantStoryId     String?
   dominantStory       Story?   @relation("DominantStory", fields: [dominantStoryId], references: [id], onDelete: SetNull)
   primaryCategory     String?   @default("undercurrent")

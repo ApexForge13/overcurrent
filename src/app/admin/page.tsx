@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 interface DashboardStats {
   totalStories: number
@@ -10,12 +10,36 @@ interface DashboardStats {
   totalCost: number
 }
 
+interface ReviewStory {
+  id: string
+  slug: string
+  headline: string
+  synopsis: string
+  primaryCategory: string | null
+  sourceCount: number
+  countryCount: number
+  regionCount: number
+  confidenceLevel: string
+  consensusScore: number
+  status: string
+  createdAt: string
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [reviewStories, setReviewStories] = useState<ReviewStory[]>([] )
+  const [actionInFlight, setActionInFlight] = useState<string | null>(null)
+
+  const fetchReviewStories = useCallback(() => {
+    fetch('/api/admin/stories?status=review')
+      .then(r => r.json())
+      .then(data => setReviewStories(data.stories ?? []))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/stories?limit=1').then(r => r.json()),
+      fetch('/api/admin/stories?limit=1').then(r => r.json()),
       fetch('/api/reports?limit=1').then(r => r.json()),
       fetch('/api/admin/social-drafts?limit=1').then(r => r.json()),
       fetch('/api/costs').then(r => r.json()),
@@ -29,7 +53,25 @@ export default function AdminDashboard() {
         totalCost: costs.totalCost ?? 0,
       })
     }).catch(() => {})
-  }, [])
+
+    fetchReviewStories()
+  }, [fetchReviewStories])
+
+  async function updateStoryStatus(id: string, status: 'published' | 'archived') {
+    setActionInFlight(id)
+    try {
+      await fetch(`/api/admin/stories/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      setReviewStories(prev => prev.filter(s => s.id !== id))
+    } catch {
+      // ignore
+    } finally {
+      setActionInFlight(null)
+    }
+  }
 
   return (
     <div>
@@ -39,6 +81,55 @@ export default function AdminDashboard() {
         <StatCard label="Reports" value={stats?.totalReports ?? 0} />
         <StatCard label="Social Drafts" value={stats?.totalDrafts ?? 0} />
         <StatCard label="Today's Cost" value={`$${(stats?.dailyCost ?? 0).toFixed(2)}`} />
+      </div>
+
+      <div className="mb-8">
+        <h3 className="font-display font-bold text-lg mb-4">Stories in review</h3>
+        {reviewStories.length === 0 ? (
+          <p className="text-sm text-text-muted">No stories awaiting review.</p>
+        ) : (
+          <div className="space-y-3">
+            {reviewStories.map(story => (
+              <div key={story.id} className="bg-surface border border-border rounded-lg p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <a href={`/story/${story.slug}`} className="font-display font-bold text-text-primary hover:text-accent-purple transition-colors">
+                      {story.headline}
+                    </a>
+                    {story.primaryCategory && (
+                      <span className="ml-2 inline-block text-xs font-mono px-2 py-0.5 rounded bg-accent-purple/10 text-accent-purple">
+                        {story.primaryCategory}
+                      </span>
+                    )}
+                    <p className="text-sm text-text-muted mt-1 line-clamp-2">{story.synopsis}</p>
+                    <div className="flex gap-4 mt-2 text-xs font-mono text-text-muted">
+                      <span>{story.sourceCount} sources</span>
+                      <span>{story.countryCount} countries</span>
+                      <span>{story.regionCount} regions</span>
+                      <span>{story.confidenceLevel}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => updateStoryStatus(story.id, 'published')}
+                      disabled={actionInFlight === story.id}
+                      className="px-3 py-1.5 text-sm font-mono rounded bg-accent-green/20 text-accent-green hover:bg-accent-green/30 transition-colors disabled:opacity-50"
+                    >
+                      Publish
+                    </button>
+                    <button
+                      onClick={() => updateStoryStatus(story.id, 'archived')}
+                      disabled={actionInFlight === story.id}
+                      className="px-3 py-1.5 text-sm font-mono rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                    >
+                      Archive
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">

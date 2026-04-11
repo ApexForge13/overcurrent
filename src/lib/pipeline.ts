@@ -347,6 +347,7 @@ export async function runVerifyPipeline(
     const story = await tx.story.create({
       data: {
         slug: uniqueSlug,
+        status: 'review',
         headline: synthesisResult.headline,
         synopsis: synthesisResult.synopsis,
         confidenceLevel: synthesisResult.confidenceLevel,

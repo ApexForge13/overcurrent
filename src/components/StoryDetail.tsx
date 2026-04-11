@@ -4,6 +4,21 @@ import { useState } from "react";
 import { CostDisplay } from "./CostDisplay";
 import { DebateHighlights } from "./DebateHighlights";
 
+/** Convert markdown-ish text to HTML */
+function renderMarkdown(text: string): string {
+  return text
+    // Links: [text](url)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    // Bold: **text**
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    // Italic: *text*
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // Paragraphs: double newline
+    .replace(/\n\n/g, '</p><p>')
+    // Line breaks: single newline
+    .replace(/\n/g, '<br />')
+}
+
 interface StoryDetailProps {
   story: {
     headline: string;
@@ -296,7 +311,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
           color: "var(--text-secondary, #a3a3a3)",
           maxWidth: "720px",
         }}
-        dangerouslySetInnerHTML={{ __html: story.synopsis }}
+        dangerouslySetInnerHTML={{ __html: `<p>${renderMarkdown(story.synopsis)}</p>` }}
       />
 
       {/* ── KEY CLAIMS ── */}

@@ -57,6 +57,7 @@ function confidenceColor(level: string): string {
 export default function HomePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAnalyzeInput, setShowAnalyzeInput] = useState(false);
+  const [analyzeMode, setAnalyzeMode] = useState<"verify" | "undercurrent">("verify");
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
@@ -88,7 +89,8 @@ export default function HomePage() {
     setEvents([]);
 
     try {
-      const response = await fetch("/api/analyze", {
+      const endpoint = analyzeMode === "verify" ? "/api/analyze" : "/api/undercurrent";
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: query.trim() }),
@@ -131,19 +133,34 @@ export default function HomePage() {
         <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-tertiary)' }}>
           See what's under the surface.
         </p>
-        <button
-          onClick={() => setShowAnalyzeInput(!showAnalyzeInput)}
-          className="text-xs px-3 py-1.5 border transition-colors hover:opacity-80"
-          style={{
-            fontFamily: 'var(--font-mono)',
-            color: 'var(--accent-green)',
-            borderColor: 'var(--border-accent)',
-            background: 'transparent',
-            letterSpacing: '0.04em',
-          }}
-        >
-          + new analysis
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setAnalyzeMode("verify"); setShowAnalyzeInput(!showAnalyzeInput || analyzeMode !== "verify"); }}
+            className="text-xs px-3 py-1.5 border transition-colors hover:opacity-80"
+            style={{
+              fontFamily: 'var(--font-mono)',
+              color: showAnalyzeInput && analyzeMode === "verify" ? 'var(--text-primary)' : 'var(--accent-green)',
+              borderColor: showAnalyzeInput && analyzeMode === "verify" ? 'var(--accent-green)' : 'var(--border-accent)',
+              background: 'transparent',
+              letterSpacing: '0.04em',
+            }}
+          >
+            + verify
+          </button>
+          <button
+            onClick={() => { setAnalyzeMode("undercurrent"); setShowAnalyzeInput(!showAnalyzeInput || analyzeMode !== "undercurrent"); }}
+            className="text-xs px-3 py-1.5 border transition-colors hover:opacity-80"
+            style={{
+              fontFamily: 'var(--font-mono)',
+              color: showAnalyzeInput && analyzeMode === "undercurrent" ? 'var(--text-primary)' : 'var(--accent-purple)',
+              borderColor: showAnalyzeInput && analyzeMode === "undercurrent" ? 'var(--accent-purple)' : 'var(--border-accent)',
+              background: 'transparent',
+              letterSpacing: '0.04em',
+            }}
+          >
+            + undercurrent
+          </button>
+        </div>
       </div>
 
       {/* Analyze input (expandable) */}
@@ -154,7 +171,7 @@ export default function HomePage() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Enter a story to analyze..."
+              placeholder={analyzeMode === "verify" ? "Enter a story to verify..." : "Enter the dominant story everyone\u2019s watching..."}
               disabled={isAnalyzing}
               className="flex-1 px-3 py-2 text-sm border bg-transparent outline-none"
               style={{
@@ -184,7 +201,7 @@ export default function HomePage() {
       {/* Analysis progress */}
       {events.length > 0 && (
         <div className="py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
-          <AnalysisProgress events={events} mode="verify" />
+          <AnalysisProgress events={events} mode={analyzeMode} />
         </div>
       )}
 

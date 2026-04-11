@@ -19,6 +19,7 @@ export default async function StoryPage({
       framings: true,
       silences: true,
       followUps: { orderBy: { sortOrder: "asc" } },
+      debateRounds: true,
     },
   });
 

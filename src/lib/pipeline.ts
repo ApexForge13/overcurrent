@@ -7,11 +7,12 @@ import { searchReddit } from '@/ingestion/reddit'
 import { findOutletByDomain } from '@/data/outlets'
 import { fetchArticle } from '@/ingestion/article-fetcher'
 import { triageSources } from '@/agents/triage'
-import { analyzeRegion } from '@/agents/regional'
 import { analyzeSilence } from '@/agents/silence'
 import { synthesize } from '@/agents/synthesis'
+import { runRegionalDebate, moderatorToRegionalAnalysis } from '@/lib/debate'
+import type { DebateRoundData } from '@/lib/debate'
+import { generateSocialDrafts } from '@/agents/social-drafts'
 import type { TriagedSource } from '@/agents/triage'
-import type { RegionalAnalysis } from '@/agents/regional'
 import type { SilenceAnalysis } from '@/agents/silence'
 
 // ---------------------------------------------------------------------------
@@ -212,22 +213,27 @@ export async function runVerifyPipeline(
     }
   }
 
-  // Run regional + silence analyses in parallel
-  const [regionalAnalyses, silenceAnalyses] = await Promise.all([
+  // Run debate for regions with sources + silence for regions without (all in parallel)
+  let allDebateRounds: DebateRoundData[] = []
+
+  const [debateResults, silenceAnalyses] = await Promise.all([
+    // Debate: 3-round AI debate per region with sources
     Promise.all(
       regionsWithSources.map(async (region) => {
         const sources = sourcesByRegion.get(region)!
-        const result = await analyzeRegion(region, sources, query, allRegionsSummary)
-        totalCost += result.costUsd
-        onProgress('analysis', {
-          phase: 'analysis',
-          message: `Analyzed ${region}`,
-          region,
-          type: 'regional',
+        const result = await runRegionalDebate(region, sources, query, undefined, (msg) => {
+          onProgress('debate', {
+            phase: 'analysis',
+            message: msg,
+            region,
+            type: 'debate',
+          })
         })
+        totalCost += result.totalCost
         return result
       }),
     ),
+    // Silence analysis for regions with no sources
     Promise.all(
       regionsWithoutSources.map(async (region) => {
         const otherRegionsSummary = fetchedArticles
@@ -246,6 +252,14 @@ export async function runVerifyPipeline(
       }),
     ),
   ])
+
+  // Convert debate results to RegionalAnalysis format for synthesis
+  const regionalAnalyses = debateResults.map((d) =>
+    moderatorToRegionalAnalysis(d.moderatorOutput, d.moderatorOutput.region, d.totalCost)
+  )
+
+  // Collect all debate rounds for DB storage
+  allDebateRounds = debateResults.flatMap((d) => d.debateRounds)
 
   // ── PHASE 5: SYNTHESIS ───────────────────────────────────────────────
 
@@ -405,8 +419,57 @@ export async function runVerifyPipeline(
       })
     }
 
+    // Debate rounds
+    if (allDebateRounds.length > 0) {
+      await tx.debateRound.createMany({
+        data: allDebateRounds.map((d) => ({
+          storyId: story.id,
+          region: d.region,
+          round: d.round,
+          modelName: d.modelName,
+          provider: d.provider,
+          content: JSON.stringify(d.content),
+          inputTokens: d.inputTokens,
+          outputTokens: d.outputTokens,
+          costUsd: d.costUsd,
+        })),
+      })
+    }
+
     return story
   })
+
+  // Generate social drafts (outside transaction — failure shouldn't roll back the story)
+  try {
+    const drafts = await generateSocialDrafts({
+      headline: synthesisResult.headline,
+      synopsis: synthesisResult.synopsis,
+      confidenceLevel: synthesisResult.confidenceLevel,
+      consensusScore: synthesisResult.consensusScore,
+      sourceCount: triageResult.sources.length,
+      countryCount: countries.size,
+      regionCount: regions.size,
+      claims: synthesisResult.claims,
+      discrepancies: synthesisResult.discrepancies,
+      omissions: synthesisResult.omissions,
+      framings: synthesisResult.framings,
+    }, story.id)
+
+    if (drafts.length > 0) {
+      await prisma.socialDraft.createMany({
+        data: drafts.map((d) => ({
+          storyId: story.id,
+          platform: d.platform,
+          content: d.content,
+          metadata: d.metadata ? JSON.stringify(d.metadata) : null,
+          status: 'draft',
+        })),
+      })
+    }
+    onProgress('social', { phase: 'social', message: `Generated ${drafts.length} social drafts` })
+  } catch (err) {
+    console.error('Social draft generation failed:', err)
+  }
 
   onProgress('complete', {
     phase: 'complete',

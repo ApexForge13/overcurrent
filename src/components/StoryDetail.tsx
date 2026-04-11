@@ -9,6 +9,7 @@ import { OmissionCard } from "./OmissionCard";
 import { FramingCard } from "./FramingCard";
 import { SilenceCard } from "./SilenceCard";
 import { SourcesList } from "./SourcesList";
+import { DebateHighlights } from "./DebateHighlights";
 
 interface StoryDetailProps {
   story: {
@@ -55,6 +56,14 @@ interface StoryDetailProps {
       sourcesSearched: number;
       possibleReasons: string | null;
       isSignificant: boolean;
+    }>;
+    debateRounds?: Array<{
+      id: string;
+      region: string;
+      round: number;
+      modelName: string;
+      provider: string;
+      content: string;
     }>;
     followUpQuestions?: string[];
     followUps?: Array<{ question: string; sortOrder: number }>;
@@ -144,6 +153,11 @@ export function StoryDetail({ story }: StoryDetailProps) {
             ))}
           </div>
         </section>
+      )}
+
+      {/* Debate Highlights */}
+      {story.debateRounds && story.debateRounds.length > 0 && (
+        <DebateHighlights debateRounds={story.debateRounds} />
       )}
 
       {/* Discrepancies */}

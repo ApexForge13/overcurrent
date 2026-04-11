@@ -22,6 +22,15 @@ interface CostData {
   costLogs: CostLogEntry[];
 }
 
+function getProvider(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes("claude") || m.includes("haiku")) return "Anthropic";
+  if (m.includes("gpt")) return "OpenAI";
+  if (m.includes("gemini")) return "Google";
+  if (m.includes("grok")) return "xAI";
+  return "Other";
+}
+
 export default function CostsPage() {
   const [data, setData] = useState<CostData | null>(null);
 
@@ -87,6 +96,36 @@ export default function CostsPage() {
         </div>
       </div>
 
+      {/* Provider Summary */}
+      {data.costLogs.length > 0 && (
+        <div className="mb-8">
+          <h2 className="font-display font-bold text-xl mb-4">Cost by Provider</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {Object.entries(
+              data.costLogs.reduce<Record<string, number>>((acc, log) => {
+                const provider = getProvider(log.model);
+                acc[provider] = (acc[provider] ?? 0) + log.costUsd;
+                return acc;
+              }, {})
+            )
+              .sort(([, a], [, b]) => b - a)
+              .map(([provider, cost]) => (
+                <div
+                  key={provider}
+                  className="bg-surface border border-border rounded-lg p-4"
+                >
+                  <p className="text-xs text-text-muted font-mono mb-1">
+                    {provider.toUpperCase()}
+                  </p>
+                  <p className="text-2xl font-mono font-semibold text-accent-green">
+                    ${cost.toFixed(4)}
+                  </p>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
       <h2 className="font-display font-bold text-xl mb-4">Recent API Calls</h2>
 
       <div className="overflow-x-auto">
@@ -95,6 +134,7 @@ export default function CostsPage() {
             <tr className="border-b border-border text-text-muted text-left">
               <th className="py-2 pr-4">Time</th>
               <th className="py-2 pr-4">Model</th>
+              <th className="py-2 pr-4">Provider</th>
               <th className="py-2 pr-4">Agent</th>
               <th className="py-2 pr-4">Region</th>
               <th className="py-2 pr-4 text-right">In</th>
@@ -122,6 +162,9 @@ export default function CostsPage() {
                     {log.model.includes("haiku") ? "Haiku" : "Sonnet"}
                   </span>
                 </td>
+                <td className="py-2 pr-4 text-text-muted text-xs">
+                  {getProvider(log.model)}
+                </td>
                 <td className="py-2 pr-4">{log.agentType}</td>
                 <td className="py-2 pr-4 text-text-muted">
                   {log.region || "—"}
@@ -140,7 +183,7 @@ export default function CostsPage() {
             {data.costLogs.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="py-8 text-center text-text-muted"
                 >
                   No API calls yet.

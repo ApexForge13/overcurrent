@@ -36,6 +36,8 @@ model Story {
   followUps         FollowUpQuestion[]
   costLogs          CostLog[]
   undercurrentReports UndercurrentReport[] @relation("DominantStory")
+  debateRounds    DebateRound[]
+  socialDrafts    SocialDraft[]
 }
 
 model Source {
@@ -117,6 +119,38 @@ model FollowUpQuestion {
   sortOrder Int    @default(0)
 }
 
+model DebateRound {
+  id           String   @id @default(cuid())
+  storyId      String
+  story        Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  region       String
+  round        Int
+  modelName    String
+  provider     String
+  content      String
+  inputTokens  Int
+  outputTokens Int
+  costUsd      Float
+  createdAt    DateTime @default(now())
+}
+
+model SocialDraft {
+  id                   String   @id @default(cuid())
+  storyId              String?
+  story                Story?   @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  undercurrentReportId String?
+  undercurrentReport   UndercurrentReport? @relation("UndercurrentSocialDrafts", fields: [undercurrentReportId], references: [id], onDelete: SetNull)
+  platform             String
+  content              String
+  metadata             String?
+  editedContent        String?
+  status               String   @default("draft")
+  scheduledFor         DateTime?
+  postedAt             DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
 // ═══════════════════════════════════════
 // UNDERCURRENT MODE MODELS (v2)
 // ═══════════════════════════════════════
@@ -139,6 +173,7 @@ model UndercurrentReport {
   quietActions        QuietAction[]
   timingAnomalies     TimingAnomaly[]
   costLogs            CostLog[]  @relation("UndercurrentCostLogs")
+  socialDrafts        SocialDraft[] @relation("UndercurrentSocialDrafts")
 }
 
 model DisplacedStory {

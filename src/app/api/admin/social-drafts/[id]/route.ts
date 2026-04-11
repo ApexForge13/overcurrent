@@ -7,10 +7,31 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   return Response.json(draft)
 }
 
+const VALID_DRAFT_STATUSES = ['draft', 'approved', 'rejected', 'scheduled', 'posted']
+
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const body = await request.json()
-  const { editedContent, status, scheduledFor } = body
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const { editedContent, status, scheduledFor } = body as {
+    editedContent?: string
+    status?: string
+    scheduledFor?: string | null
+  }
+
+  if (editedContent !== undefined && typeof editedContent !== 'string') {
+    return Response.json({ error: 'editedContent must be a string' }, { status: 400 })
+  }
+
+  if (status !== undefined && !VALID_DRAFT_STATUSES.includes(status)) {
+    return Response.json({ error: `Invalid status. Must be one of: ${VALID_DRAFT_STATUSES.join(', ')}` }, { status: 400 })
+  }
 
   const data: Record<string, unknown> = {}
   if (editedContent !== undefined) data.editedContent = editedContent

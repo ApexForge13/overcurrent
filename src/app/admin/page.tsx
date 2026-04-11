@@ -9,6 +9,7 @@ interface DashboardStats {
   draftsByStatus: Record<string, number>
   dailyCost: number
   totalCost: number
+  activeSubscribers: number
 }
 
 interface ReviewStory {
@@ -44,7 +45,8 @@ export default function AdminDashboard() {
       fetch('/api/reports?limit=1').then(r => r.json()),
       fetch('/api/admin/social-drafts?limit=1').then(r => r.json()),
       fetch('/api/costs').then(r => r.json()),
-    ]).then(([stories, reports, drafts, costs]) => {
+      fetch('/api/admin/subscribers').then(r => r.json()),
+    ]).then(([stories, reports, drafts, costs, subscribers]) => {
       setStats({
         totalStories: stories.pagination?.total ?? 0,
         totalReports: reports.pagination?.total ?? 0,
@@ -52,6 +54,7 @@ export default function AdminDashboard() {
         draftsByStatus: {},
         dailyCost: costs.dailyCost ?? 0,
         totalCost: costs.totalCost ?? 0,
+        activeSubscribers: subscribers.active ?? 0,
       })
     }).catch(() => {})
 
@@ -77,11 +80,12 @@ export default function AdminDashboard() {
   return (
     <div>
       <h2 className="font-display font-bold text-xl mb-6">Dashboard</h2>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
         <StatCard label="Stories" value={stats?.totalStories ?? 0} />
         <StatCard label="Reports" value={stats?.totalReports ?? 0} />
         <StatCard label="Social Drafts" value={stats?.totalDrafts ?? 0} />
         <StatCard label="Today's Cost" value={`$${(stats?.dailyCost ?? 0).toFixed(2)}`} />
+        <StatCard label="Subscribers" value={stats?.activeSubscribers ?? 0} />
       </div>
 
       <div className="mt-8 p-6" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>

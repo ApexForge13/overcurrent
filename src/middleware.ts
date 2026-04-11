@@ -41,9 +41,19 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Protect cost-incurring API routes
+  if (
+    request.nextUrl.pathname === '/api/analyze' ||
+    request.nextUrl.pathname === '/api/undercurrent'
+  ) {
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
   return supabaseResponse
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/admin/:path*', '/login', '/signup'],
+  matcher: ['/admin/:path*', '/api/admin/:path*', '/api/analyze', '/api/undercurrent', '/login', '/signup'],
 }

@@ -1,5 +1,6 @@
 "use client"
 import { useState, useEffect, useCallback } from 'react'
+import { SocialPreview } from '@/components/admin/SocialPreview'
 
 interface SocialDraft {
   id: string
@@ -45,6 +46,7 @@ export default function SocialAdminPage() {
   const [platformFilter, setPlatformFilter] = useState<string>('all')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
+  const [previewId, setPreviewId] = useState<string | null>(null)
 
   const fetchDrafts = useCallback(async () => {
     const params = new URLSearchParams()
@@ -176,6 +178,20 @@ export default function SocialAdminPage() {
                           <button onClick={() => updateDraft(draft.id, { status: 'approved' })} className="text-xs text-text-muted hover:text-accent-green">Approve</button>
                           <button onClick={() => updateDraft(draft.id, { status: 'rejected' })} className="text-xs text-text-muted hover:text-accent-red">Reject</button>
                           <button onClick={() => copyToClipboard(draft)} className="text-xs text-text-muted hover:text-accent-purple">Copy</button>
+                          <button onClick={() => setPreviewId(previewId === draft.id ? null : draft.id)} className="text-xs text-text-muted hover:text-accent-blue">
+                            {previewId === draft.id ? 'Hide preview' : 'Preview'}
+                          </button>
+                        </div>
+                      )}
+
+                      {previewId === draft.id && (
+                        <div className="mt-3">
+                          <SocialPreview
+                            platform={draft.platform}
+                            content={displayContent(draft)}
+                            headline={draft.story?.headline}
+                            confidenceLevel={draft.story?.confidenceLevel}
+                          />
                         </div>
                       )}
                     </div>

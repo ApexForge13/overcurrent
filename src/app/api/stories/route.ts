@@ -1,7 +1,14 @@
 import { prisma } from '@/lib/db'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { NextRequest } from 'next/server'
 
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for') || 'unknown'
+  const { allowed } = checkRateLimit(`stories:${ip}`, 60, 60_000)
+  if (!allowed) {
+    return Response.json({ error: 'Rate limit exceeded' }, { status: 429 })
+  }
+
   const searchParams = request.nextUrl.searchParams
   const search = searchParams.get('search') ?? undefined
   const category = searchParams.get('category') ?? undefined

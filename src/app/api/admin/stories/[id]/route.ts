@@ -1,9 +1,30 @@
 import { prisma } from '@/lib/db'
 
+const VALID_STATUSES = ['draft', 'review', 'published', 'rejected']
+
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const body = await request.json()
-  const { status, headline, synopsis } = body
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const { status, headline, synopsis } = body as { status?: string; headline?: string; synopsis?: string }
+
+  if (status !== undefined && !VALID_STATUSES.includes(status)) {
+    return Response.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, { status: 400 })
+  }
+
+  if (headline !== undefined && typeof headline !== 'string') {
+    return Response.json({ error: 'headline must be a string' }, { status: 400 })
+  }
+
+  if (synopsis !== undefined && typeof synopsis !== 'string') {
+    return Response.json({ error: 'synopsis must be a string' }, { status: 400 })
+  }
 
   const data: Record<string, unknown> = {}
   if (status !== undefined) data.status = status

@@ -298,3 +298,15 @@ model CostLog {
   region              String?
   createdAt           DateTime @default(now())
 }
+
+// ═══════════════════════════════════════
+// NEWSLETTER
+// ═══════════════════════════════════════
+
+model Subscriber {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  status         String    @default("active")
+  subscribedAt   DateTime  @default(now())
+  unsubscribedAt DateTime?
+}

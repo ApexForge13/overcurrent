@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AuthNav } from "@/components/AuthNav";
+import { NewsletterSignup } from "@/components/NewsletterSignup";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -34,13 +35,22 @@ export default function RootLayout({
 
         {/* Footer — minimal */}
         <footer className="border-t py-8" style={{ borderColor: 'var(--border-primary)' }}>
-          <div className="max-w-[1200px] mx-auto px-6 flex items-center justify-between">
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-              OVERCURRENT — Coverage analysis, not journalism.
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-              No tracking. No cookies. No ads.
-            </span>
+          <div className="max-w-[1200px] mx-auto px-6">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                  OVERCURRENT — Coverage analysis, not journalism.
+                </span>
+              </div>
+              <div className="flex items-center gap-6">
+                <NewsletterSignup />
+              </div>
+            </div>
+            <div className="mt-4">
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                No tracking. No cookies. No ads.
+              </span>
+            </div>
           </div>
         </footer>
       </body>

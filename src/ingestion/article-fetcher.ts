@@ -53,7 +53,8 @@ export async function fetchArticle(
         signal: controller.signal,
         headers: {
           'User-Agent':
-            'Mozilla/5.0 (compatible; Overcurrent/1.0; +https://overcurrent.app)',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
       })
 
@@ -93,10 +94,10 @@ export async function fetchArticle(
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
     const title = titleMatch ? stripHtml(titleMatch[1]) : ''
 
-    // Try to extract from <article> tag, then <main>, then <body>
+    // Try to extract from <article> tag (greedy), then <main>, then paragraphs
     let bodyHtml = ''
-    const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i)
-    const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i)
+    const articleMatch = html.match(/<article[^>]*>([\s\S]*)<\/article>/i)
+    const mainMatch = html.match(/<main[^>]*>([\s\S]*)<\/main>/i)
 
     if (articleMatch) {
       bodyHtml = articleMatch[1]
@@ -113,7 +114,7 @@ export async function fetchArticle(
     if (!bodyHtml) return null
 
     const plainText = stripHtml(bodyHtml)
-    if (plainText.length < 100) return null
+    if (plainText.length < 50) return null
 
     const truncated = truncateWords(plainText, MAX_WORDS)
     return {

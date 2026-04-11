@@ -164,6 +164,7 @@ ${JSON.stringify(
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     agentType: 'synthesis',
+    maxTokens: 8192,
     storyId,
   })
 

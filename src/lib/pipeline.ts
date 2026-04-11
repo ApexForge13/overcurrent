@@ -64,16 +64,12 @@ export async function runVerifyPipeline(
 
   // Deduplicate by URL across all sources
   const seenUrls = new Set<string>()
-  const rawSources: Array<{ url: string; title: string; domain: string; sourcecountry: string }> = []
+  const rawSources: Array<{ url: string; title: string; domain: string; sourcecountry: string; knownRegion: string }> = []
 
-  // Helper: determine sourcecountry for a domain
-  function getCountryForDomain(domain: string, gdeltCountry?: string): string {
-    // Use GDELT's sourcecountry if available
-    if (gdeltCountry) return gdeltCountry
-    // Fall back to outlet registry
+  // Helper: determine sourcecountry and region for a domain
+  function getOutletInfo(domain: string, gdeltCountry?: string): { country: string; region: string } {
     const outlet = findOutletByDomain(domain)
     if (outlet) {
-      // Map ISO country code to country name for consistency
       const isoToName: Record<string, string> = {
         US: 'United States', GB: 'United Kingdom', CA: 'Canada', AU: 'Australia',
         FR: 'France', DE: 'Germany', IT: 'Italy', ES: 'Spain', IE: 'Ireland',
@@ -85,19 +81,25 @@ export async function runVerifyPipeline(
         BR: 'Brazil', AR: 'Argentina', MX: 'Mexico', CO: 'Colombia', CL: 'Chile',
         PE: 'Peru', VE: 'Venezuela', UY: 'Uruguay',
       }
-      return isoToName[outlet.country] || outlet.country
+      return { country: isoToName[outlet.country] || outlet.country, region: outlet.region }
     }
-    return ''
+    if (gdeltCountry) {
+      const region = getRegionFromCountryName(gdeltCountry)
+      return { country: gdeltCountry, region: region !== 'Unknown' ? region : '' }
+    }
+    return { country: '', region: '' }
   }
 
   for (const article of allGdelt) {
     if (article.url && !seenUrls.has(article.url)) {
       seenUrls.add(article.url)
+      const info = getOutletInfo(article.domain, article.sourcecountry)
       rawSources.push({
         url: article.url,
         title: article.title,
         domain: article.domain,
-        sourcecountry: article.sourcecountry || getCountryForDomain(article.domain),
+        sourcecountry: info.country,
+        knownRegion: info.region,
       })
     }
   }
@@ -108,14 +110,16 @@ export async function runVerifyPipeline(
       seenUrls.add(rss.url)
       try {
         const domain = new URL(rss.url).hostname
+        const info = getOutletInfo(domain)
         rawSources.push({
           url: rss.url,
           title: rss.title,
           domain,
-          sourcecountry: getCountryForDomain(domain),
+          sourcecountry: info.country,
+          knownRegion: info.region,
         })
       } catch {
-        rawSources.push({ url: rss.url, title: rss.title, domain: '', sourcecountry: '' })
+        rawSources.push({ url: rss.url, title: rss.title, domain: '', sourcecountry: '', knownRegion: '' })
       }
     }
   }
@@ -129,6 +133,7 @@ export async function runVerifyPipeline(
         title: reddit.title,
         domain: 'reddit.com',
         sourcecountry: 'United States',
+        knownRegion: 'North America',
       })
     }
   }
@@ -158,6 +163,18 @@ export async function runVerifyPipeline(
     message: `Triaged ${triageResult.sources.length} unique sources`,
     sourceCount: triageResult.sources.length,
   })
+
+  // Override triage region with outlet-registry-known region where available
+  const knownRegionMap = new Map<string, string>()
+  for (const rs of rawSources) {
+    if (rs.knownRegion && rs.url) knownRegionMap.set(rs.url, rs.knownRegion)
+  }
+  for (const source of triageResult.sources) {
+    const known = knownRegionMap.get(source.url)
+    if (known && regionList.includes(known as typeof regionList[number])) {
+      source.region = known
+    }
+  }
 
   // ── PHASE 3: FETCH ───────────────────────────────────────────────────
 
@@ -271,15 +288,24 @@ export async function runVerifyPipeline(
   const countries = new Set(triageResult.sources.map((s: TriagedSource) => s.country))
   const regions = new Set(triageResult.sources.map((s: TriagedSource) => s.region))
 
-  const synthesisResult = await synthesize(
-    query,
-    regionalAnalyses,
-    silenceAnalyses,
-    triageResult.sources.length,
-    countries.size,
-    regions.size,
-  )
-  totalCost += synthesisResult.costUsd
+  let synthesisResult
+  try {
+    synthesisResult = await synthesize(
+      query,
+      regionalAnalyses,
+      silenceAnalyses,
+      triageResult.sources.length,
+      countries.size,
+      regions.size,
+    )
+    totalCost += synthesisResult.costUsd
+  } catch (synthErr) {
+    onProgress('error', {
+      phase: 'error',
+      message: `Synthesis failed: ${synthErr instanceof Error ? synthErr.message : 'Unknown error'}`,
+    })
+    throw synthErr
+  }
 
   // ── PHASE 6: SAVE ────────────────────────────────────────────────────
 

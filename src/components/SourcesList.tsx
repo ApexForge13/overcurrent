@@ -32,18 +32,8 @@ const RELIABILITY_STYLES: Record<string, string> = {
   mixed: "bg-orange-500/10 text-orange-400 border-orange-500/20",
 };
 
-const COUNTRY_FLAGS: Record<string, string> = {
-  US: "\u{1F1FA}\u{1F1F8}", UK: "\u{1F1EC}\u{1F1E7}", CA: "\u{1F1E8}\u{1F1E6}",
-  AU: "\u{1F1E6}\u{1F1FA}", DE: "\u{1F1E9}\u{1F1EA}", FR: "\u{1F1EB}\u{1F1F7}",
-  JP: "\u{1F1EF}\u{1F1F5}", CN: "\u{1F1E8}\u{1F1F3}", IN: "\u{1F1EE}\u{1F1F3}",
-  BR: "\u{1F1E7}\u{1F1F7}", RU: "\u{1F1F7}\u{1F1FA}", IL: "\u{1F1EE}\u{1F1F1}",
-  SA: "\u{1F1F8}\u{1F1E6}", QA: "\u{1F1F6}\u{1F1E6}", AE: "\u{1F1E6}\u{1F1EA}",
-  KR: "\u{1F1F0}\u{1F1F7}", SG: "\u{1F1F8}\u{1F1EC}", ZA: "\u{1F1FF}\u{1F1E6}",
-  NG: "\u{1F1F3}\u{1F1EC}", KE: "\u{1F1F0}\u{1F1EA}", MX: "\u{1F1F2}\u{1F1FD}",
-};
-
 function getFlag(country: string): string {
-  return COUNTRY_FLAGS[country] || "\u{1F30D}";
+  return country || "--";
 }
 
 export function SourcesList({ sources }: SourcesListProps) {

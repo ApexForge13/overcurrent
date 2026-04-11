@@ -8,6 +8,7 @@ import { FollowUpQuestions } from "./FollowUpQuestions";
 import { DebateHighlights } from "./DebateHighlights";
 import { DiscourseGap } from "./DiscourseGap";
 import { BuriedEvidence } from "./BuriedEvidence";
+import { PropagationMap } from "./PropagationMap";
 import { CostDisplay } from "./CostDisplay";
 
 /* ── Types ── */
@@ -41,6 +42,24 @@ interface StoryDetailProps {
     }>;
     silenceExplanation?: string;
     confidenceNote?: string | null;
+    propagationTimeline?: Array<{
+      hour: number;
+      label: string;
+      description: string;
+      regions: Array<{
+        region_id: string;
+        status: string;
+        coverage_volume: number;
+        dominant_quote: string;
+        outlet_count: number;
+        key_outlets: string[];
+      }>;
+      flows: Array<{
+        from: string;
+        to: string;
+        type: string;
+      }>;
+    }>;
     buriedEvidence?: Array<{
       fact: string;
       reportedBy: string;
@@ -240,9 +259,13 @@ export function StoryDetail({ story }: StoryDetailProps) {
   const parsedNote = (() => {
     try {
       const parsed = JSON.parse(story.confidenceNote || '{}')
-      return { note: parsed.note || story.confidenceNote, buriedEvidence: parsed.buriedEvidence || [] }
+      return {
+        note: parsed.note || story.confidenceNote,
+        buriedEvidence: parsed.buriedEvidence || [],
+        propagationTimeline: parsed.propagationTimeline || [],
+      }
     } catch {
-      return { note: story.confidenceNote, buriedEvidence: [] }
+      return { note: story.confidenceNote, buriedEvidence: [], propagationTimeline: [] }
     }
   })()
 
@@ -250,6 +273,11 @@ export function StoryDetail({ story }: StoryDetailProps) {
   const buriedEvidenceItems = story.buriedEvidence && story.buriedEvidence.length > 0
     ? story.buriedEvidence
     : parsedNote.buriedEvidence;
+
+  // Merge propagation timeline from parsed note and direct property
+  const propagationTimeline = story.propagationTimeline && story.propagationTimeline.length > 0
+    ? story.propagationTimeline
+    : parsedNote.propagationTimeline;
 
   // Regional coverage: adapt camelCase props to snake_case for the component
   const regionalCoverageData = story.regionalCoverage?.map((r) => ({
@@ -929,6 +957,19 @@ export function StoryDetail({ story }: StoryDetailProps) {
           <DiscourseGap
             gap={story.discourseGap}
             posts={story.discourseSnapshots?.[0]?.posts}
+          />
+        </CollapsibleSection>
+      )}
+
+      {/* ── HOW THIS STORY TRAVELED ── */}
+      {propagationTimeline && propagationTimeline.length >= 3 && (
+        <CollapsibleSection
+          title="HOW THIS STORY TRAVELED"
+          preview={`Tracked across ${new Set(propagationTimeline.flatMap((f: { regions: Array<{ region_id: string }> }) => f.regions.map((r: { region_id: string }) => r.region_id))).size} regions over ${propagationTimeline[propagationTimeline.length - 1]?.label || '72 hrs'}`}
+        >
+          <PropagationMap
+            timeline={propagationTimeline}
+            storyHeadline={story.headline}
           />
         </CollapsibleSection>
       )}

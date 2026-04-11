@@ -1,5 +1,6 @@
 "use client"
 import { useState, useEffect, useCallback } from 'react'
+import { CoverageTracker } from '@/components/admin/CoverageTracker'
 
 interface DashboardStats {
   totalStories: number
@@ -81,6 +82,10 @@ export default function AdminDashboard() {
         <StatCard label="Reports" value={stats?.totalReports ?? 0} />
         <StatCard label="Social Drafts" value={stats?.totalDrafts ?? 0} />
         <StatCard label="Today's Cost" value={`$${(stats?.dailyCost ?? 0).toFixed(2)}`} />
+      </div>
+
+      <div className="mt-8 p-6" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
+        <CoverageTracker />
       </div>
 
       <div className="mb-8">

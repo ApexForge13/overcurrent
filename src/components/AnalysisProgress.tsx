@@ -78,12 +78,12 @@ export function AnalysisProgress({ events, mode }: AnalysisProgressProps) {
 
   // Determine which pipeline steps are done
   const steps = [
-    { id: "search", label: "Gathering Sources", icon: "\u{1F50D}" },
-    { id: "triage", label: "Triaging", icon: "\u{1F4CB}" },
-    { id: "fetch", label: "Fetching Articles", icon: "\u{1F4F0}" },
-    { id: "analysis", label: "AI Debate", icon: "\u2694\uFE0F" },
-    { id: "synthesis", label: "Final Synthesis", icon: "\u{1F9E0}" },
-    { id: "social", label: "Social Drafts", icon: "\u{1F4F1}" },
+    { id: "search", label: "Gathering Sources", icon: "1" },
+    { id: "triage", label: "Triaging", icon: "2" },
+    { id: "fetch", label: "Fetching Articles", icon: "3" },
+    { id: "analysis", label: "AI Debate", icon: "4" },
+    { id: "synthesis", label: "Final Synthesis", icon: "5" },
+    { id: "social", label: "Social Drafts", icon: "6" },
   ];
 
   const getStepStatus = (stepId: string): "done" | "active" | "pending" => {
@@ -279,7 +279,7 @@ export function AnalysisProgress({ events, mode }: AnalysisProgressProps) {
                     animation: "pulse-glow 1.5s ease-in-out infinite",
                   }}
                 >
-                  {"\u2696\uFE0F"}
+                  {"■"}
                 </div>
                 <span className="text-[8px] font-mono mt-1 text-white/70">Moderator</span>
               </div>
@@ -333,7 +333,7 @@ export function AnalysisProgress({ events, mode }: AnalysisProgressProps) {
           {/* Social drafts generated */}
           {state.socialDrafts > 0 && (
             <p className="text-xs font-mono text-[#737373] mt-2">
-              {"\u{1F4F1}"} {state.socialDrafts} social drafts generated
+              {state.socialDrafts} social drafts generated
             </p>
           )}
         </div>

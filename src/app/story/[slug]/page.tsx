@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { StoryDetail } from "@/components/StoryDetail";
 import { ReAnalyzeButton } from "@/components/ReAnalyzeButton";
+import { StoryPaywallWrapper } from "@/components/StoryPaywallWrapper";
 
 export default async function StoryPage({
   params,
@@ -39,7 +40,9 @@ export default async function StoryPage({
         </a>
         <ReAnalyzeButton query={story.searchQuery} storySlug={story.slug} />
       </div>
-      <StoryDetail story={story} />
+      <StoryPaywallWrapper slug={slug}>
+        <StoryDetail story={story} />
+      </StoryPaywallWrapper>
     </div>
   );
 }

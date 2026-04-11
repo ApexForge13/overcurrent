@@ -463,7 +463,7 @@ export async function runVerifyPipeline(
       await tx.followUpQuestion.createMany({
         data: synthesisResult.followUpQuestions.map((q, i) => ({
           storyId: story.id,
-          question: q,
+          question: q.question,
           sortOrder: i,
         })),
       })

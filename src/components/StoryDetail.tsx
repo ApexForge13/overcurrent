@@ -1,23 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { CostDisplay } from "./CostDisplay";
+import { CollapsibleSection } from "./CollapsibleSection";
+import { ThePattern } from "./ThePattern";
+import { RegionalCoverageMap } from "./RegionalCoverageMap";
+import { FollowUpQuestions } from "./FollowUpQuestions";
 import { DebateHighlights } from "./DebateHighlights";
+import { CostDisplay } from "./CostDisplay";
 
-/** Convert markdown-ish text to HTML */
-function renderMarkdown(text: string): string {
-  return text
-    // Links: [text](url)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-    // Bold: **text**
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    // Italic: *text*
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    // Paragraphs: double newline
-    .replace(/\n\n/g, '</p><p>')
-    // Line breaks: single newline
-    .replace(/\n/g, '<br />')
-}
+/* ── Types ── */
 
 interface StoryDetailProps {
   story: {
@@ -31,6 +22,23 @@ interface StoryDetailProps {
     totalCost: number;
     analysisSeconds: number;
     createdAt: string | Date;
+    // New format fields (may not exist on old stories)
+    thePattern?: string;
+    framingSplit?: Array<{
+      frameName: string;
+      outletCount: number;
+      outletTypes: string;
+      ledWith: string;
+      omitted: string;
+      outlets: string;
+    }>;
+    regionalCoverage?: Array<{
+      region: string;
+      sourceCount: number;
+      coverageLevel: string;
+    }>;
+    silenceExplanation?: string;
+    // Standard relations
     claims: Array<{
       claim: string;
       confidence: string;
@@ -65,16 +73,12 @@ interface StoryDetailProps {
       possibleReasons: string | null;
       isSignificant: boolean;
     }>;
-    debateRounds?: Array<{
-      id: string;
-      region: string;
-      round: number;
-      modelName: string;
-      provider: string;
-      content: string;
-    }>;
-    followUpQuestions?: string[];
     followUps?: Array<{ question: string; sortOrder: number }>;
+    followUpQuestions?: Array<{
+      question: string;
+      hypotheses?: string[];
+      evidenceStatus?: string;
+    }>;
     sources: Array<{
       url: string;
       title: string;
@@ -86,11 +90,28 @@ interface StoryDetailProps {
       reliability: string;
       [key: string]: unknown;
     }>;
+    debateRounds?: Array<{
+      id: string;
+      region: string;
+      round: number;
+      modelName: string;
+      provider: string;
+      content: string;
+    }>;
     [key: string]: unknown;
   };
 }
 
 /* ── Helpers ── */
+
+function renderMarkdown(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br />");
+}
 
 function getConfidenceColor(level: string): string {
   const upper = level.toUpperCase();
@@ -108,6 +129,15 @@ function getClaimIcon(confidence: string): string {
   return "\u26A0";
 }
 
+function getClaimIconColor(confidence: string): string {
+  const upper = confidence.toUpperCase();
+  if (upper === "HIGH" || upper === "VERIFIED" || upper === "MOSTLY_VERIFIED")
+    return "var(--accent-green)";
+  if (upper === "LOW" || upper === "DISPUTED" || upper === "UNVERIFIED")
+    return "var(--accent-red)";
+  return "var(--accent-amber)";
+}
+
 function parseList(csv: string): string[] {
   if (!csv || !csv.trim()) return [];
   return csv
@@ -116,67 +146,68 @@ function parseList(csv: string): string[] {
     .filter(Boolean);
 }
 
-function SectionRule({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="section-rule"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "12px",
-        marginTop: "48px",
-        marginBottom: "16px",
-        fontFamily: "var(--font-mono)",
-        fontSize: "11px",
-        fontWeight: 600,
-        letterSpacing: "0.1em",
-        textTransform: "uppercase",
-        color: "var(--text-tertiary)",
-      }}
-    >
-      <span style={{ whiteSpace: "nowrap" }}>{children}</span>
-      <span
-        style={{
-          flex: 1,
-          height: "1px",
-          background: "var(--border-primary)",
-        }}
-        aria-hidden="true"
-      />
-    </div>
-  );
+/** Build the confidence bar string: e.g. "88%" -> "████████░░" */
+function buildConfidenceBlocks(pct: number): string {
+  const filled = Math.round(pct / 10);
+  const empty = 10 - filled;
+  return "\u2588".repeat(filled) + "\u2591".repeat(empty);
 }
+
+/** Count distinct AI model names from debate rounds */
+function countModels(debateRounds?: StoryDetailProps["story"]["debateRounds"]): number {
+  if (!debateRounds || debateRounds.length === 0) return 4;
+  const unique = new Set(
+    debateRounds.filter((r) => r.round === 1).map((r) => r.modelName)
+  );
+  return unique.size || 4;
+}
+
+/* ── Shared inline style constants ── */
+
+const mono: React.CSSProperties = { fontFamily: "var(--font-mono)" };
+const body: React.CSSProperties = { fontFamily: "var(--font-body)" };
 
 /* ── Main Component ── */
 
 export function StoryDetail({ story }: StoryDetailProps) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
 
-  const sortedClaims = [...story.claims].sort(
-    (a, b) => a.sortOrder - b.sortOrder
-  );
-  const significantSilences = story.silences.filter((s) => s.isSignificant);
-  const displaySilences =
-    significantSilences.length > 0 && story.silences.length > 5
-      ? significantSilences
-      : story.silences;
-
+  const sortedClaims = [...story.claims].sort((a, b) => a.sortOrder - b.sortOrder);
   const confidenceColor = getConfidenceColor(story.confidenceLevel);
-
-  const followUpList =
-    story.followUpQuestions ??
-    story.followUps?.map((f) => f.question) ??
-    [];
+  const modelCount = countModels(story.debateRounds);
 
   // Group sources by region
-  const groupedSources = story.sources.reduce<
-    Record<string, typeof story.sources>
-  >((acc, source) => {
-    const region = source.region || "Unknown";
-    if (!acc[region]) acc[region] = [];
-    acc[region].push(source);
-    return acc;
-  }, {});
+  const groupedSources = story.sources.reduce<Record<string, typeof story.sources>>(
+    (acc, source) => {
+      const region = source.region || "Unknown";
+      if (!acc[region]) acc[region] = [];
+      acc[region].push(source);
+      return acc;
+    },
+    {}
+  );
+
+  // Determine follow-up format
+  const hasNewFollowUps =
+    story.followUpQuestions &&
+    story.followUpQuestions.length > 0 &&
+    story.followUpQuestions.some((q) => q.hypotheses && q.hypotheses.length > 0);
+
+  const oldFollowUps = story.followUps ?? [];
+
+  // Regional coverage: adapt camelCase props to snake_case for the component
+  const regionalCoverageData = story.regionalCoverage?.map((r) => ({
+    region: r.region,
+    source_count: r.sourceCount,
+    coverage_level: r.coverageLevel,
+  }));
+
+  // Follow-up questions: adapt camelCase to snake_case for the component
+  const followUpQuestionsData = story.followUpQuestions?.map((q) => ({
+    question: q.question,
+    hypotheses: q.hypotheses,
+    evidence_status: q.evidenceStatus,
+  }));
 
   return (
     <article
@@ -186,268 +217,519 @@ export function StoryDetail({ story }: StoryDetailProps) {
         padding: "0 24px 80px",
       }}
     >
-      {/* ── Disclaimer ── */}
+      {/* ────────────────────────────────────────────────
+          1. DISCLAIMER BAR
+          ──────────────────────────────────────────────── */}
       <div
-        className="py-3 border-b"
         style={{
-          borderColor: "var(--border-primary)",
+          padding: "10px 0",
+          borderBottom: "1px solid var(--border-primary)",
           fontSize: "12px",
           color: "var(--text-tertiary)",
-          fontFamily: "var(--font-body)",
+          ...body,
         }}
       >
-        Coverage analysis, not journalism. We could be wrong.{" "}
-        <a href="#" style={{ color: "var(--accent-blue, #7B68EE)" }}>
-          Flag an error
-        </a>
+        Coverage analysis, not journalism. We could be wrong.
       </div>
 
-      {/* ── Confidence + Consensus ── */}
-      <div className="mt-8 flex items-center gap-4">
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "11px",
-            fontWeight: 600,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: confidenceColor,
-          }}
-        >
-          {story.confidenceLevel.replace(/_/g, " ")} CONFIDENCE
-        </span>
+      {/* ────────────────────────────────────────────────
+          2. VERDICT CARD
+          ──────────────────────────────────────────────── */}
+      <div style={{ marginTop: "32px" }}>
+        {/* Confidence bar row */}
         <div
-          className="confidence-bar"
           style={{
-            width: "120px",
-            height: "4px",
-            background: "var(--border-primary, #262626)",
-            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            ...mono,
           }}
         >
-          <div
-            className="confidence-bar-fill"
+          <span
             style={{
-              width: `${Math.max(0, Math.min(100, story.consensusScore))}%`,
-              height: "100%",
-              background: confidenceColor,
+              fontSize: "11px",
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: confidenceColor,
+              whiteSpace: "nowrap",
             }}
-          />
+          >
+            {story.confidenceLevel.replace(/_/g, " ")} CONFIDENCE
+          </span>
+          <span
+            style={{
+              fontSize: "14px",
+              letterSpacing: "1px",
+              color: confidenceColor,
+            }}
+          >
+            {buildConfidenceBlocks(story.consensusScore)}
+          </span>
+          <span
+            style={{
+              fontSize: "13px",
+              color: "var(--text-primary)",
+            }}
+          >
+            {story.consensusScore}% of {story.sourceCount} sources
+          </span>
         </div>
-        <span
+
+        {/* Large serif headline */}
+        <h1
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "14px",
+            fontFamily: "var(--font-display)",
+            fontSize: "36px",
+            fontWeight: 700,
+            lineHeight: 1.15,
+            letterSpacing: "-0.02em",
             color: "var(--text-primary)",
+            marginTop: "20px",
           }}
         >
-          {story.consensusScore}%
-        </span>
-      </div>
-      <div
-        className="mt-1 flex items-center gap-3"
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: "12px",
-          color: "var(--text-tertiary)",
-        }}
-      >
-        <span>
-          {story.sourceCount} sources &middot; {story.countryCount} countries
-          &middot; {story.regionCount} regions
-        </span>
-        <CostDisplay cost={story.totalCost} seconds={story.analysisSeconds} />
+          {story.headline}
+        </h1>
+
+        {/* Summary / synopsis */}
+        <div
+          style={{
+            marginTop: "16px",
+            ...body,
+            fontSize: "15px",
+            lineHeight: 1.7,
+            color: "var(--text-secondary, #a3a3a3)",
+          }}
+          dangerouslySetInnerHTML={{
+            __html: `<p>${renderMarkdown(story.synopsis)}</p>`,
+          }}
+        />
+
+        {/* Stats row */}
+        <div
+          style={{
+            marginTop: "16px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            flexWrap: "wrap",
+            ...mono,
+            fontSize: "12px",
+            color: "var(--text-tertiary)",
+          }}
+        >
+          <span>{story.sourceCount} sources</span>
+          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
+          <span>{story.countryCount} countries</span>
+          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
+          <span>{story.regionCount} {story.regionCount === 1 ? "region" : "regions"}</span>
+          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
+          <span>{modelCount} AI models</span>
+          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
+          <CostDisplay cost={story.totalCost} seconds={story.analysisSeconds} />
+        </div>
+
+        {/* Model dots */}
+        <div
+          style={{
+            marginTop: "8px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            flexWrap: "wrap",
+            ...mono,
+            fontSize: "12px",
+            color: "var(--text-tertiary)",
+          }}
+        >
+          <span style={{ color: "#D4A574" }}>{"\u25CF"} Claude</span>
+          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
+          <span style={{ color: "#74D4A5" }}>{"\u25CF"} GPT-4o</span>
+          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
+          <span style={{ color: "#74A5D4" }}>{"\u25CF"} Gemini</span>
+          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
+          <span style={{ color: "#D47474" }}>{"\u25CF"} Grok</span>
+        </div>
       </div>
 
-      {/* ── Headline ── */}
-      <h1
-        className="mt-6"
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: "36px",
-          fontWeight: 700,
-          lineHeight: 1.15,
-          letterSpacing: "-0.02em",
-          color: "var(--text-primary)",
-        }}
-      >
-        {story.headline}
-      </h1>
+      {/* ────────────────────────────────────────────────
+          3. THE PATTERN
+          ──────────────────────────────────────────────── */}
+      {story.thePattern && (
+        <ThePattern
+          pattern={story.thePattern}
+          confidence={story.confidenceLevel.toUpperCase()}
+        />
+      )}
 
-      {/* ── Model line ── */}
-      <div
-        className="mt-4 flex items-center gap-2 flex-wrap"
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: "12px",
-          color: "var(--text-tertiary)",
-        }}
-      >
-        Analyzed by
-        <span style={{ color: "var(--model-claude, #D4A574)" }}>
-          {"\u25CF"} Claude
-        </span>{" "}
-        &middot;
-        <span style={{ color: "var(--model-gpt, #74D4A5)" }}>
-          {"\u25CF"} GPT-4o
-        </span>{" "}
-        &middot;
-        <span style={{ color: "var(--model-gemini, #74A5D4)" }}>
-          {"\u25CF"} Gemini
-        </span>{" "}
-        &middot;
-        <span style={{ color: "var(--model-grok, #D47474)" }}>
-          {"\u25CF"} Grok
-        </span>
-      </div>
-
-      {/* ── Synopsis ── */}
-      <div
-        className="prose-editorial mt-8"
-        style={{
-          fontFamily: "var(--font-body)",
-          fontSize: "15px",
-          lineHeight: 1.7,
-          color: "var(--text-secondary, #a3a3a3)",
-          maxWidth: "720px",
-        }}
-        dangerouslySetInnerHTML={{ __html: `<p>${renderMarkdown(story.synopsis)}</p>` }}
-      />
+      {/* ────────────────────────────────────────────────
+          4. COLLAPSIBLE SECTIONS
+          ──────────────────────────────────────────────── */}
 
       {/* ── KEY CLAIMS ── */}
       {sortedClaims.length > 0 && (
-        <>
-          <SectionRule>KEY CLAIMS</SectionRule>
+        <CollapsibleSection
+          title="KEY CLAIMS"
+          preview={`${sortedClaims.length} claims verified across ${story.sourceCount} sources`}
+          defaultOpen
+        >
           {sortedClaims.map((claim, i) => {
-            const claimColor = getConfidenceColor(claim.confidence);
+            const iconColor = getClaimIconColor(claim.confidence);
+            const icon = getClaimIcon(claim.confidence);
             const supporters = parseList(claim.supportedBy);
             const contradictors = parseList(claim.contradictedBy);
+
             return (
               <div
                 key={i}
-                className="py-4 border-b"
-                style={{ borderColor: "var(--border-primary)" }}
+                style={{
+                  padding: "16px 0",
+                  borderBottom: "1px solid var(--border-primary)",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "12px",
+                }}
               >
-                <div className="flex items-start gap-3">
-                  <span
+                <span
+                  style={{
+                    ...mono,
+                    fontSize: "14px",
+                    color: iconColor,
+                    flexShrink: 0,
+                    width: "20px",
+                    textAlign: "center",
+                  }}
+                >
+                  {icon}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p
                     style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: claimColor,
-                      minWidth: "60px",
-                      flexShrink: 0,
+                      ...body,
+                      fontSize: "15px",
+                      color: "var(--text-primary)",
+                      lineHeight: 1.5,
                     }}
                   >
-                    {getClaimIcon(claim.confidence)}{" "}
-                    {claim.confidence.replace(/_/g, " ").toUpperCase()}
-                  </span>
-                  <div style={{ flex: 1 }}>
-                    <p
-                      style={{
-                        fontFamily: "var(--font-body)",
-                        fontSize: "15px",
-                        color: "var(--text-primary)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {claim.claim}
-                    </p>
-                    {/* Consensus bar inline */}
+                    {claim.claim}
+                  </p>
+                  {/* Consensus bar */}
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
                     <div
-                      className="mt-2 flex items-center gap-2"
-                      style={{ fontSize: "11px" }}
+                      style={{
+                        width: "80px",
+                        height: "3px",
+                        background: "var(--border-primary)",
+                      }}
                     >
                       <div
                         style={{
-                          width: "80px",
-                          height: "3px",
-                          background: "var(--border-primary, #262626)",
+                          width: `${Math.max(0, Math.min(100, claim.consensusPct))}%`,
+                          height: "100%",
+                          background: iconColor,
                         }}
-                      >
-                        <div
-                          style={{
-                            width: `${Math.max(0, Math.min(100, claim.consensusPct))}%`,
-                            height: "100%",
-                            background: claimColor,
-                          }}
-                        />
-                      </div>
-                      <span
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          color: "var(--text-tertiary)",
-                        }}
-                      >
-                        {claim.consensusPct}%
-                      </span>
+                      />
                     </div>
-                    {/* Supporters */}
-                    {supporters.length > 0 && (
-                      <p
-                        className="mt-1"
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11px",
-                          color: "var(--text-tertiary)",
-                        }}
-                      >
-                        Supported by: {supporters.join(", ")}
-                      </p>
-                    )}
-                    {/* Contradictors */}
-                    {contradictors.length > 0 && (
-                      <p
-                        className="mt-1"
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11px",
-                          color: "var(--accent-red)",
-                        }}
-                      >
-                        Contradicted by: {contradictors.join(", ")}
-                      </p>
-                    )}
-                    {/* Notes */}
-                    {claim.notes && (
-                      <p
-                        className="mt-2"
-                        style={{
-                          fontFamily: "var(--font-body)",
-                          fontSize: "13px",
-                          color: "var(--text-tertiary)",
-                          fontStyle: "italic",
-                        }}
-                      >
-                        {claim.notes}
-                      </p>
-                    )}
+                    <span
+                      style={{
+                        ...mono,
+                        fontSize: "11px",
+                        color: "var(--text-tertiary)",
+                      }}
+                    >
+                      {claim.consensusPct}%
+                    </span>
                   </div>
+                  {supporters.length > 0 && (
+                    <p
+                      style={{
+                        ...mono,
+                        fontSize: "11px",
+                        color: "var(--text-tertiary)",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Supported by: {supporters.join(", ")}
+                    </p>
+                  )}
+                  {contradictors.length > 0 && (
+                    <p
+                      style={{
+                        ...mono,
+                        fontSize: "11px",
+                        color: "var(--accent-red)",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Contradicted by: {contradictors.join(", ")}
+                    </p>
+                  )}
+                  {claim.notes && (
+                    <p
+                      style={{
+                        ...body,
+                        fontSize: "13px",
+                        color: "var(--text-tertiary)",
+                        fontStyle: "italic",
+                        marginTop: "8px",
+                      }}
+                    >
+                      {claim.notes}
+                    </p>
+                  )}
                 </div>
               </div>
             );
           })}
-        </>
+        </CollapsibleSection>
       )}
 
-      {/* ── DEBATE HIGHLIGHTS ── */}
-      {story.debateRounds && story.debateRounds.length > 0 && (
-        <DebateHighlights debateRounds={story.debateRounds} />
+      {/* ── FRAMING SPLIT ── */}
+      {(story.framingSplit && story.framingSplit.length > 0) ? (
+        <CollapsibleSection
+          title="FRAMING SPLIT"
+          preview={`${story.framingSplit.length} distinct frames identified`}
+          defaultOpen
+        >
+          {story.framingSplit.map((frame, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "16px 0",
+                borderBottom: "1px solid var(--border-primary)",
+              }}
+            >
+              {/* Frame header */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  marginBottom: "8px",
+                }}
+              >
+                <span
+                  style={{
+                    ...mono,
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  FRAME {i + 1}: {frame.frameName}
+                </span>
+                <span
+                  style={{
+                    ...mono,
+                    fontSize: "12px",
+                    color: "var(--text-tertiary)",
+                  }}
+                >
+                  {frame.outletCount} outlets
+                </span>
+              </div>
+              {/* Outlet types */}
+              <p
+                style={{
+                  ...body,
+                  fontSize: "13px",
+                  color: "var(--text-secondary, #a3a3a3)",
+                  marginBottom: "6px",
+                }}
+              >
+                {frame.outletTypes}
+              </p>
+              {/* Led with */}
+              <p
+                style={{
+                  ...mono,
+                  fontSize: "11px",
+                  color: "var(--text-tertiary)",
+                  marginBottom: "2px",
+                }}
+              >
+                Led with: {frame.ledWith}
+              </p>
+              {/* Omitted */}
+              <p
+                style={{
+                  ...mono,
+                  fontSize: "11px",
+                  color: "var(--accent-amber)",
+                  marginBottom: "2px",
+                }}
+              >
+                Omitted: {frame.omitted}
+              </p>
+              {/* Outlets */}
+              <p
+                style={{
+                  ...mono,
+                  fontSize: "11px",
+                  color: "var(--text-tertiary)",
+                }}
+              >
+                Outlets: {frame.outlets}
+              </p>
+            </div>
+          ))}
+        </CollapsibleSection>
+      ) : story.framings.length > 0 ? (
+        <CollapsibleSection
+          title="FRAMING ANALYSIS"
+          preview={`${story.framings.length} regional frames compared`}
+          defaultOpen
+        >
+          {story.framings.map((f, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "16px 0",
+                borderBottom: "1px solid var(--border-primary)",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "12px",
+              }}
+            >
+              <span
+                style={{
+                  ...mono,
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "var(--accent-purple)",
+                  minWidth: "60px",
+                  flexShrink: 0,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {f.region}
+              </span>
+              <div style={{ flex: 1 }}>
+                <p
+                  style={{
+                    ...body,
+                    fontSize: "15px",
+                    color: "var(--text-primary)",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {f.framing}
+                </p>
+                {f.contrastWith && (
+                  <p
+                    style={{
+                      ...body,
+                      fontSize: "13px",
+                      color: "var(--text-tertiary)",
+                      fontStyle: "italic",
+                      marginTop: "4px",
+                    }}
+                  >
+                    Contrast: {f.contrastWith}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </CollapsibleSection>
+      ) : null}
+
+      {/* ── WHAT'S MISSING ── */}
+      {story.omissions.length > 0 && (
+        <CollapsibleSection
+          title="WHAT'S MISSING"
+          preview={`${story.omissions.length} omissions detected`}
+        >
+          {story.omissions.map((o, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "16px 0",
+                borderBottom: "1px solid var(--border-primary)",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "12px",
+              }}
+            >
+              <span
+                style={{
+                  ...mono,
+                  fontSize: "14px",
+                  color: "var(--accent-amber)",
+                  flexShrink: 0,
+                  width: "20px",
+                  textAlign: "center",
+                }}
+              >
+                {"\u26A0"}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p
+                  style={{
+                    ...body,
+                    fontSize: "15px",
+                    color: "var(--text-primary)",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {o.missing}
+                </p>
+                <p
+                  style={{
+                    ...mono,
+                    fontSize: "11px",
+                    color: "var(--text-tertiary)",
+                    marginTop: "4px",
+                  }}
+                >
+                  {o.outletRegion} &mdash; Present in: {o.presentIn}
+                </p>
+                {o.significance && (
+                  <p
+                    style={{
+                      ...body,
+                      fontSize: "13px",
+                      color: "var(--text-tertiary)",
+                      fontStyle: "italic",
+                      marginTop: "4px",
+                    }}
+                  >
+                    {o.significance}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </CollapsibleSection>
       )}
 
       {/* ── DISCREPANCIES ── */}
       {story.discrepancies.length > 0 && (
-        <>
-          <SectionRule>DISCREPANCIES</SectionRule>
+        <CollapsibleSection
+          title="DISCREPANCIES"
+          preview={`${story.discrepancies.length} factual conflicts found`}
+        >
           {story.discrepancies.map((d, i) => (
             <div
               key={i}
-              className="py-5 border-b"
-              style={{ borderColor: "var(--border-primary)" }}
+              style={{
+                padding: "20px 0",
+                borderBottom: "1px solid var(--border-primary)",
+              }}
             >
               <p
                 style={{
-                  fontFamily: "var(--font-body)",
+                  ...body,
                   fontSize: "14px",
                   fontWeight: 600,
                   color: "var(--text-primary)",
@@ -456,15 +738,18 @@ export function StoryDetail({ story }: StoryDetailProps) {
               >
                 {d.issue}
               </p>
-              {/* Two-column side-by-side with vertical divider */}
+              {/* Two-column side-by-side */}
               <div
-                className="flex gap-0"
-                style={{ fontSize: "13px" }}
+                style={{
+                  display: "flex",
+                  gap: "0",
+                  fontSize: "13px",
+                }}
               >
                 <div style={{ flex: 1, paddingRight: "16px" }}>
                   <span
                     style={{
-                      fontFamily: "var(--font-mono)",
+                      ...mono,
                       fontSize: "10px",
                       fontWeight: 600,
                       letterSpacing: "0.1em",
@@ -478,7 +763,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                   </span>
                   <p
                     style={{
-                      fontFamily: "var(--font-body)",
+                      ...body,
                       color: "var(--text-secondary, #a3a3a3)",
                       lineHeight: 1.5,
                     }}
@@ -487,7 +772,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                   </p>
                   <p
                     style={{
-                      fontFamily: "var(--font-mono)",
+                      ...mono,
                       fontSize: "11px",
                       color: "var(--text-tertiary)",
                       marginTop: "4px",
@@ -506,7 +791,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                 <div style={{ flex: 1, paddingLeft: "16px" }}>
                   <span
                     style={{
-                      fontFamily: "var(--font-mono)",
+                      ...mono,
                       fontSize: "10px",
                       fontWeight: 600,
                       letterSpacing: "0.1em",
@@ -520,7 +805,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                   </span>
                   <p
                     style={{
-                      fontFamily: "var(--font-body)",
+                      ...body,
                       color: "var(--text-secondary, #a3a3a3)",
                       lineHeight: 1.5,
                     }}
@@ -529,7 +814,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                   </p>
                   <p
                     style={{
-                      fontFamily: "var(--font-mono)",
+                      ...mono,
                       fontSize: "11px",
                       color: "var(--text-tertiary)",
                       marginTop: "4px",
@@ -539,11 +824,10 @@ export function StoryDetail({ story }: StoryDetailProps) {
                   </p>
                 </div>
               </div>
-              {/* Assessment */}
               {d.assessment && (
                 <p
                   style={{
-                    fontFamily: "var(--font-body)",
+                    ...body,
                     fontSize: "13px",
                     color: "var(--text-tertiary)",
                     fontStyle: "italic",
@@ -557,266 +841,116 @@ export function StoryDetail({ story }: StoryDetailProps) {
               )}
             </div>
           ))}
-        </>
+        </CollapsibleSection>
       )}
 
-      {/* ── COVERAGE OMISSIONS ── */}
-      {story.omissions.length > 0 && (
-        <>
-          <SectionRule>COVERAGE OMISSIONS</SectionRule>
-          {story.omissions.map((o, i) => (
-            <div
-              key={i}
-              className="py-4 border-b"
-              style={{ borderColor: "var(--border-primary)" }}
-            >
-              <div className="flex items-start gap-3">
-                <span
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    color: "var(--accent-amber)",
-                    minWidth: "60px",
-                    flexShrink: 0,
-                  }}
-                >
-                  {"\u26A0"} {o.outletRegion}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <p
-                    style={{
-                      fontFamily: "var(--font-body)",
-                      fontSize: "15px",
-                      color: "var(--text-primary)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {o.missing}
-                  </p>
-                  <p
-                    className="mt-1"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "11px",
-                      color: "var(--text-tertiary)",
-                    }}
-                  >
-                    Present in: {o.presentIn}
-                  </p>
-                  {o.significance && (
-                    <p
-                      className="mt-1"
-                      style={{
-                        fontFamily: "var(--font-body)",
-                        fontSize: "13px",
-                        color: "var(--text-tertiary)",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      {o.significance}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </>
+      {/* ── MODEL DEBATE ── */}
+      {story.debateRounds && story.debateRounds.length > 0 && (
+        <CollapsibleSection
+          title="MODEL DEBATE"
+          preview={`${new Set(story.debateRounds.filter((r) => r.round === 1).map((r) => r.modelName)).size} models debated across ${new Set(story.debateRounds.map((r) => r.region)).size} regions`}
+        >
+          <DebateHighlights debateRounds={story.debateRounds} />
+        </CollapsibleSection>
       )}
 
-      {/* ── FRAMING ANALYSIS ── */}
-      {story.framings.length > 0 && (
-        <>
-          <SectionRule>FRAMING ANALYSIS</SectionRule>
-          {story.framings.map((f, i) => (
-            <div
-              key={i}
-              className="py-4 border-b"
-              style={{ borderColor: "var(--border-primary)" }}
-            >
-              <div className="flex items-start gap-3">
-                <span
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    color: "var(--accent-purple)",
-                    minWidth: "60px",
-                    flexShrink: 0,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  {f.region}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <p
-                    style={{
-                      fontFamily: "var(--font-body)",
-                      fontSize: "15px",
-                      color: "var(--text-primary)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {f.framing}
-                  </p>
-                  {f.contrastWith && (
-                    <p
-                      className="mt-1"
-                      style={{
-                        fontFamily: "var(--font-body)",
-                        fontSize: "13px",
-                        color: "var(--text-tertiary)",
-                        fontStyle: "italic",
-                      }}
-                    >
-                      Contrast: {f.contrastWith}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </>
-      )}
-
-      {/* ── REGIONAL SILENCES ── */}
-      {displaySilences.length > 0 && (
-        <>
-          <SectionRule>REGIONAL SILENCES</SectionRule>
-          {displaySilences.map((s, i) => (
-            <div
-              key={i}
-              className="py-4 border-b"
-              style={{ borderColor: "var(--border-primary)" }}
-            >
-              <div className="flex items-start gap-3">
-                <span
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    color: s.isSignificant
-                      ? "var(--accent-red)"
-                      : "var(--text-tertiary)",
-                    minWidth: "60px",
-                    flexShrink: 0,
-                  }}
-                >
-                  {s.isSignificant ? "\u2717" : "\u25CB"} {s.region}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <p
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "12px",
-                      color: "var(--text-tertiary)",
-                    }}
-                  >
-                    {s.sourcesSearched} sources searched
-                    {s.isSignificant && (
-                      <span
-                        style={{
-                          marginLeft: "8px",
-                          color: "var(--accent-red)",
-                          fontWeight: 600,
-                          letterSpacing: "0.06em",
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        SIGNIFICANT
-                      </span>
-                    )}
-                  </p>
-                  {s.possibleReasons && (
-                    <p
-                      className="mt-1"
-                      style={{
-                        fontFamily: "var(--font-body)",
-                        fontSize: "14px",
-                        color: "var(--text-secondary, #a3a3a3)",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {s.possibleReasons}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </>
+      {/* ── REGIONAL COVERAGE ── */}
+      {regionalCoverageData && regionalCoverageData.length > 0 && (
+        <CollapsibleSection
+          title="REGIONAL COVERAGE"
+          preview={`${regionalCoverageData.length} regions analyzed`}
+        >
+          <RegionalCoverageMap
+            regions={regionalCoverageData}
+            silenceExplanation={story.silenceExplanation}
+          />
+        </CollapsibleSection>
       )}
 
       {/* ── FOLLOW-UP QUESTIONS ── */}
-      {followUpList.length > 0 && (
-        <>
-          <SectionRule>FOLLOW-UP QUESTIONS</SectionRule>
-          {followUpList.map((q, i) => (
-            <div
-              key={i}
-              className="py-3 border-b"
-              style={{ borderColor: "var(--border-primary)" }}
-            >
-              <div className="flex items-start gap-3">
+      {hasNewFollowUps && followUpQuestionsData ? (
+        <CollapsibleSection
+          title="FOLLOW-UP QUESTIONS"
+          preview={`${followUpQuestionsData.length} questions with hypotheses`}
+        >
+          <FollowUpQuestions questions={followUpQuestionsData} />
+        </CollapsibleSection>
+      ) : oldFollowUps.length > 0 ? (
+        <CollapsibleSection
+          title="FOLLOW-UP QUESTIONS"
+          preview={`${oldFollowUps.length} questions to investigate`}
+        >
+          {[...oldFollowUps]
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((q, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: "12px 0",
+                  borderBottom: "1px solid var(--border-primary)",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "12px",
+                }}
+              >
                 <span
                   style={{
-                    fontFamily: "var(--font-mono)",
+                    ...mono,
                     fontSize: "12px",
                     color: "var(--text-tertiary)",
-                    minWidth: "24px",
                     flexShrink: 0,
+                    width: "24px",
                   }}
                 >
                   {i + 1}.
                 </span>
                 <p
                   style={{
-                    fontFamily: "var(--font-body)",
+                    ...body,
                     fontSize: "14px",
                     color: "var(--text-secondary, #a3a3a3)",
                     lineHeight: 1.5,
                   }}
                 >
-                  {q}
+                  {q.question}
                 </p>
               </div>
-            </div>
-          ))}
-        </>
-      )}
+            ))}
+        </CollapsibleSection>
+      ) : null}
 
-      {/* ── SOURCES (collapsed by default) ── */}
+      {/* ── SOURCES ── */}
       {story.sources.length > 0 && (
-        <>
-          <SectionRule>SOURCES</SectionRule>
-          <button
-            onClick={() => setSourcesOpen(!sourcesOpen)}
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "12px",
-              color: "var(--text-tertiary)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: "8px 0",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <span>
+        <CollapsibleSection
+          title="SOURCES"
+          preview={`${story.sources.length} sources from ${Object.keys(groupedSources).length} regions`}
+          defaultOpen={false}
+        >
+          <div>
+            <button
+              onClick={() => setSourcesOpen(!sourcesOpen)}
+              style={{
+                ...mono,
+                fontSize: "12px",
+                color: "var(--text-tertiary)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "8px 0",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
               {sourcesOpen ? "\u25BC" : "\u25B6"} {story.sources.length} sources
-            </span>
-          </button>
-          {sourcesOpen && (
-            <div>
-              {Object.entries(groupedSources).map(
-                ([region, regionSources]) => (
+            </button>
+            {sourcesOpen && (
+              <div>
+                {Object.entries(groupedSources).map(([region, regionSources]) => (
                   <div key={region} style={{ marginBottom: "16px" }}>
                     <p
                       style={{
-                        fontFamily: "var(--font-mono)",
+                        ...mono,
                         fontSize: "10px",
                         fontWeight: 600,
                         letterSpacing: "0.1em",
@@ -830,15 +964,19 @@ export function StoryDetail({ story }: StoryDetailProps) {
                     {regionSources.map((source, j) => (
                       <div
                         key={j}
-                        className="py-2 border-b flex items-center gap-3 flex-wrap"
                         style={{
-                          borderColor: "var(--border-primary)",
+                          padding: "8px 0",
+                          borderBottom: "1px solid var(--border-primary)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          flexWrap: "wrap",
                           fontSize: "13px",
                         }}
                       >
                         <span
                           style={{
-                            fontFamily: "var(--font-body)",
+                            ...body,
                             color: "var(--text-primary)",
                           }}
                         >
@@ -846,38 +984,22 @@ export function StoryDetail({ story }: StoryDetailProps) {
                         </span>
                         <span
                           style={{
-                            fontFamily: "var(--font-mono)",
+                            ...mono,
                             fontSize: "10px",
                             color: "var(--text-tertiary)",
                           }}
                         >
-                          {source.country}
+                          &middot; {source.country}
                         </span>
                         {source.politicalLean && (
                           <span
                             style={{
-                              fontFamily: "var(--font-mono)",
+                              ...mono,
                               fontSize: "10px",
                               color: "var(--text-tertiary)",
                             }}
                           >
-                            {source.politicalLean}
-                          </span>
-                        )}
-                        {source.reliability && (
-                          <span
-                            style={{
-                              fontFamily: "var(--font-mono)",
-                              fontSize: "10px",
-                              color:
-                                source.reliability === "high"
-                                  ? "var(--accent-green)"
-                                  : source.reliability === "low"
-                                    ? "var(--accent-red)"
-                                    : "var(--accent-amber)",
-                            }}
-                          >
-                            {source.reliability}
+                            &middot; {source.politicalLean}
                           </span>
                         )}
                         <a
@@ -885,7 +1007,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
-                            fontFamily: "var(--font-mono)",
+                            ...mono,
                             fontSize: "11px",
                             color: "var(--text-tertiary)",
                             marginLeft: "auto",
@@ -896,52 +1018,36 @@ export function StoryDetail({ story }: StoryDetailProps) {
                       </div>
                     ))}
                   </div>
-                )
-              )}
-            </div>
-          )}
-        </>
+                ))}
+              </div>
+            )}
+          </div>
+        </CollapsibleSection>
       )}
 
-      {/* ── Footer ── */}
+      {/* ────────────────────────────────────────────────
+          5. ACTION BAR
+          ──────────────────────────────────────────────── */}
       <div
         style={{
           marginTop: "64px",
           paddingTop: "24px",
           borderTop: "1px solid var(--border-primary)",
-          textAlign: "center",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "16px",
+          ...mono,
+          fontSize: "11px",
         }}
       >
-        <p
-          style={{
-            fontFamily: "var(--font-body)",
-            fontSize: "14px",
-            color: "var(--text-tertiary)",
-            fontStyle: "italic",
-          }}
-        >
-          We could be wrong &mdash; help us be right
-        </p>
-        <div
-          className="mt-3 flex items-center justify-center gap-4"
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "11px",
-            color: "var(--text-tertiary)",
-          }}
-        >
-          <a href="#" style={{ color: "var(--accent-purple)" }}>
-            Share
-          </a>
-          <span>&middot;</span>
-          <a href="#" style={{ color: "var(--accent-purple)" }}>
-            Flag Error
-          </a>
-          <span>&middot;</span>
-          <a href="#" style={{ color: "var(--accent-purple)" }}>
-            Discuss
-          </a>
-        </div>
+        <a href="#" style={{ color: "var(--accent-purple)" }}>
+          Share
+        </a>
+        <span style={{ color: "var(--text-tertiary)" }}>&middot;</span>
+        <a href="#" style={{ color: "var(--accent-purple)" }}>
+          Flag an error
+        </a>
       </div>
     </article>
   );

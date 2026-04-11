@@ -88,6 +88,16 @@ export interface SynthesisResult {
     whyItMatters: string
     sortOrder: number
   }>
+  factSurvival: Array<{
+    fact: string
+    originLayer: string
+    survivedTo: string
+    diedAt: string
+    killPoint: string
+    whatWasLost: string
+    significance: string
+    sortOrder: number
+  }>
   costUsd: number
 }
 
@@ -139,6 +149,27 @@ For each buried evidence item, note:
 - What it contradicts or complicates in the dominant narrative
 - Which outlets covered the story but did NOT pick up this fact
 - Why it matters (how the narrative changes if you include this fact)
+
+FACT SURVIVAL TRACKING:
+
+For the most important 3-5 facts in this story, trace their survival through editorial layers:
+
+Layer 1: "on_scene" — eyewitness, official statement, primary document
+Layer 2: "local" — local TV, local newspaper, local digital
+Layer 3: "national" — national TV, national newspaper, wire services
+Layer 4: "international" — foreign outlets covering the story
+
+For each fact, note:
+- Which layer it originated at (origin_layer)
+- Which layer it survived to (survived_to)
+- Where it DIED — which boundary filtered it out (died_at, or "survived_all" if it made it everywhere)
+- The specific editorial boundary where it was lost (kill_point, e.g. "CBS LA → national outlets")
+- What was lost when it died (what_was_lost)
+- Significance: HIGH (changes the narrative), MEDIUM (adds nuance), LOW (routine filtering)
+
+Not all fact deaths are significant — routine details naturally get filtered. Only flag facts whose death changes how the story reads.
+
+If a fact survived all layers, still include it with died_at: "survived_all" — surviving is data too.
 
 PROPAGATION TIMELINE:
 
@@ -232,6 +263,18 @@ Response shape:
       "not_picked_up_by": ["Fox News", "NBC News", "ABC News", "Daily Wire", "Bloomberg"],
       "source_type": "named on-record source",
       "why_it_matters": "Without this quote, the suspect's wage complaint goes completely unchallenged in national coverage",
+      "sort_order": 1
+    }
+  ],
+  "fact_survival": [
+    {
+      "fact": "Coworker said 'I was making good money'",
+      "origin_layer": "local",
+      "survived_to": "local",
+      "died_at": "national",
+      "kill_point": "CBS LA → national outlets",
+      "what_was_lost": "The only on-record counter-narrative to wage claims",
+      "significance": "HIGH",
       "sort_order": 1
     }
   ],
@@ -417,6 +460,19 @@ ${JSON.stringify(
     sortOrder: Number(b.sort_order ?? b.sortOrder ?? i),
   }))
 
+  // --- fact_survival ---
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const factSurvival = (parsed.fact_survival ?? parsed.factSurvival ?? []).map((f: any, i: number) => ({
+    fact: String(f.fact ?? ''),
+    originLayer: String(f.origin_layer ?? f.originLayer ?? ''),
+    survivedTo: String(f.survived_to ?? f.survivedTo ?? ''),
+    diedAt: String(f.died_at ?? f.diedAt ?? ''),
+    killPoint: String(f.kill_point ?? f.killPoint ?? ''),
+    whatWasLost: String(f.what_was_lost ?? f.whatWasLost ?? ''),
+    significance: String(f.significance ?? 'MEDIUM'),
+    sortOrder: Number(f.sort_order ?? f.sortOrder ?? i),
+  }))
+
   // --- propagation_timeline ---
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const propagationTimeline = (parsed.propagation_timeline ?? parsed.propagationTimeline ?? []).map((frame: any) => ({
@@ -455,6 +511,7 @@ ${JSON.stringify(
     followUpQuestions,
     propagationTimeline,
     buriedEvidence,
+    factSurvival,
     costUsd,
   }
 }

@@ -13,6 +13,7 @@ import { runRegionalDebate, moderatorToRegionalAnalysis } from '@/lib/debate'
 import type { DebateRoundData } from '@/lib/debate'
 import { generateSocialDrafts } from '@/agents/social-drafts'
 import { fetchRedditDiscourse } from '@/ingestion/reddit-discourse'
+import { fetchTwitterDiscourse } from '@/ingestion/twitter-discourse'
 import { analyzeDiscourse } from '@/agents/discourse'
 import type { TriagedSource } from '@/agents/triage'
 import type { SilenceAnalysis } from '@/agents/silence'
@@ -357,6 +358,7 @@ export async function runVerifyPipeline(
           note: synthesisResult.confidenceNote,
           buriedEvidence: synthesisResult.buriedEvidence,
           propagationTimeline: synthesisResult.propagationTimeline,
+          factSurvival: synthesisResult.factSurvival,
         }),
         category: triageResult.suggestedCategory,
         primaryCategory: triageResult.suggestedCategory || null,
@@ -533,7 +535,10 @@ export async function runVerifyPipeline(
   // ── DISCOURSE ANALYSIS (after social drafts) ──
   try {
     const keywords = query.split(/\s+/).filter(w => w.length > 3)
-    const redditPosts = await fetchRedditDiscourse(keywords, triageResult.suggestedCategory, 15, 50)
+    const [redditPosts, twitterPosts] = await Promise.all([
+      fetchRedditDiscourse(keywords, triageResult.suggestedCategory, 15, 50),
+      fetchTwitterDiscourse(keywords),
+    ])
 
     if (redditPosts.length > 0) {
       // Determine media dominant framing from synthesis
@@ -554,13 +559,23 @@ export async function runVerifyPipeline(
       )
       totalCost += discourseResult.costUsd
 
+      // Combine all social posts for discourse analysis
+      const allSocialPosts = [...redditPosts, ...twitterPosts.map(t => ({
+        ...t,
+        upvotes: t.likes,
+        comments: t.replies,
+        subreddit: undefined,
+        topComments: [] as Array<{text: string; upvotes: number}>,
+        createdUtc: new Date(t.createdAt).getTime() / 1000,
+      }))]
+
       // Save discourse snapshot
       const snapshot = await prisma.discourseSnapshot.create({
         data: {
           storyId: story.id,
           platform: 'reddit',
-          totalEngagement: redditPosts.reduce((n, p) => n + p.upvotes, 0),
-          postCount: redditPosts.length,
+          totalEngagement: redditPosts.reduce((n, p) => n + p.upvotes, 0) + twitterPosts.reduce((n, p) => n + p.likes + p.retweets, 0),
+          postCount: redditPosts.length + twitterPosts.length,
           dominantSentiment: discourseResult.aggregate.dominant_sentiment,
           dominantFraming: discourseResult.aggregate.dominant_framing,
         },
@@ -589,6 +604,27 @@ export async function runVerifyPipeline(
         })
       }
 
+      // Save Twitter posts
+      if (twitterPosts.length > 0) {
+        await prisma.discoursePost.createMany({
+          data: twitterPosts.map((p, i) => ({
+            snapshotId: snapshot.id,
+            platform: 'twitter',
+            url: p.url,
+            author: p.author,
+            authorFollowers: p.authorFollowers,
+            isVerified: p.isVerified,
+            content: p.content,
+            hashtags: JSON.stringify(p.hashtags),
+            upvotes: p.likes,
+            comments: p.replies,
+            shares: p.retweets,
+            views: p.views,
+            sortOrder: redditPosts.length + i,
+          })),
+        })
+      }
+
       // Save discourse gap
       await prisma.discourseGap.create({
         data: {
@@ -610,7 +646,7 @@ export async function runVerifyPipeline(
 
       onProgress('discourse', {
         phase: 'discourse',
-        message: `Discourse gap: ${discourseResult.gap.gap_score}/100 (${discourseResult.gap.gap_direction}). ${redditPosts.length} Reddit posts analyzed.`,
+        message: `Discourse gap: ${discourseResult.gap.gap_score}/100 (${discourseResult.gap.gap_direction}). ${redditPosts.length} Reddit + ${twitterPosts.length} Twitter posts analyzed.`,
       })
     } else {
       onProgress('discourse', {

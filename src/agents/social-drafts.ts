@@ -33,6 +33,37 @@ CONTENT PRIORITIES:
 - TikTok script: "I ran this story through [X] outlets across [Y] countries. Here's what each side isn't telling you."
 - Newsletter: The summary + The Pattern + one follow-up question with hypothesis
 
+NEW FEATURES TO REFERENCE IN CONTENT:
+
+PROPAGATION MAP: "Watch this fact leave one country and arrive in another
+as a completely different story. Drag the timeline: [LINK]"
+"At +0 hours, one country reported this. By +72 hours, 5 different
+versions exist depending on where you live."
+
+FACT SURVIVAL: "This quote existed in local TV. Zero national outlets
+picked it up. We tracked exactly where it died: [LINK]"
+"5 facts entered the news pipeline. Only 2 survived to international
+coverage. Here's what was filtered out."
+
+BURIED EVIDENCE: "A coworker told CBS LA he was 'making good money.'
+40+ outlets covered this story. Only 1 included that quote."
+
+DISCOURSE GAP: "Media framed it as [frame]. Reddit framed it as
+[frame]. [X]-point framing gap. [LINK]"
+
+AI DEBATE: "We ran this through 4 AI models. 3 agreed. Then [model]
+caught an error the others missed."
+
+For TWITTER: Pick the most surprising single stat. Propagation map
+("watch a fact mutate across borders") and discourse gap scores are
+the most shareable.
+
+For INSTAGRAM: Reference the propagation map as a visual — "Screenshot
+the map at +24 hours and +72 hours side by side."
+
+For TIKTOK: Lead with fact survival — "I tracked what happened to
+5 facts as they traveled through the news pipeline."
+
 If "thePattern" is provided in the analysis data, USE IT as the primary hook. It's already optimized for sharing.
 If "framingSplit" is provided, USE IT for Reddit — show the frames side by side.
 
@@ -61,6 +92,15 @@ ${JSON_RULES}
   },
   "linkedin": "full post with [LINK]",
   "tiktok_script": "full voiceover script with timing notes",
+  "instagram_carousel": {
+    "slides": [
+      "Slide 1: Headline + OVERCURRENT branding",
+      "Slide 2: The Pattern (shareable insight)",
+      "Slide 3: Framing Split comparison",
+      "Slide 4: Discourse Gap score",
+      "Slide 5: CTA — overcurrent.vercel.app"
+    ]
+  },
   "newsletter": "1 paragraph snippet"
 }`
 
@@ -70,6 +110,7 @@ interface SocialAgentResponse {
   reddit: { title: string; body: string; suggested_subreddits: string[] }
   linkedin: string
   tiktok_script: string
+  instagram_carousel: { slides: string[] }
   newsletter: string
 }
 
@@ -132,6 +173,17 @@ export async function generateSocialDrafts(
   // TikTok script
   if (parsed.tiktok_script) {
     drafts.push({ platform: 'tiktok', content: parsed.tiktok_script })
+  }
+
+  // Instagram carousel
+  if (parsed.instagram_carousel) {
+    drafts.push({
+      platform: 'instagram_carousel',
+      content: Array.isArray(parsed.instagram_carousel.slides)
+        ? parsed.instagram_carousel.slides.join('\n---\n')
+        : String(parsed.instagram_carousel),
+      metadata: { slides: parsed.instagram_carousel.slides },
+    })
   }
 
   // Newsletter snippet

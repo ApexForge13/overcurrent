@@ -9,6 +9,7 @@ import { DebateHighlights } from "./DebateHighlights";
 import { DiscourseGap } from "./DiscourseGap";
 import { BuriedEvidence } from "./BuriedEvidence";
 import { PropagationMap } from "./PropagationMap";
+import { FactSurvival } from "./FactSurvival";
 import { CostDisplay } from "./CostDisplay";
 
 /* ── Types ── */
@@ -67,6 +68,15 @@ interface StoryDetailProps {
       notPickedUpBy: string[];
       sourceType: string;
       whyItMatters: string;
+    }>;
+    factSurvival?: Array<{
+      fact: string;
+      originLayer: string;
+      survivedTo: string;
+      diedAt: string;
+      killPoint: string;
+      whatWasLost: string;
+      significance: string;
     }>;
     // Standard relations
     claims: Array<{
@@ -263,9 +273,10 @@ export function StoryDetail({ story }: StoryDetailProps) {
         note: parsed.note || story.confidenceNote,
         buriedEvidence: parsed.buriedEvidence || [],
         propagationTimeline: parsed.propagationTimeline || [],
+        factSurvival: parsed.factSurvival || [],
       }
     } catch {
-      return { note: story.confidenceNote, buriedEvidence: [], propagationTimeline: [] }
+      return { note: story.confidenceNote, buriedEvidence: [], propagationTimeline: [], factSurvival: [] }
     }
   })()
 
@@ -273,6 +284,11 @@ export function StoryDetail({ story }: StoryDetailProps) {
   const buriedEvidenceItems = story.buriedEvidence && story.buriedEvidence.length > 0
     ? story.buriedEvidence
     : parsedNote.buriedEvidence;
+
+  // Merge fact survival from parsed note and direct property
+  const factSurvivalItems = story.factSurvival && story.factSurvival.length > 0
+    ? story.factSurvival
+    : parsedNote.factSurvival;
 
   // Merge propagation timeline from parsed note and direct property
   const propagationTimeline = story.propagationTimeline && story.propagationTimeline.length > 0
@@ -804,6 +820,16 @@ export function StoryDetail({ story }: StoryDetailProps) {
           preview={`${buriedEvidenceItems.length} fact(s) reported by credible outlets but not picked up by national coverage`}
         >
           <BuriedEvidence items={buriedEvidenceItems} />
+        </CollapsibleSection>
+      )}
+
+      {/* ── FACT SURVIVAL ── */}
+      {factSurvivalItems && factSurvivalItems.length > 0 && (
+        <CollapsibleSection
+          title="FACT SURVIVAL"
+          preview={`${factSurvivalItems.filter((f: {diedAt: string}) => f.diedAt !== 'survived_all').length} facts died before reaching national/international coverage`}
+        >
+          <FactSurvival items={factSurvivalItems} />
         </CollapsibleSection>
       )}
 

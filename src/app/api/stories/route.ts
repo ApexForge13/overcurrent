@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
         regionCount: true,
         consensusScore: true,
         totalCost: true,
+        primaryCategory: true,
+        status: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },

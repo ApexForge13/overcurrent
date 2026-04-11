@@ -40,10 +40,13 @@ const SYSTEM_PROMPT = `You are a news source triage agent for Overcurrent, a cov
 6. Suggest a refined search query if the original seems too broad or too narrow
 
 IMPORTANT RULES:
-- Keep at LEAST 20-30 unique sources. Do NOT over-filter.
+- NEVER return an empty sources array. You MUST return at least 10-15 sources, even if relevance is uncertain.
+- Keep at LEAST 20-30 unique sources when possible. Do NOT over-filter.
+- If few sources seem directly relevant, include sources that are PARTIALLY relevant or cover related topics.
 - Maximize regional diversity — keep sources from as many different regions as possible.
 - region MUST be exactly one of: "North America", "Europe", "Asia-Pacific", "Middle East & Africa", "Latin America", "South & Central Asia"
 - Track source provenance: if an article cites another outlet ("according to NYT..."), note it in citesSource.
+- When in doubt about relevance, INCLUDE the source. Over-inclusion is better than missing coverage.
 
 ${ANTI_HALLUCINATION_RULES}
 

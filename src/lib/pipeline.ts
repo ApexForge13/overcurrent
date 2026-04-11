@@ -158,11 +158,35 @@ export async function runVerifyPipeline(
   const triageResult = await triageSources(rawSources, query)
   totalCost += triageResult.costUsd
 
-  onProgress('triage', {
-    phase: 'triage',
-    message: `Triaged ${triageResult.sources.length} unique sources`,
-    sourceCount: triageResult.sources.length,
-  })
+  // Fallback: if triage returned 0 sources, use raw sources directly
+  if (triageResult.sources.length === 0 && rawSources.length > 0) {
+    const fallbackSources = rawSources.slice(0, 30).map((rs) => ({
+      url: rs.url,
+      title: rs.title,
+      outlet: rs.domain,
+      outletType: 'digital' as const,
+      country: rs.sourcecountry ? rs.sourcecountry.substring(0, 2).toUpperCase() : 'US',
+      region: rs.knownRegion || 'North America',
+      language: 'en',
+      politicalLean: 'unknown',
+      reliability: 'unknown',
+      isWireCopy: false,
+      originalSource: null,
+      citesSource: null,
+    }))
+    triageResult.sources = fallbackSources
+    onProgress('triage', {
+      phase: 'triage',
+      message: `Triage returned 0 — using ${fallbackSources.length} raw sources as fallback`,
+      sourceCount: fallbackSources.length,
+    })
+  } else {
+    onProgress('triage', {
+      phase: 'triage',
+      message: `Triaged ${triageResult.sources.length} unique sources`,
+      sourceCount: triageResult.sources.length,
+    })
+  }
 
   // Override triage region with outlet-registry-known region where available
   const knownRegionMap = new Map<string, string>()

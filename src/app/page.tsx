@@ -184,8 +184,8 @@ export default function HomePage() {
                 No stories analyzed yet. Enter a topic above to get started.
               </p>
             )}
-            {stories.map((story) => (
-              <StoryCard key={story.slug} story={story} />
+            {stories.map((story, i) => (
+              <StoryCard key={story.slug} story={story} index={i} />
             ))}
           </div>
         ) : (

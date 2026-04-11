@@ -1,4 +1,5 @@
 import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { ANTI_HALLUCINATION_RULES, LANGUAGE_RULES, JSON_RULES } from './prompts'
 import type { VolumeDataPoint } from '@/ingestion/gdelt-volume'
 
 // ---------------------------------------------------------------------------
@@ -59,7 +60,11 @@ Do NOT flag stories that:
 
 You are NOT claiming conspiracy. You are documenting coverage patterns. Let the data speak.
 
-Respond with JSON only. No markdown fences.
+${ANTI_HALLUCINATION_RULES}
+
+${LANGUAGE_RULES}
+
+${JSON_RULES}
 
 Response shape:
 {

@@ -1,4 +1,5 @@
 import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { ANTI_HALLUCINATION_RULES, LANGUAGE_RULES, JSON_RULES } from './prompts'
 import type { CongressAction } from '@/ingestion/congress'
 import type { FedRegAction } from '@/ingestion/federal-register'
 
@@ -55,7 +56,11 @@ Do NOT:
 
 Use precise language: 'This action received X articles of coverage despite affecting Y million people' rather than 'they buried this.'
 
-Respond with JSON only. No markdown fences.
+${ANTI_HALLUCINATION_RULES}
+
+${LANGUAGE_RULES}
+
+${JSON_RULES}
 
 Response shape:
 {

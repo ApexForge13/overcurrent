@@ -1,4 +1,5 @@
 import { callClaude, parseJSON, HAIKU } from '@/lib/anthropic'
+import { ANTI_HALLUCINATION_RULES, JSON_RULES } from './prompts'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -14,6 +15,9 @@ export interface TriagedSource {
   language: string
   politicalLean: string
   reliability: string
+  isWireCopy: boolean
+  originalSource: string | null
+  citesSource: string | null
 }
 
 export interface TriageResult {
@@ -27,21 +31,23 @@ export interface TriageResult {
 // System prompt
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are a news source triage agent. Given a list of raw article results about a topic, your job is:
+const SYSTEM_PROMPT = `You are a news source triage agent for Overcurrent, a coverage analysis platform. Given a list of raw article results about a topic, your job is:
 1. Remove duplicate URLs and near-duplicate articles (same story, same outlet)
-2. Identify each source's outlet name, type (wire/newspaper/broadcaster/digital/state), country, region, political lean, and reliability
+2. Identify each source's outlet name, type, country, region, political lean, and reliability
 3. Filter out irrelevant results that don't actually relate to the query
-4. Suggest a category for this story (politics, conflict, economy, technology, health, environment, society, other)
-5. Suggest a refined search query if the original seems too broad or too narrow
+4. Detect WIRE SYNDICATION: If an article is from AP, Reuters, or AFP wire service, mark isWireCopy: true and note the original source. 30 AP copies are NOT 30 independent sources.
+5. Suggest a category for this story
+6. Suggest a refined search query if the original seems too broad or too narrow
 
 IMPORTANT RULES:
 - Keep at LEAST 20-30 unique sources. Do NOT over-filter.
 - Maximize regional diversity — keep sources from as many different regions as possible.
-- region MUST be exactly one of these 6 values: "North America", "Europe", "Asia-Pacific", "Middle East & Africa", "Latin America", "South & Central Asia"
-- Do NOT invent other region names. Use ONLY the 6 listed above.
-- If unsure of region, use the country to determine it. US/Canada/Mexico = North America. UK/France/Germany = Europe. China/Japan/Australia = Asia-Pacific. Israel/Saudi/Kenya/South Africa = Middle East & Africa. Brazil/Argentina/Colombia = Latin America. India/Pakistan/Bangladesh = South & Central Asia.
+- region MUST be exactly one of: "North America", "Europe", "Asia-Pacific", "Middle East & Africa", "Latin America", "South & Central Asia"
+- Track source provenance: if an article cites another outlet ("according to NYT..."), note it in citesSource.
 
-Respond with JSON only. No markdown fences. No preamble.
+${ANTI_HALLUCINATION_RULES}
+
+${JSON_RULES}
 
 Response shape:
 {
@@ -53,9 +59,12 @@ Response shape:
       "outletType": "wire | newspaper | broadcaster | digital | state",
       "country": "2-letter ISO code",
       "region": "one of the 6 exact region names above",
-      "language": "English",
+      "language": "en",
       "politicalLean": "left | center-left | center | center-right | right | state-controlled | unknown",
-      "reliability": "high | medium | low | mixed"
+      "reliability": "high | medium | low | mixed",
+      "isWireCopy": false,
+      "originalSource": null,
+      "citesSource": null
     }
   ],
   "suggestedCategory": "string",
@@ -97,7 +106,20 @@ ${JSON.stringify(truncated, null, 2)}`
   const parsed = parseJSON<Omit<TriageResult, 'costUsd'>>(text)
 
   return {
-    sources: parsed.sources ?? [],
+    sources: ((parsed.sources ?? []) as unknown as Record<string, unknown>[]).map((s) => ({
+      url: String(s.url ?? ''),
+      title: String(s.title ?? ''),
+      outlet: String(s.outlet ?? ''),
+      outletType: String(s.outletType ?? 'digital'),
+      country: String(s.country ?? ''),
+      region: String(s.region ?? ''),
+      language: String(s.language ?? 'en'),
+      politicalLean: String(s.politicalLean ?? 'unknown'),
+      reliability: String(s.reliability ?? 'unknown'),
+      isWireCopy: Boolean(s.isWireCopy ?? false),
+      originalSource: s.originalSource ? String(s.originalSource) : null,
+      citesSource: s.citesSource ? String(s.citesSource) : null,
+    })),
     suggestedCategory: parsed.suggestedCategory ?? 'other',
     searchQueryRefinement: parsed.searchQueryRefinement ?? query,
     costUsd,

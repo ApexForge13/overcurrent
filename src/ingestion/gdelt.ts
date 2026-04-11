@@ -50,7 +50,7 @@ function buildUrl(query: string, maxrecords: number = 250): string {
 async function fetchGdeltQuery(query: string, maxrecords: number = 250): Promise<GdeltResult[]> {
   try {
     const url = buildUrl(query, maxrecords)
-    const response = await fetchWithTimeout(url)
+    const response = await fetchWithTimeout(url, 15_000)
     if (!response.ok) return []
 
     const text = await response.text()

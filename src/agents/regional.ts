@@ -1,4 +1,5 @@
 import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { ANTI_HALLUCINATION_RULES, LANGUAGE_RULES, JSON_RULES } from './prompts'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -8,9 +9,11 @@ export interface RegionalAnalysis {
   region: string
   claims: Array<{
     claim: string
-    confidence: 'confirmed' | 'likely' | 'disputed' | 'unverified'
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'DEVELOPING'
     supportedBy: string[]
     contradictedBy: string[]
+    fullTextVerified?: boolean
+    sourcingType?: string | null
     notes?: string
   }>
   discrepancies: Array<{
@@ -45,7 +48,7 @@ function buildSystemPrompt(region: string): string {
   return `You are an Overcurrent regional analysis agent for the ${region} region. You analyze news sources from this region about a specific story.
 
 Given articles from ${region} about the topic, you must:
-1. Extract specific factual CLAIMS from these sources. For each claim, rate confidence and note which sources support or contradict it.
+1. Extract specific factual CLAIMS from these sources. For each claim, rate confidence and note which sources support or contradict it. For each claim, note whether it was verified against full article text or based on title/headline only.
 2. Identify DISCREPANCIES between sources — where do they disagree on facts, figures, timelines, or attributions?
 3. Analyze FRAMING — how is this region covering the story? What angles are emphasized? What language patterns are used?
 4. Identify OMISSIONS — what information available from other regions is MISSING from this region's coverage?
@@ -53,7 +56,11 @@ Given articles from ${region} about the topic, you must:
 
 Be precise. Cite specific outlets. Do not speculate beyond what the sources say.
 
-Respond with JSON only. No markdown fences.
+${ANTI_HALLUCINATION_RULES}
+
+${LANGUAGE_RULES}
+
+${JSON_RULES}
 
 Response shape:
 {
@@ -61,9 +68,11 @@ Response shape:
   "claims": [
     {
       "claim": "string",
-      "confidence": "confirmed | likely | disputed | unverified",
+      "confidence": "HIGH | MEDIUM | LOW | DEVELOPING",
       "supportedBy": ["outlet names"],
       "contradictedBy": ["outlet names"],
+      "fullTextVerified": true,
+      "sourcingType": "string or null",
       "notes": "optional string"
     }
   ],

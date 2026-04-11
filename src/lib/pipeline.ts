@@ -44,12 +44,22 @@ export async function runVerifyPipeline(
 
   // ── PHASE 1: SEARCH ──────────────────────────────────────────────────
 
-  // Search GDELT (1 API call), RSS, and Reddit in parallel
-  const [allGdelt, rssResults, redditResults] = await Promise.all([
-    searchGdeltGlobal(query),
+  // RSS is primary, GDELT is supplementary (best-effort with timeout)
+  const [rssResults, redditResults] = await Promise.all([
     scanRssFeeds(query),
     searchReddit(query),
   ])
+
+  // GDELT is best-effort — 15s timeout, don't block pipeline on it
+  let allGdelt: Awaited<ReturnType<typeof searchGdeltGlobal>> = []
+  try {
+    allGdelt = await Promise.race([
+      searchGdeltGlobal(query),
+      new Promise<typeof allGdelt>((resolve) => setTimeout(() => resolve([]), 15_000)),
+    ])
+  } catch {
+    // GDELT failed — continue with RSS + Reddit only
+  }
 
   // Deduplicate by URL across all sources
   const seenUrls = new Set<string>()
@@ -309,7 +319,8 @@ export async function runVerifyPipeline(
           language: s.language,
           politicalLean: s.politicalLean,
           reliability: s.reliability,
-          summary: sourceSummaryMap.get(s.url) ?? null,
+          summary: sourceSummaryMap.get(s.url) ??
+            (s.isWireCopy ? `[Wire copy. Original: ${s.originalSource || 'unknown'}]` : null),
         })),
       })
     }

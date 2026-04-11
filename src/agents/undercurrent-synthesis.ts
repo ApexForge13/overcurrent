@@ -1,4 +1,5 @@
 import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { ANTI_HALLUCINATION_RULES, LANGUAGE_RULES, JSON_RULES } from './prompts'
 import type { DisplacedStoryResult } from '@/agents/displacement-scanner'
 import type { QuietActionResult } from '@/agents/quiet-action-scanner'
 
@@ -47,7 +48,11 @@ CORE PRINCIPLES:
 
 Write for someone who is smart, skeptical, and tired of being distracted by noise.
 
-Respond with JSON only. No markdown fences.
+${ANTI_HALLUCINATION_RULES}
+
+${LANGUAGE_RULES}
+
+${JSON_RULES}
 
 Response shape:
 {

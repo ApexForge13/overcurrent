@@ -1,4 +1,5 @@
 import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { ANTI_HALLUCINATION_RULES, LANGUAGE_RULES, JSON_RULES } from './prompts'
 import type { RegionalAnalysis } from '@/agents/regional'
 import type { SilenceAnalysis } from '@/agents/silence'
 
@@ -9,7 +10,7 @@ import type { SilenceAnalysis } from '@/agents/silence'
 export interface SynthesisResult {
   headline: string
   synopsis: string
-  confidenceLevel: 'verified' | 'mostly_verified' | 'mixed' | 'disputed' | 'unverified'
+  confidenceLevel: string
   confidenceNote: string
   claims: Array<{
     claim: string
@@ -62,13 +63,21 @@ Your job:
 
 Be direct, factual, and precise. Don't hedge excessively. State what the evidence shows.
 
-Respond with JSON only. No markdown fences.
+Wire copies from the same original source (AP, Reuters, AFP) count as 1 independent source, not multiple.
+
+If consensus is >90%, include this note in confidenceNote: 'Near-universal consensus. High agreement sometimes reflects shared assumptions rather than independent verification.'
+
+${ANTI_HALLUCINATION_RULES}
+
+${LANGUAGE_RULES}
+
+${JSON_RULES}
 
 Response shape:
 {
   "headline": "string",
   "synopsis": "string (markdown)",
-  "confidenceLevel": "verified | mostly_verified | mixed | disputed | unverified",
+  "confidenceLevel": "HIGH | MEDIUM | LOW | DEVELOPING",
   "confidenceNote": "string",
   "claims": [
     {
@@ -163,7 +172,7 @@ ${JSON.stringify(
   return {
     headline: parsed.headline ?? '',
     synopsis: parsed.synopsis ?? '',
-    confidenceLevel: parsed.confidenceLevel ?? 'unverified',
+    confidenceLevel: parsed.confidenceLevel ?? 'DEVELOPING',
     confidenceNote: parsed.confidenceNote ?? '',
     claims: parsed.claims ?? [],
     discrepancies: parsed.discrepancies ?? [],

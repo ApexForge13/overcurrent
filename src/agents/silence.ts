@@ -1,4 +1,5 @@
 import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { ANTI_HALLUCINATION_RULES, LANGUAGE_RULES, JSON_RULES } from './prompts'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,12 +23,16 @@ function buildSystemPrompt(region: string): string {
 Consider:
 1. Is this topic simply not relevant to this region? (A local US zoning dispute wouldn't be covered in Asia)
 2. Is there potential media suppression or censorship? (Some regions have state-controlled media)
-3. Is it a language barrier or search limitation? (Story might be covered in local language)
-4. Is the silence SIGNIFICANT? A major global event with zero coverage in a region is notable. A local story with no coverage elsewhere is expected.
+3. Is it a language barrier or search limitation? (Story might be not found in available coverage in local language)
+4. Is the silence SIGNIFICANT? A major global event not found in available coverage from a region is notable. A local story not found in available coverage elsewhere is expected.
 
 Be balanced and precise. Don't assume censorship when irrelevance is more likely.
 
-Respond with JSON only. No markdown fences.
+${ANTI_HALLUCINATION_RULES}
+
+${LANGUAGE_RULES}
+
+${JSON_RULES}
 
 Response shape:
 {

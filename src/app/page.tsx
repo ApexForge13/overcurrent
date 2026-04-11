@@ -1,11 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ModeToggle } from "@/components/ModeToggle";
-import { SearchBar } from "@/components/SearchBar";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
-import { StoryCard } from "@/components/StoryCard";
-import { UndercurrentCard } from "@/components/UndercurrentCard";
 
 interface StoryItem {
   slug: string;
@@ -42,9 +38,26 @@ interface SSEEvent {
   [key: string]: unknown;
 }
 
+function timeAgo(date: string): string {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function confidenceColor(level: string): string {
+  const l = level.toUpperCase();
+  if (l === "HIGH") return "var(--accent-green)";
+  if (l === "MEDIUM" || l === "DEVELOPING") return "var(--accent-amber)";
+  if (l === "LOW") return "var(--accent-red)";
+  return "var(--text-tertiary)";
+}
+
 export default function HomePage() {
-  const [mode, setMode] = useState<"verify" | "undercurrent">("verify");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showAnalyzeInput, setShowAnalyzeInput] = useState(false);
+  const [query, setQuery] = useState("");
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
@@ -53,7 +66,7 @@ export default function HomePage() {
     try {
       const [storiesRes, reportsRes] = await Promise.all([
         fetch("/api/stories?limit=20"),
-        fetch("/api/reports?limit=20"),
+        fetch("/api/reports?limit=10"),
       ]);
       if (storiesRes.ok) {
         const data = await storiesRes.json();
@@ -63,158 +76,268 @@ export default function HomePage() {
         const data = await reportsRes.json();
         setReports(data.reports || []);
       }
-    } catch {
-      // silently fail on initial load
-    }
+    } catch { /* silent */ }
   }, []);
 
-  useEffect(() => {
-    fetchFeed();
-  }, [fetchFeed]);
+  useEffect(() => { fetchFeed(); }, [fetchFeed]);
 
-  async function handleSubmit(query: string) {
-    setIsLoading(true);
+  async function handleAnalyze(e: React.FormEvent) {
+    e.preventDefault();
+    if (!query.trim() || isAnalyzing) return;
+    setIsAnalyzing(true);
     setEvents([]);
 
-    const endpoint = mode === "verify" ? "/api/analyze" : "/api/undercurrent";
-
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query: query.trim() }),
       });
-
-      if (!response.body) throw new Error("No response stream");
-
+      if (!response.body) throw new Error("No stream");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6)) as SSEEvent;
               setEvents((prev) => [...prev, data]);
-
-              if (data.event === "complete" || data.phase === "complete") {
+              if (data.phase === "complete" || data.event === "complete") {
                 await fetchFeed();
-                setIsLoading(false);
+                setIsAnalyzing(false);
+                setShowAnalyzeInput(false);
               }
-              if (data.event === "error" || data.phase === "error") {
-                setIsLoading(false);
-              }
-            } catch {
-              // skip malformed SSE events
-            }
+              if (data.phase === "error") setIsAnalyzing(false);
+            } catch { /* skip */ }
           }
         }
       }
-    } catch (err) {
-      setEvents((prev) => [
-        ...prev,
-        {
-          event: "error",
-          phase: "error",
-          message: err instanceof Error ? err.message : "Unknown error",
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+    } catch { setIsAnalyzing(false); }
   }
 
+  const featured = stories[0];
+  const rest = stories.slice(1);
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Hero */}
-      <div className="text-center mb-10">
-        <h1 className="font-display font-black text-4xl md:text-5xl mb-3">
-          <span className="text-text-muted">OVER</span>
-          <span className="text-accent-green">CURRENT</span>
-        </h1>
-        <p className="text-text-secondary text-lg font-body">
-          {mode === "verify"
-            ? "Cross-reference global news. Detect omissions. Verify claims."
-            : "See what\u2019s under the surface. The news under the news."}
+    <div className="max-w-[1200px] mx-auto px-6">
+      {/* Tagline + analyze trigger */}
+      <div className="flex items-center justify-between py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-tertiary)' }}>
+          See what's under the surface.
         </p>
+        <button
+          onClick={() => setShowAnalyzeInput(!showAnalyzeInput)}
+          className="text-xs px-3 py-1.5 border transition-colors hover:opacity-80"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--accent-green)',
+            borderColor: 'var(--border-accent)',
+            background: 'transparent',
+            letterSpacing: '0.04em',
+          }}
+        >
+          + new analysis
+        </button>
       </div>
 
-      {/* Mode Toggle */}
-      <div className="flex justify-center mb-6">
-        <ModeToggle mode={mode} onToggle={setMode} />
-      </div>
+      {/* Analyze input (expandable) */}
+      {showAnalyzeInput && (
+        <form onSubmit={handleAnalyze} className="py-4 border-b" style={{ borderColor: 'var(--border-primary)' }}>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Enter a story to analyze..."
+              disabled={isAnalyzing}
+              className="flex-1 px-3 py-2 text-sm border bg-transparent outline-none"
+              style={{
+                fontFamily: 'var(--font-body)',
+                color: 'var(--text-primary)',
+                borderColor: 'var(--border-accent)',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={isAnalyzing || !query.trim()}
+              className="px-4 py-2 text-sm border transition-opacity"
+              style={{
+                fontFamily: 'var(--font-mono)',
+                color: isAnalyzing ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                borderColor: 'var(--border-accent)',
+                background: 'transparent',
+                opacity: isAnalyzing ? 0.5 : 1,
+              }}
+            >
+              {isAnalyzing ? "analyzing..." : "analyze"}
+            </button>
+          </div>
+        </form>
+      )}
 
-      {/* Search */}
-      <div className="max-w-2xl mx-auto mb-8">
-        <SearchBar mode={mode} onSubmit={handleSubmit} isLoading={isLoading} />
-      </div>
-
-      {/* Analysis Progress */}
+      {/* Analysis progress */}
       {events.length > 0 && (
-        <div className="max-w-2xl mx-auto mb-10">
-          <AnalysisProgress events={events} mode={mode} />
+        <div className="py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
+          <AnalysisProgress events={events} mode="verify" />
         </div>
       )}
 
-      {/* Feed */}
-      <div className="border-t border-border pt-8">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="font-display font-bold text-xl text-text-primary">
-            {mode === "verify" ? "Recent Analyses" : "Undercurrent Reports"}
-          </h2>
-          <span className="text-xs font-mono text-text-muted">
-            {mode === "verify"
-              ? `${stories.length} stories`
-              : `${reports.length} reports`}
-          </span>
-        </div>
-
-        {mode === "verify" ? (
-          <div className="grid gap-4">
-            {stories.length === 0 && !isLoading && (
-              <p className="text-text-muted text-center py-12">
-                No stories analyzed yet. Enter a topic above to get started.
-              </p>
-            )}
-            {stories.map((story, i) => (
-              <StoryCard key={story.slug} story={story} index={i} />
-            ))}
+      {/* Main content: newspaper layout */}
+      <div className="py-8">
+        {stories.length === 0 && !isAnalyzing ? (
+          <div className="py-20 text-center" style={{ color: 'var(--text-tertiary)' }}>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: 600 }}>No stories yet</p>
+            <p className="mt-2 text-sm" style={{ fontFamily: 'var(--font-body)' }}>Click "+ new analysis" to cross-reference your first story.</p>
           </div>
         ) : (
-          <div className="grid gap-4">
-            {reports.length === 0 && !isLoading && (
-              <p className="text-text-muted text-center py-12">
-                No undercurrent reports yet. Enter a dominant story above to
-                analyze what&apos;s being buried.
-              </p>
+          <div className="flex gap-12 flex-col lg:flex-row">
+            {/* Featured story — 60% */}
+            {featured && (
+              <a href={`/story/${featured.slug}`} className="lg:w-[58%] block group">
+                <div className="flex items-center gap-3 mb-3">
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: confidenceColor(featured.confidenceLevel) }}>
+                    {featured.confidenceLevel}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                    {featured.consensusScore}% consensus
+                  </span>
+                </div>
+                <h2
+                  className="group-hover:opacity-80 transition-opacity"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: '36px',
+                    fontWeight: 700,
+                    lineHeight: 1.15,
+                    letterSpacing: '-0.02em',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  {featured.headline}
+                </h2>
+                <p className="mt-4 line-clamp-3" style={{ fontFamily: 'var(--font-body)', fontSize: '16px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                  {featured.synopsis?.replace(/<[^>]*>/g, '').substring(0, 300)}
+                </p>
+                <div className="mt-4 flex items-center gap-4">
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    {featured.sourceCount} sources
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    {featured.countryCount} countries
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                    {timeAgo(featured.createdAt)}
+                  </span>
+                </div>
+              </a>
             )}
-            {reports.map((report) => (
-              <UndercurrentCard
-                key={report.slug}
-                report={{
-                  ...report,
-                  displacedStoryCount:
-                    report._count?.displacedStories ??
-                    report.displacedStories?.length ??
-                    0,
-                  quietActionCount:
-                    report._count?.quietActions ??
-                    report.quietActions?.length ??
-                    0,
-                  riskLevel: report.riskLevel || "MEDIUM",
-                }}
-              />
-            ))}
+
+            {/* Story list — 40% */}
+            <div className="lg:w-[42%] lg:border-l lg:pl-8" style={{ borderColor: 'var(--border-primary)' }}>
+              <div className="mb-4">
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: 'var(--text-tertiary)' }}>
+                  Latest analyses
+                </span>
+              </div>
+              <div>
+                {rest.map((story) => (
+                  <a
+                    key={story.slug}
+                    href={`/story/${story.slug}`}
+                    className="block py-4 border-b group transition-colors"
+                    style={{ borderColor: 'var(--border-primary)' }}
+                  >
+                    <h3
+                      className="group-hover:opacity-70 transition-opacity"
+                      style={{
+                        fontFamily: 'var(--font-display)',
+                        fontSize: '18px',
+                        fontWeight: 600,
+                        lineHeight: 1.3,
+                        letterSpacing: '-0.01em',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      {story.headline}
+                    </h3>
+                    <div className="mt-2 flex items-center gap-3">
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' as const, color: confidenceColor(story.confidenceLevel) }}>
+                        {story.confidenceLevel}
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                        {story.consensusScore}%
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                        {story.sourceCount} sources
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                        {timeAgo(story.createdAt)}
+                      </span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
           </div>
         )}
+      </div>
+
+      {/* Undercurrent section */}
+      {reports.length > 0 && (
+        <div className="py-8 border-t" style={{ borderColor: 'var(--border-primary)' }}>
+          <div className="section-rule"><span>Undercurrent</span></div>
+          {reports.map((report) => (
+            <a
+              key={report.slug}
+              href={`/undercurrent/${report.slug}`}
+              className="block py-5 border-b group"
+              style={{ borderColor: 'var(--border-primary)', borderLeft: '3px solid var(--accent-purple)', paddingLeft: '16px' }}
+            >
+              <h3
+                className="group-hover:opacity-70 transition-opacity"
+                style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}
+              >
+                While everyone watched {report.dominantHeadline}...
+              </h3>
+              <div className="mt-2 flex items-center gap-4">
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-purple)' }}>
+                  {(report._count?.displacedStories ?? report.displacedStories?.length ?? 0)} displaced stories
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-purple)' }}>
+                  {(report._count?.quietActions ?? report.quietActions?.length ?? 0)} quiet actions
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                  {timeAgo(report.createdAt)}
+                </span>
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {/* Stats bar */}
+      <div className="py-8 border-t grid grid-cols-2 md:grid-cols-4 gap-8" style={{ borderColor: 'var(--border-primary)' }}>
+        {[
+          { label: "stories analyzed", value: stories.length },
+          { label: "sources checked", value: stories.reduce((n, s) => n + s.sourceCount, 0).toLocaleString() },
+          { label: "countries covered", value: [...new Set(stories.flatMap(() => []))].length || stories.reduce((max, s) => Math.max(max, s.countryCount), 0) },
+          { label: "models debating", value: 4 },
+        ].map((stat) => (
+          <div key={stat.label}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '28px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {stat.value}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
+              {stat.label}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

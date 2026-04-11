@@ -77,22 +77,7 @@ export interface ModelCallResult {
   model: string
 }
 
-async function checkDailyCostCap(): Promise<void> {
-  const start = new Date(); start.setHours(0, 0, 0, 0)
-  const end = new Date(); end.setHours(23, 59, 59, 999)
-  const result = await prisma.costLog.aggregate({
-    _sum: { costUsd: true },
-    where: { createdAt: { gte: start, lte: end } },
-  })
-  const dailyCost = result._sum.costUsd ?? 0
-  const cap = parseFloat(process.env.DAILY_COST_CAP ?? '5')
-  if (dailyCost >= cap) {
-    throw new Error(`Daily cost cap reached ($${dailyCost.toFixed(4)} / $${cap}). Refusing API calls.`)
-  }
-}
-
 export async function callModel(options: ModelCallOptions): Promise<ModelCallResult> {
-  await checkDailyCostCap()
 
   const model = MODEL_MAP[options.provider]?.[options.tier]
   if (!model) throw new Error(`Unknown provider/tier: ${options.provider}/${options.tier}`)

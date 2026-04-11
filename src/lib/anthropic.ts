@@ -82,16 +82,6 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
     undercurrentReportId,
   } = options
 
-  // --- Cost cap check ---
-  const cap = parseFloat(process.env.DAILY_COST_CAP ?? '15')
-  const dailyCost = await getDailyCost()
-  if (dailyCost >= cap) {
-    throw new Error(
-      `Daily cost cap reached ($${dailyCost.toFixed(4)} / $${cap.toFixed(2)}). ` +
-      'Refusing to make further API calls today.',
-    )
-  }
-
   // --- API call ---
   const maxTokens = options.maxTokens ?? 4096
   const response = await client.messages.create({

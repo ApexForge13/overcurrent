@@ -7,6 +7,7 @@ import { RegionalCoverageMap } from "./RegionalCoverageMap";
 import { FollowUpQuestions } from "./FollowUpQuestions";
 import { DebateHighlights } from "./DebateHighlights";
 import { DiscourseGap } from "./DiscourseGap";
+import { BuriedEvidence } from "./BuriedEvidence";
 import { CostDisplay } from "./CostDisplay";
 
 /* ── Types ── */
@@ -39,6 +40,15 @@ interface StoryDetailProps {
       coverageLevel: string;
     }>;
     silenceExplanation?: string;
+    confidenceNote?: string | null;
+    buriedEvidence?: Array<{
+      fact: string;
+      reportedBy: string;
+      contradicts: string;
+      notPickedUpBy: string[];
+      sourceType: string;
+      whyItMatters: string;
+    }>;
     // Standard relations
     claims: Array<{
       claim: string;
@@ -225,6 +235,21 @@ export function StoryDetail({ story }: StoryDetailProps) {
     story.followUpQuestions.some((q) => q.hypotheses && q.hypotheses.length > 0);
 
   const oldFollowUps = story.followUps ?? [];
+
+  // Parse confidenceNote for buried evidence (it may be JSON-encoded)
+  const parsedNote = (() => {
+    try {
+      const parsed = JSON.parse(story.confidenceNote || '{}')
+      return { note: parsed.note || story.confidenceNote, buriedEvidence: parsed.buriedEvidence || [] }
+    } catch {
+      return { note: story.confidenceNote, buriedEvidence: [] }
+    }
+  })()
+
+  // Merge buried evidence from parsed note and direct property
+  const buriedEvidenceItems = story.buriedEvidence && story.buriedEvidence.length > 0
+    ? story.buriedEvidence
+    : parsedNote.buriedEvidence;
 
   // Regional coverage: adapt camelCase props to snake_case for the component
   const regionalCoverageData = story.regionalCoverage?.map((r) => ({
@@ -741,6 +766,16 @@ export function StoryDetail({ story }: StoryDetailProps) {
               </div>
             </div>
           ))}
+        </CollapsibleSection>
+      )}
+
+      {/* ── REPORTED BUT BURIED ── */}
+      {buriedEvidenceItems && buriedEvidenceItems.length > 0 && (
+        <CollapsibleSection
+          title="REPORTED BUT BURIED"
+          preview={`${buriedEvidenceItems.length} fact(s) reported by credible outlets but not picked up by national coverage`}
+        >
+          <BuriedEvidence items={buriedEvidenceItems} />
         </CollapsibleSection>
       )}
 

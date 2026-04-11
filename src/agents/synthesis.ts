@@ -79,6 +79,15 @@ export interface SynthesisResult {
       type: string
     }>
   }>
+  buriedEvidence: Array<{
+    fact: string
+    reportedBy: string
+    contradicts: string
+    notPickedUpBy: string[]
+    sourceType: string
+    whyItMatters: string
+    sortOrder: number
+  }>
   costUsd: number
 }
 
@@ -113,6 +122,23 @@ ${ANTI_HALLUCINATION_RULES}
 ${LANGUAGE_RULES}
 
 ${JSON_RULES}
+
+BURIED EVIDENCE DETECTION:
+
+After analyzing claims across all sources, actively hunt for "buried evidence" — facts that were REPORTED by real outlets but died before reaching wider coverage. These are NOT omissions (facts nobody covered). These are facts that WERE reported, with real sources, by real journalists — and then were not picked up by other outlets.
+
+A fact qualifies as buried evidence when ALL of these are true:
+1. It appears in 1-2 outlets only
+2. It directly complicates or contradicts a claim that appears in 10+ outlets
+3. It contains an on-record source (named person, official document, verified data)
+4. It was published by a credible outlet (not a blog or social post)
+
+For each buried evidence item, note:
+- The specific fact/quote
+- Who reported it (outlet name)
+- What it contradicts or complicates in the dominant narrative
+- Which outlets covered the story but did NOT pick up this fact
+- Why it matters (how the narrative changes if you include this fact)
 
 PROPAGATION TIMELINE:
 
@@ -196,6 +222,17 @@ Response shape:
       "question": "string",
       "hypotheses": ["string"],
       "evidence_status": "string"
+    }
+  ],
+  "buried_evidence": [
+    {
+      "fact": "Dock worker Alejandro Montero told CBS Los Angeles he was 'making good money' at the same facility",
+      "reported_by": "CBS Los Angeles",
+      "contradicts": "The dominant narrative that workers were underpaid, which appears in 40+ outlets",
+      "not_picked_up_by": ["Fox News", "NBC News", "ABC News", "Daily Wire", "Bloomberg"],
+      "source_type": "named on-record source",
+      "why_it_matters": "Without this quote, the suspect's wage complaint goes completely unchallenged in national coverage",
+      "sort_order": 1
     }
   ],
   "propagation_timeline": [
@@ -367,6 +404,19 @@ ${JSON.stringify(
     }
   })
 
+  // --- buried_evidence ---
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const buriedEvidence = (parsed.buried_evidence ?? parsed.buriedEvidence ?? []).map((b: any, i: number) => ({
+    fact: String(b.fact ?? ''),
+    reportedBy: String(b.reported_by ?? b.reportedBy ?? ''),
+    contradicts: String(b.contradicts ?? ''),
+    notPickedUpBy: Array.isArray(b.not_picked_up_by ?? b.notPickedUpBy)
+      ? (b.not_picked_up_by ?? b.notPickedUpBy).map(String) : [],
+    sourceType: String(b.source_type ?? b.sourceType ?? ''),
+    whyItMatters: String(b.why_it_matters ?? b.whyItMatters ?? ''),
+    sortOrder: Number(b.sort_order ?? b.sortOrder ?? i),
+  }))
+
   // --- propagation_timeline ---
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const propagationTimeline = (parsed.propagation_timeline ?? parsed.propagationTimeline ?? []).map((frame: any) => ({
@@ -404,6 +454,7 @@ ${JSON.stringify(
     silenceExplanation,
     followUpQuestions,
     propagationTimeline,
+    buriedEvidence,
     costUsd,
   }
 }

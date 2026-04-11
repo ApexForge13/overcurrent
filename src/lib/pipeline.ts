@@ -353,7 +353,10 @@ export async function runVerifyPipeline(
         headline: synthesisResult.headline,
         synopsis: synthesisResult.synopsis,
         confidenceLevel: synthesisResult.confidenceLevel,
-        confidenceNote: synthesisResult.confidenceNote,
+        confidenceNote: JSON.stringify({
+          note: synthesisResult.confidenceNote,
+          buriedEvidence: synthesisResult.buriedEvidence,
+        }),
         category: triageResult.suggestedCategory,
         primaryCategory: triageResult.suggestedCategory || null,
         secondaryCategories: triageResult.suggestedSecondary?.length ? JSON.stringify(triageResult.suggestedSecondary) : null,

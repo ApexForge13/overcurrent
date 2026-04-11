@@ -23,6 +23,7 @@ export interface TriagedSource {
 export interface TriageResult {
   sources: TriagedSource[]
   suggestedCategory: string
+  suggestedSecondary: string[]
   searchQueryRefinement: string
   costUsd: number
 }
@@ -36,7 +37,10 @@ const SYSTEM_PROMPT = `You are a news source triage agent for Overcurrent, a cov
 2. Identify each source's outlet name, type, country, region, political lean, and reliability
 3. Filter out irrelevant results that don't actually relate to the query
 4. Detect WIRE SYNDICATION: If an article is from AP, Reuters, or AFP wire service, mark isWireCopy: true and note the original source. 30 AP copies are NOT 30 independent sources.
-5. Suggest a category for this story
+5. Suggest a primary category for this story from exactly one of these slugs: conflict, politics, economy, tech, labor, climate, health, society, trade
+   Additionally, suggest 1-2 secondary categories (from the same list) if the story spans multiple domains.
+   Example: A warehouse fire set by a worker protesting wages → primary: "labor", secondary: ["economy", "society"]
+   AI regulation in the EU → primary: "tech", secondary: ["politics"]
 6. Suggest a refined search query if the original seems too broad or too narrow
 
 IMPORTANT RULES:
@@ -71,6 +75,7 @@ Response shape:
     }
   ],
   "suggestedCategory": "string",
+  "suggestedSecondary": ["string"],
   "searchQueryRefinement": "string"
 }`
 
@@ -124,6 +129,7 @@ ${JSON.stringify(truncated, null, 2)}`
       citesSource: s.citesSource ? String(s.citesSource) : null,
     })),
     suggestedCategory: parsed.suggestedCategory ?? 'other',
+    suggestedSecondary: Array.isArray(parsed.suggestedSecondary) ? parsed.suggestedSecondary : [],
     searchQueryRefinement: parsed.searchQueryRefinement ?? query,
     costUsd,
   }

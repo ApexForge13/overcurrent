@@ -352,6 +352,8 @@ export async function runVerifyPipeline(
         confidenceLevel: synthesisResult.confidenceLevel,
         confidenceNote: synthesisResult.confidenceNote,
         category: triageResult.suggestedCategory,
+        primaryCategory: triageResult.suggestedCategory || null,
+        secondaryCategories: triageResult.suggestedSecondary?.length ? JSON.stringify(triageResult.suggestedSecondary) : null,
         searchQuery: query,
         sourceCount: triageResult.sources.length,
         countryCount: countries.size,

@@ -18,6 +18,8 @@ model Story {
   confidenceLevel   String
   confidenceNote    String?
   category          String?
+  primaryCategory     String?
+  secondaryCategories String?
   searchQuery       String
   sourceCount       Int      @default(0)
   countryCount      Int      @default(0)
@@ -160,6 +162,8 @@ model UndercurrentReport {
   slug                String   @unique
   dominantStoryId     String?
   dominantStory       Story?   @relation("DominantStory", fields: [dominantStoryId], references: [id], onDelete: SetNull)
+  primaryCategory     String?   @default("undercurrent")
+  dominantCategory    String?
   dominantHeadline    String
   dominantDescription String
   dateRangeStart      DateTime

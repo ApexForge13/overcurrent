@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
+import { CATEGORIES, CATEGORY_SLUGS, getCategoryColor } from "@/data/categories";
 
 interface StoryItem {
   slug: string;
   headline: string;
   synopsis: string;
   confidenceLevel: string;
+  primaryCategory?: string;
   sourceCount: number;
   countryCount: number;
   regionCount: number;
@@ -58,6 +60,7 @@ export default function HomePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAnalyzeInput, setShowAnalyzeInput] = useState(false);
   const [analyzeMode, setAnalyzeMode] = useState<"verify" | "undercurrent">("verify");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
@@ -123,8 +126,11 @@ export default function HomePage() {
     } catch { setIsAnalyzing(false); }
   }
 
-  const featured = stories[0];
-  const rest = stories.slice(1);
+  const filteredStories = categoryFilter === "all"
+    ? stories
+    : stories.filter((s) => s.primaryCategory === categoryFilter);
+  const featured = filteredStories[0];
+  const rest = filteredStories.slice(1);
 
   return (
     <div className="max-w-[1200px] mx-auto px-6">
@@ -202,6 +208,48 @@ export default function HomePage() {
       {events.length > 0 && (
         <div className="py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
           <AnalysisProgress events={events} mode={analyzeMode} />
+        </div>
+      )}
+
+      {/* Category filter pills */}
+      {stories.length > 0 && (
+        <div className="flex items-center gap-2 py-4 overflow-x-auto" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+          <button
+            onClick={() => setCategoryFilter("all")}
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              padding: '4px 10px',
+              color: categoryFilter === "all" ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              background: 'none',
+              border: 'none',
+              borderBottom: categoryFilter === "all" ? '2px solid var(--text-primary)' : '2px solid transparent',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ALL
+          </button>
+          {CATEGORY_SLUGS.filter(s => s !== 'undercurrent').map((slug) => (
+            <button
+              key={slug}
+              onClick={() => setCategoryFilter(slug)}
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '11px',
+                padding: '4px 10px',
+                color: categoryFilter === slug ? getCategoryColor(slug) : 'var(--text-tertiary)',
+                background: 'none',
+                border: 'none',
+                borderBottom: categoryFilter === slug ? `2px solid ${getCategoryColor(slug)}` : '2px solid transparent',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                textTransform: 'capitalize',
+              }}
+            >
+              {CATEGORIES[slug].label.split(' ')[0]}
+            </button>
+          ))}
         </div>
       )}
 

@@ -26,6 +26,16 @@ WHAT MAKES OVERCURRENT CONTENT SHAREABLE:
 - The AI debate: "4 AI models analyzed this. 3 agreed. Then [model] caught [error]."
 - Specific numbers always. "83% of 47 outlets" not "most outlets."
 
+CONTENT PRIORITIES:
+- Twitter hook: Use "The Pattern" text or the most surprising omission
+- Reddit post: Lead with the framing split — the side-by-side comparison IS the content
+- LinkedIn: Lead with The Pattern, frame as media analysis insight
+- TikTok script: "I ran this story through [X] outlets across [Y] countries. Here's what each side isn't telling you."
+- Newsletter: The summary + The Pattern + one follow-up question with hypothesis
+
+If "thePattern" is provided in the analysis data, USE IT as the primary hook. It's already optimized for sharing.
+If "framingSplit" is provided, USE IT for Reddit — show the frames side by side.
+
 RULES:
 1. Never fabricate findings. Only reference claims, discrepancies, omissions from the analysis provided.
 2. Pick the MOST SHAREABLE finding for each platform.

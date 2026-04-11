@@ -6,6 +6,7 @@ import { ThePattern } from "./ThePattern";
 import { RegionalCoverageMap } from "./RegionalCoverageMap";
 import { FollowUpQuestions } from "./FollowUpQuestions";
 import { DebateHighlights } from "./DebateHighlights";
+import { DiscourseGap } from "./DiscourseGap";
 import { CostDisplay } from "./CostDisplay";
 
 /* ── Types ── */
@@ -97,6 +98,36 @@ interface StoryDetailProps {
       modelName: string;
       provider: string;
       content: string;
+    }>;
+    discourseGap?: {
+      mediaDominantFrame: string;
+      mediaFramePct: number;
+      publicDominantFrame: string;
+      publicFramePct: number;
+      gapScore: number;
+      gapDirection: string;
+      gapSummary: string;
+      publicSurfacedFirst?: string | null;
+      mediaIgnoredByPublic?: string | null;
+      publicCounterNarrative?: string | null;
+    } | null;
+    discourseSnapshots?: Array<{
+      id: string;
+      platform: string;
+      totalEngagement: number;
+      postCount: number;
+      dominantSentiment: string | null;
+      dominantFraming: string | null;
+      posts: Array<{
+        platform: string;
+        url: string | null;
+        subreddit: string | null;
+        content: string;
+        upvotes: number;
+        comments: number;
+        framingType: string | null;
+        sentiment: string | null;
+      }>;
     }>;
     [key: string]: unknown;
   };
@@ -851,6 +882,19 @@ export function StoryDetail({ story }: StoryDetailProps) {
           preview={`${new Set(story.debateRounds.filter((r) => r.round === 1).map((r) => r.modelName)).size} models debated across ${new Set(story.debateRounds.map((r) => r.region)).size} regions`}
         >
           <DebateHighlights debateRounds={story.debateRounds} />
+        </CollapsibleSection>
+      )}
+
+      {/* ── DISCOURSE GAP ── */}
+      {story.discourseGap && (
+        <CollapsibleSection
+          title="DISCOURSE GAP"
+          preview={`Media says ${story.discourseGap.mediaDominantFrame}. Public says ${story.discourseGap.publicDominantFrame}. ${story.discourseGap.gapScore}-point gap.`}
+        >
+          <DiscourseGap
+            gap={story.discourseGap}
+            posts={story.discourseSnapshots?.[0]?.posts}
+          />
         </CollapsibleSection>
       )}
 

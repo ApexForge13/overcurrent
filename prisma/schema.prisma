@@ -42,6 +42,8 @@ model Story {
   undercurrentReports UndercurrentReport[] @relation("DominantStory")
   debateRounds    DebateRound[]
   socialDrafts    SocialDraft[]
+  discourseSnapshots  DiscourseSnapshot[]
+  discourseGap        DiscourseGap?
 }
 
 model Source {
@@ -228,6 +230,59 @@ model TimingAnomaly {
 // ═══════════════════════════════════════
 // SHARED
 // ═══════════════════════════════════════
+
+model DiscourseSnapshot {
+  id                String   @id @default(cuid())
+  storyId           String
+  story             Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  platform          String
+  capturedAt        DateTime @default(now())
+  totalEngagement   Int      @default(0)
+  postCount         Int      @default(0)
+  dominantSentiment String?
+  dominantFraming   String?
+  posts             DiscoursePost[]
+}
+
+model DiscoursePost {
+  id              String   @id @default(cuid())
+  snapshotId      String
+  snapshot        DiscourseSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  platform        String
+  url             String?
+  author          String?
+  authorFollowers Int?
+  isVerified      Boolean  @default(false)
+  content         String
+  subreddit       String?
+  hashtags        String?
+  upvotes         Int      @default(0)
+  comments        Int      @default(0)
+  shares          Int      @default(0)
+  views           Int?
+  framingType     String?
+  sentiment       String?
+  topComments     String?
+  capturedAt      DateTime @default(now())
+  sortOrder       Int      @default(0)
+}
+
+model DiscourseGap {
+  id                    String   @id @default(cuid())
+  storyId               String   @unique
+  story                 Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  mediaDominantFrame    String
+  mediaFramePct         Int
+  publicDominantFrame   String
+  publicFramePct        Int
+  gapScore              Int
+  gapDirection          String
+  gapSummary            String
+  publicSurfacedFirst   String?
+  mediaIgnoredByPublic  String?
+  publicCounterNarrative String?
+  createdAt             DateTime @default(now())
+}
 
 model CostLog {
   id                  String   @id @default(cuid())

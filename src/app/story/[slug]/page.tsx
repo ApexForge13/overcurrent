@@ -21,6 +21,8 @@ export default async function StoryPage({
       silences: true,
       followUps: { orderBy: { sortOrder: "asc" } },
       debateRounds: true,
+      discourseGap: true,
+      discourseSnapshots: { include: { posts: true } },
     },
   });
 

@@ -12,6 +12,8 @@ import { synthesize } from '@/agents/synthesis'
 import { runRegionalDebate, moderatorToRegionalAnalysis } from '@/lib/debate'
 import type { DebateRoundData } from '@/lib/debate'
 import { generateSocialDrafts } from '@/agents/social-drafts'
+import { fetchRedditDiscourse } from '@/ingestion/reddit-discourse'
+import { analyzeDiscourse } from '@/agents/discourse'
 import type { TriagedSource } from '@/agents/triage'
 import type { SilenceAnalysis } from '@/agents/silence'
 
@@ -522,6 +524,98 @@ export async function runVerifyPipeline(
     onProgress('social', { phase: 'social', message: `Generated ${drafts.length} social drafts` })
   } catch (err) {
     console.error('Social draft generation failed:', err)
+  }
+
+  // ── DISCOURSE ANALYSIS (after social drafts) ──
+  try {
+    const keywords = query.split(/\s+/).filter(w => w.length > 3)
+    const redditPosts = await fetchRedditDiscourse(keywords, triageResult.suggestedCategory, 15, 50)
+
+    if (redditPosts.length > 0) {
+      // Determine media dominant framing from synthesis
+      const mediaDominantFrame = synthesisResult.framingSplit?.[0]?.frameName || 'unknown'
+      const mediaFramePct = synthesisResult.framingSplit?.[0]?.outletCount
+        ? Math.round((synthesisResult.framingSplit[0].outletCount / triageResult.sources.length) * 100)
+        : 0
+
+      const discourseResult = await analyzeDiscourse(
+        {
+          headline: synthesisResult.headline,
+          dominantFraming: mediaDominantFrame,
+          framingPct: mediaFramePct,
+          claims: synthesisResult.claims.map(c => c.claim).slice(0, 5),
+        },
+        redditPosts,
+        story.id,
+      )
+      totalCost += discourseResult.costUsd
+
+      // Save discourse snapshot
+      const snapshot = await prisma.discourseSnapshot.create({
+        data: {
+          storyId: story.id,
+          platform: 'reddit',
+          totalEngagement: redditPosts.reduce((n, p) => n + p.upvotes, 0),
+          postCount: redditPosts.length,
+          dominantSentiment: discourseResult.aggregate.dominant_sentiment,
+          dominantFraming: discourseResult.aggregate.dominant_framing,
+        },
+      })
+
+      // Save discourse posts
+      if (discourseResult.posts.length > 0) {
+        await prisma.discoursePost.createMany({
+          data: redditPosts.map((p, i) => {
+            const analysis = discourseResult.posts.find(a => a.post_index === i)
+            return {
+              snapshotId: snapshot.id,
+              platform: 'reddit',
+              url: p.url,
+              author: p.author,
+              content: p.content.substring(0, 2000),
+              subreddit: p.subreddit,
+              upvotes: p.upvotes,
+              comments: p.comments,
+              framingType: analysis?.framing_type ?? null,
+              sentiment: analysis?.sentiment ?? null,
+              topComments: p.topComments.length > 0 ? JSON.stringify(p.topComments) : null,
+              sortOrder: i,
+            }
+          }),
+        })
+      }
+
+      // Save discourse gap
+      await prisma.discourseGap.create({
+        data: {
+          storyId: story.id,
+          mediaDominantFrame: discourseResult.gap.media_dominant_frame,
+          mediaFramePct: discourseResult.gap.media_frame_pct,
+          publicDominantFrame: discourseResult.gap.public_dominant_frame,
+          publicFramePct: discourseResult.gap.public_frame_pct,
+          gapScore: discourseResult.gap.gap_score,
+          gapDirection: discourseResult.gap.gap_direction,
+          gapSummary: discourseResult.gap.gap_summary,
+          publicSurfacedFirst: discourseResult.gap.public_surfaced_first.length > 0
+            ? JSON.stringify(discourseResult.gap.public_surfaced_first) : null,
+          mediaIgnoredByPublic: discourseResult.gap.media_ignored_by_public.length > 0
+            ? JSON.stringify(discourseResult.gap.media_ignored_by_public) : null,
+          publicCounterNarrative: discourseResult.gap.public_counter_narrative || null,
+        },
+      })
+
+      onProgress('discourse', {
+        phase: 'discourse',
+        message: `Discourse gap: ${discourseResult.gap.gap_score}/100 (${discourseResult.gap.gap_direction}). ${redditPosts.length} Reddit posts analyzed.`,
+      })
+    } else {
+      onProgress('discourse', {
+        phase: 'discourse',
+        message: 'No Reddit discourse found for this story.',
+      })
+    }
+  } catch (err) {
+    console.error('Discourse analysis failed:', err)
   }
 
   onProgress('complete', {

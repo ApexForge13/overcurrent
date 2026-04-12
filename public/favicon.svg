@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <rect width="400" height="400" rx="80" fill="#0A0A0B"/>
+  <text x="200" y="255" fill="#FFFFFF" font-family="Georgia, 'Times New Roman', serif" font-size="180" font-weight="700" text-anchor="middle" letter-spacing="-5">OC</text>
+  <line x1="60" y1="320" x2="340" y2="320" stroke="#2A9D8F" stroke-width="6"/>
+</svg>

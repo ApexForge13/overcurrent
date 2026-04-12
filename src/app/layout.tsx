@@ -5,7 +5,15 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "OVERCURRENT",
-  description: "See what's under the surface. Cross-reference global news coverage across 50+ countries using 4 AI models.",
+  description: "Every outlet shows you their version. We show you everyone's. Cross-reference global news coverage across 50+ countries using 4 AI models.",
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export default function RootLayout({
@@ -17,10 +25,8 @@ export default function RootLayout({
         {/* Navigation */}
         <header className="sticky top-0 z-50 border-b" style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-primary)' }}>
           <nav className="max-w-[1200px] mx-auto px-4 sm:px-6 min-h-[56px] py-2 flex items-center justify-between flex-wrap gap-2">
-            <a href="/" className="flex items-baseline gap-1">
-              <span style={{ fontFamily: 'var(--font-display)', fontSize: '18px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-primary)' }}>
-                OVERCURRENT
-              </span>
+            <a href="/" className="flex items-center">
+              <img src="/logo.svg" alt="OVERCURRENT" style={{ height: '20px' }} />
             </a>
             <div className="flex items-center gap-3 sm:gap-6">
               <a href="/methodology" className="text-xs sm:text-sm hover:opacity-80 transition-opacity" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>methodology</a>

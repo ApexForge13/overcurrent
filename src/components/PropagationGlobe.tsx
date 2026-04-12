@@ -196,12 +196,26 @@ const COUNTRY_ID_TO_REGION: Record<string, string> = {
   '032': 'la', '076': 'la', '152': 'la', '170': 'la', '218': 'la',
   '604': 'la', '858': 'la', '862': 'la', '192': 'la', '068': 'la',
   '600': 'la', '328': 'la', '740': 'la', '780': 'la',
+  // Central America / Caribbean
+  '084': 'la', // Belize
+  '188': 'la', // Costa Rica
+  '222': 'la', // El Salvador
+  '320': 'la', // Guatemala
+  '340': 'la', // Honduras
+  '558': 'la', // Nicaragua
+  '591': 'la', // Panama
+  '214': 'la', // Dominican Republic
+  '332': 'la', // Haiti
+  '388': 'la', // Jamaica
+  '044': 'la', // Bahamas
+  '052': 'la', // Barbados
   // Europe
   '826': 'uk', '372': 'uk',
   '276': 'eu', '250': 'eu', '724': 'eu', '380': 'eu', '528': 'eu',
   '056': 'eu', '040': 'eu', '752': 'eu', '578': 'eu', '208': 'eu',
   '246': 'eu', '616': 'eu', '203': 'eu', '642': 'eu', '348': 'eu',
   '756': 'eu', '620': 'eu', '300': 'eu', '804': 'eu',
+  '196': 'eu', // Cyprus
   // Russia
   '643': 'ru',
   // Turkey
@@ -212,27 +226,75 @@ const COUNTRY_ID_TO_REGION: Record<string, string> = {
   '818': 'me', '887': 'me',
   // Iran
   '364': 'ir',
-  // Israel
+  // Israel / Palestine
   '376': 'il',
+  '275': 'il', // Palestine
   // Pakistan
   '586': 'pk', '004': 'pk',
   // India / South Asia
   '356': 'in', '050': 'in', '144': 'in', '524': 'in',
+  '064': 'in', // Bhutan
   // China
   '156': 'cn', '344': 'cn', '158': 'cn',
+  '496': 'cn', // Mongolia
   // Japan
   '392': 'jp',
-  // South Korea
+  // South Korea / North Korea
   '410': 'kr',
+  '408': 'kr', // North Korea
   // Southeast Asia
   '702': 'sea', '458': 'sea', '764': 'sea', '704': 'sea',
   '608': 'sea', '360': 'sea', '104': 'sea',
-  // Australia
+  '418': 'sea', // Laos
+  '116': 'sea', // Cambodia
+  '096': 'sea', // Brunei
+  '626': 'sea', // Timor-Leste
+  // Australia / Oceania
   '036': 'au', '554': 'au',
+  '598': 'au', // Papua New Guinea
+  '242': 'au', // Fiji
   // Africa
   '710': 'af', '566': 'af', '404': 'af', '231': 'af', '288': 'af',
-  '834': 'af', '012': 'af', '024': 'af', '508': 'af', '180': 'af',
+  '834': 'af', '012': 'af', '508': 'af', '180': 'af',
   '800': 'af', '854': 'af', '686': 'af',
+  '024': 'af', // Angola
+  '072': 'af', // Botswana
+  '108': 'af', // Burundi
+  '120': 'af', // Cameroon
+  '140': 'af', // Central African Republic
+  '148': 'af', // Chad
+  '174': 'af', // Comoros
+  '178': 'af', // Congo
+  '262': 'af', // Djibouti
+  '226': 'af', // Equatorial Guinea
+  '232': 'af', // Eritrea
+  '748': 'af', // Eswatini
+  '266': 'af', // Gabon
+  '270': 'af', // Gambia
+  '324': 'af', // Guinea
+  '624': 'af', // Guinea-Bissau
+  '384': 'af', // Ivory Coast
+  '426': 'af', // Lesotho
+  '430': 'af', // Liberia
+  '434': 'af', // Libya
+  '450': 'af', // Madagascar
+  '454': 'af', // Malawi
+  '466': 'af', // Mali
+  '478': 'af', // Mauritania
+  '480': 'af', // Mauritius
+  '504': 'af', // Morocco
+  '516': 'af', // Namibia
+  '562': 'af', // Niger
+  '646': 'af', // Rwanda
+  '678': 'af', // Sao Tome
+  '694': 'af', // Sierra Leone
+  '706': 'af', // Somalia
+  '728': 'af', // South Sudan
+  '729': 'af', // Sudan
+  '768': 'af', // Togo
+  '788': 'af', // Tunisia
+  '894': 'af', // Zambia
+  '716': 'af', // Zimbabwe
 }
 
 function getRegionForCountryId(id: string | number): string {
@@ -575,13 +637,16 @@ function TacticalMarker({ regionId, lat, lng, data, activeCount, globeRotation }
 function RegionMarkers({
   activeRegions,
   globeRotationRef,
+  secondaryStatuses,
 }: {
-  activeRegions:    Map<string, RegionData>
-  globeRotationRef: React.MutableRefObject<number>
+  activeRegions:     Map<string, RegionData>
+  globeRotationRef:  React.MutableRefObject<number>
+  secondaryStatuses: Map<string, string>
 }) {
-  const groupRef   = useRef<THREE.Group>(null)
-  const meshMap    = useRef<Map<string, THREE.Mesh>>(new Map())
-  const pulsePhase = useRef<Map<string, number>>(new Map())
+  const groupRef         = useRef<THREE.Group>(null)
+  const meshMap          = useRef<Map<string, THREE.Mesh>>(new Map())
+  const secondaryMeshMap = useRef<Map<string, THREE.Mesh>>(new Map())
+  const pulsePhase       = useRef<Map<string, number>>(new Map())
 
   useFrame((_, delta) => {
     if (groupRef.current) {
@@ -612,30 +677,64 @@ function RegionMarkers({
         mesh.scale.setScalar(0.5)
       }
     })
+
+    // Animate secondary glow rings for dual-status regions.
+    // Primary dot = region's own status. Ring = what incoming flows say about it.
+    secondaryMeshMap.current.forEach((ring, regionId) => {
+      const secondaryStatus = secondaryStatuses.get(regionId)
+      const primaryStatus   = activeRegions.get(regionId)?.status
+      const hasDual = !!secondaryStatus && secondaryStatus !== primaryStatus
+
+      const ringMat = ring.material as THREE.MeshBasicMaterial
+      if (hasDual) {
+        const phase = pulsePhase.current.get(regionId) ?? 0
+        // Pulse ring at offset phase from primary dot so the two animate distinctly
+        ringMat.color.set(statusColor(secondaryStatus!))
+        ringMat.opacity = 0.3 + Math.sin(phase * 1.5 + Math.PI * 0.5) * 0.15
+        ring.scale.setScalar(2.0 + Math.sin(phase * 1.2 + 1.0) * 0.5)
+        ring.visible = true
+      } else {
+        ring.visible = false
+      }
+    })
   })
 
   const entries = useMemo(() => Object.entries(REGION_COORDS), [])
 
   return (
     <group ref={groupRef}>
-      {/* Pulse dot on globe surface */}
       {entries.map(([regionId, [lat, lng]]) => {
-        const pos = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.04)
+        const primaryPos   = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.04)
+        const secondaryPos = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.055)
         return (
-          <mesh
-            key={`dot-${regionId}`}
-            position={pos}
-            ref={(el: THREE.Mesh | null) => {
-              if (el) meshMap.current.set(regionId, el)
-            }}
-          >
-            <sphereGeometry args={[0.02, 8, 8]} />
-            <meshBasicMaterial color="#333340" transparent opacity={0.3} />
-          </mesh>
+          <group key={`region-${regionId}`}>
+            {/* Primary pulse dot — color = region's own status */}
+            <mesh
+              position={primaryPos}
+              ref={(el: THREE.Mesh | null) => {
+                if (el) meshMap.current.set(regionId, el)
+              }}
+            >
+              <sphereGeometry args={[0.02, 8, 8]} />
+              <meshBasicMaterial color="#333340" transparent opacity={0.3} />
+            </mesh>
+
+            {/* Secondary status glow ring — visible only when region has dual status.
+                The ring color shows what incoming flows report about this region,
+                distinct from the primary dot which shows the region's own reporting. */}
+            <mesh
+              position={secondaryPos}
+              ref={(el: THREE.Mesh | null) => {
+                if (el) secondaryMeshMap.current.set(regionId, el)
+              }}
+              visible={false}
+            >
+              <ringGeometry args={[0.034, 0.058, 16]} />
+              <meshBasicMaterial color="#ffffff" transparent opacity={0} side={THREE.DoubleSide} />
+            </mesh>
+          </group>
         )
       })}
-
-      {/* Tactical HTML markers — rendered in world space, not rotated with globe */}
     </group>
   )
 }
@@ -683,6 +782,36 @@ function TacticalMarkerLayer({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Compute secondary statuses from incoming flows                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * For each region that is a DESTINATION of a flow, record the flow type as
+ * the "secondary status" if it differs from the region's own primary status.
+ * This enables dual coloring: primary dot = what a region reports,
+ * secondary ring = what others say about it (contradiction / reframe).
+ */
+function computeSecondaryStatuses(
+  flows: Array<{ from: string; to: string; type: string }>,
+  activeRegions: Map<string, RegionData>
+): Map<string, string> {
+  const result = new Map<string, string>()
+  for (const flow of flows) {
+    const destRegion   = flow.to
+    const primaryStatus = activeRegions.get(destRegion)?.status
+    // Only show secondary ring when the incoming flow type differs from
+    // the destination's own status — that's a genuine dual-status situation.
+    if (primaryStatus && flow.type !== primaryStatus) {
+      // Prefer contradiction over reframe if multiple flows arrive
+      if (!result.has(destRegion) || flow.type === 'contradicted') {
+        result.set(destRegion, flow.type)
+      }
+    }
+  }
+  return result
+}
+
+/* ------------------------------------------------------------------ */
 /*  Arc data                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -701,49 +830,62 @@ interface ArcEntry {
 /* ------------------------------------------------------------------ */
 
 function ArcLine({ arc }: { arc: ArcEntry }) {
-  const lineRef = useRef<THREE.Line | null>(null)
+  const ref = useRef<THREE.Group>(null)
 
-  const lineObject = useMemo(() => {
-    const geo      = new THREE.BufferGeometry()
-    const positions = new Float32Array(arc.allPoints.length * 3)
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    const mat = new THREE.LineBasicMaterial({
+  // Create geometry from ALL points at construction time — this is the key.
+  // setFromPoints populates the buffer once; setDrawRange controls visibility.
+  const [geo] = useState(() =>
+    new THREE.BufferGeometry().setFromPoints(arc.allPoints)
+  )
+
+  const [mat] = useState(() =>
+    new THREE.LineBasicMaterial({
       color:       arc.color,
       transparent: true,
       opacity:     1.0,
     })
-    return new THREE.Line(geo, mat)
-  }, [arc.allPoints, arc.color])
+  )
+
+  // Memoize the Line object itself so it is not recreated on every render.
+  const [lineObj] = useState(() => new THREE.Line(geo, mat))
+
+  // Update draw range each frame — this is the standard Three.js progressive
+  // line drawing pattern and is guaranteed to work.
+  useFrame(() => {
+    const count = arc.progress >= 1
+      ? arc.allPoints.length
+      : Math.max(2, Math.ceil(arc.progress * arc.allPoints.length))
+    geo.setDrawRange(0, count)
+
+    // Dim older completed arcs so recent ones stand out
+    mat.opacity = arc.progress >= 1 ? (arc.age > 3 ? 0.4 : 0.7) : 1.0
+  })
 
   useEffect(() => {
     return () => {
-      lineObject.geometry.dispose()
-      ;(lineObject.material as THREE.Material).dispose()
+      geo.dispose()
+      mat.dispose()
     }
-  }, [lineObject])
+  }, [geo, mat])
 
-  useFrame(() => {
-    const visibleCount = arc.progress >= 1
-      ? arc.allPoints.length
-      : Math.max(2, Math.floor(arc.progress * arc.allPoints.length))
+  // Debug endpoint spheres: always visible regardless of line rendering state,
+  // so we can confirm arc endpoints are positioned correctly on the globe.
+  const startPos = arc.allPoints[0]
+  const endPos   = arc.allPoints[arc.allPoints.length - 1]
 
-    const geo       = lineObject.geometry
-    const positions = new Float32Array(visibleCount * 3)
-
-    for (let i = 0; i < visibleCount; i++) {
-      positions[i * 3]     = arc.allPoints[i].x
-      positions[i * 3 + 1] = arc.allPoints[i].y
-      positions[i * 3 + 2] = arc.allPoints[i].z
-    }
-
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    geo.computeBoundingSphere()
-
-    const mat   = lineObject.material as THREE.LineBasicMaterial
-    mat.opacity = arc.progress < 1 ? 1.0 : (arc.age > 2 ? 0.5 : 0.8)
-  })
-
-  return <primitive object={lineObject} ref={lineRef} />
+  return (
+    <group ref={ref}>
+      <primitive object={lineObj} />
+      <mesh position={startPos}>
+        <sphereGeometry args={[0.03, 6, 6]} />
+        <meshBasicMaterial color={arc.color} transparent opacity={0.9} />
+      </mesh>
+      <mesh position={endPos}>
+        <sphereGeometry args={[0.03, 6, 6]} />
+        <meshBasicMaterial color={arc.color} transparent opacity={0.9} />
+      </mesh>
+    </group>
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -865,6 +1007,13 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
     [frame]
   )
 
+  // Compute dual-status map: for each destination region, record the incoming
+  // flow type if it differs from the region's own primary status.
+  const secondaryStatuses = useMemo(
+    () => computeSecondaryStatuses(frame.flows, activeRegions),
+    [frame.flows, activeRegions]
+  )
+
   // When frame changes, spawn arcs for new flows
   useEffect(() => {
     const newFlows = frame.flows.slice(0, MAX_ARCS)
@@ -955,6 +1104,7 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       <RegionMarkers
         activeRegions={activeRegions}
         globeRotationRef={globeRotationRef}
+        secondaryStatuses={secondaryStatuses}
       />
 
       <TacticalMarkerLayer

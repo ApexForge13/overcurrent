@@ -211,7 +211,7 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
       const pos = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.012)
       const geo = new THREE.SphereGeometry(0.015, 5, 5)
       const mat = new THREE.MeshBasicMaterial({
-        color: '#4A4A5E',
+        color: '#5A5A6E',
         transparent: true,
         opacity: 1.0,
       })
@@ -267,9 +267,9 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
       const pts = path.map(([lat, lng]) => latLngToVector3(lat, lng, R))
       const geo = new THREE.BufferGeometry().setFromPoints(pts)
       const mat = new THREE.LineBasicMaterial({
-        color:       '#4A4A5E',
+        color:       '#6A6A7E',
         transparent: true,
-        opacity:     0.12,
+        opacity:     0.35,
       })
       lines.push(new THREE.Line(geo, mat))
     })
@@ -336,14 +336,15 @@ interface RegionData {
 }
 
 interface TacticalMarkerProps {
-  regionId:    string
-  lat:         number
-  lng:         number
-  data:        RegionData | undefined
-  activeCount: number
+  regionId:      string
+  lat:           number
+  lng:           number
+  data:          RegionData | undefined
+  activeCount:   number
+  globeRotation: number
 }
 
-function TacticalMarker({ regionId, lat, lng, data, activeCount }: TacticalMarkerProps) {
+function TacticalMarker({ regionId, lat, lng, data, activeCount, globeRotation }: TacticalMarkerProps) {
   const isActive     = !!data
   const color        = isActive ? statusColor(data!.status) : '#333344'
   const label        = REGION_LABELS[regionId] ?? regionId.toUpperCase()
@@ -353,15 +354,33 @@ function TacticalMarker({ regionId, lat, lng, data, activeCount }: TacticalMarke
     [lat, lng]
   )
 
+  // Fix 4: Calculate facing opacity based on dot product with camera
+  const { camera } = useThree()
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useFrame(() => {
+    const markerWorldPos = latLngToVector3(lat, lng, GLOBE_RADIUS)
+    const rotatedPos = markerWorldPos.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), globeRotation)
+    const cameraDir = camera.position.clone().normalize()
+    const dotProduct = rotatedPos.normalize().dot(cameraDir)
+    const facingOpacity = Math.max(0.1, dotProduct * 0.8 + 0.2)
+    // Fix 3: Base opacity — active=1.0, inactive=0.3. Then multiply by facing opacity.
+    const baseOpacity = isActive ? 1 : 0.3
+    const finalOpacity = baseOpacity * facingOpacity
+    if (containerRef.current) {
+      containerRef.current.style.opacity = String(finalOpacity)
+    }
+  })
+
   return (
     <Html
       position={pos}
       center
-      occlude="raycast"
       style={{ pointerEvents: 'none' }}
       distanceFactor={6}
     >
       <div
+        ref={containerRef}
         style={{
           position:    'relative',
           padding:     '3px 6px',
@@ -369,8 +388,8 @@ function TacticalMarker({ regionId, lat, lng, data, activeCount }: TacticalMarke
           border:      `1px solid ${color}`,
           background:  isActive ? `${color}12` : 'transparent',
           fontFamily:  '"JetBrains Mono", "Courier New", monospace',
-          opacity:     isActive ? 1 : 0.2,
-          transition:  'opacity 0.4s ease, border-color 0.4s ease',
+          opacity:     isActive ? 1 : 0.3,
+          transition:  'border-color 0.4s ease',
           boxSizing:   'border-box',
         }}
       >
@@ -514,12 +533,14 @@ function TacticalMarkerLayer({
   globeRotationRef: React.MutableRefObject<number>
 }) {
   const groupRef = useRef<THREE.Group>(null)
+  const [globeRotation, setGlobeRotation] = useState(0)
 
   // Sync rotation to globe every frame
   useFrame(() => {
     if (groupRef.current) {
       groupRef.current.rotation.y = globeRotationRef.current
     }
+    setGlobeRotation(globeRotationRef.current)
   })
 
   const entries     = useMemo(() => Object.entries(REGION_COORDS), [])
@@ -535,6 +556,7 @@ function TacticalMarkerLayer({
           lng={lng}
           data={activeRegions.get(regionId)}
           activeCount={activeCount}
+          globeRotation={globeRotation}
         />
       ))}
     </group>
@@ -722,6 +744,7 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
   const processedFlows = useRef<Set<string>>(new Set())
   const arcsRef        = useRef<ArcEntry[]>([])
   const controlsRef    = useRef<OrbitControlsImpl | null>(null)
+  const arcsGroupRef   = useRef<THREE.Group>(null)
 
   const frame = timeline[currentFrameIdx]
   const activeRegions = useMemo(
@@ -746,12 +769,6 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       const start = latLngToVector3(fromCoords[0], fromCoords[1], GLOBE_RADIUS + 0.04)
       const end   = latLngToVector3(toCoords[0],   toCoords[1],   GLOBE_RADIUS + 0.04)
 
-      // Apply current globe rotation so arcs are positioned correctly in world space
-      const rot    = globeRotationRef.current
-      const rotMat = new THREE.Matrix4().makeRotationY(rot)
-      start.applyMatrix4(rotMat)
-      end.applyMatrix4(rotMat)
-
       const curve     = createArcCurve(start, end, GLOBE_RADIUS + 0.04)
       const color     = new THREE.Color(statusColor(flow.type))
       const allPoints = curve.getPoints(80)
@@ -773,6 +790,11 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
   }, [currentFrameIdx, frame.flows, globeRotationRef])
 
   useFrame((_, delta) => {
+    // Sync arcs group rotation with globe
+    if (arcsGroupRef.current) {
+      arcsGroupRef.current.rotation.y = globeRotationRef.current
+    }
+
     let changed = false
 
     arcsRef.current = arcsRef.current.map((arc) => {
@@ -821,20 +843,23 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
         globeRotationRef={globeRotationRef}
       />
 
-      {arcs.map((arc) => (
-        <ArcLine key={arc.id} arc={arc} />
-      ))}
+      {/* Arcs and flashes rotate with the globe */}
+      <group ref={arcsGroupRef}>
+        {arcs.map((arc) => (
+          <ArcLine key={arc.id} arc={arc} />
+        ))}
 
-      {flashes.map((f) => (
-        <DestFlash
-          key={f.id}
-          position={f.pos}
-          color={f.color}
-          onDone={() =>
-            setFlashes((prev) => prev.filter((x) => x.id !== f.id))
-          }
-        />
-      ))}
+        {flashes.map((f) => (
+          <DestFlash
+            key={f.id}
+            position={f.pos}
+            color={f.color}
+            onDone={() =>
+              setFlashes((prev) => prev.filter((x) => x.id !== f.id))
+            }
+          />
+        ))}
+      </group>
 
       <CameraFollow
         playing={playing}

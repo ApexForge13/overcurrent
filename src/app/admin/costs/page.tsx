@@ -52,7 +52,7 @@ export default function CostsPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <a
-        href="/"
+        href="/admin"
         className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary mb-6 font-mono"
       >
         &larr; Back

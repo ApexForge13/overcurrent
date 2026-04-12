@@ -87,7 +87,9 @@ export default function AdminDashboard() {
     setIsAnalyzing(true)
     setAnalyzeStatus('Starting analysis...')
 
-    const endpoint = analyzeMode === 'verify' ? '/api/analyze' : '/api/undercurrent'
+    // Use Railway pipeline service (no timeout) instead of Vercel serverless function
+    const railwayBase = 'https://overcurrent-production.up.railway.app'
+    const endpoint = analyzeMode === 'verify' ? `${railwayBase}/analyze` : `${railwayBase}/undercurrent`
     try {
       const response = await fetch(endpoint, {
         method: 'POST',

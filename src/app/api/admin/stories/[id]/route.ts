@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db'
 
-const VALID_STATUSES = ['draft', 'review', 'published', 'rejected']
+const VALID_STATUSES = ['draft', 'review', 'published', 'archived', 'rejected']
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

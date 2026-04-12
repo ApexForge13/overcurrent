@@ -5,6 +5,13 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Stars, Html } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
+// topojson-client has no bundled type declarations; import with explicit typing
+import * as topojsonClient from 'topojson-client'
+type TopoFeatureFn = (
+  topology: unknown,
+  object: unknown
+) => { features: Array<{ geometry: { type: string; coordinates: number[][][][] | number[][][] } }> }
+const topoFeature = (topojsonClient as unknown as { feature: TopoFeatureFn }).feature
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -102,86 +109,6 @@ const STATUS_LABELS: Record<string, string> = {
 const MAX_ARCS = 50
 
 /* ------------------------------------------------------------------ */
-/*  Continent outlines — rough coastline paths for geographic context   */
-/* ------------------------------------------------------------------ */
-
-const CONTINENT_OUTLINES: [number, number][][] = [
-  // North America - detailed coastline
-  [
-    [70,-165],[68,-165],[65,-168],[62,-166],[60,-164],[58,-157],[57,-153],[59,-150],
-    [60,-147],[60,-141],[58,-137],[55,-133],[52,-131],[49,-127],[48,-124],[45,-124],
-    [42,-124],[39,-123],[37,-122],[35,-121],[33,-118],[32,-117],[31,-115],[29,-113],
-    [26,-110],[24,-106],[22,-100],[20,-97],[19,-96],[18,-92],[18,-89],[20,-87],
-    [21,-87],[23,-84],[25,-81],[27,-80],[29,-81],[30,-82],[31,-81],[33,-79],
-    [35,-76],[37,-76],[39,-74],[41,-72],[42,-71],[43,-70],[44,-67],[45,-62],
-    [47,-61],[48,-59],[47,-56],[48,-53],[50,-55],[52,-56],[53,-60],[55,-60],
-    [57,-62],[59,-64],[60,-65],[62,-74],[64,-77],[66,-82],[68,-90],[69,-96],
-    [70,-105],[71,-115],[71,-130],[71,-140],[71,-155],[70,-165],
-  ],
-  // South America
-  [
-    [12,-72],[10,-76],[8,-77],[5,-77],[2,-79],[0,-80],[-2,-80],[-5,-79],
-    [-7,-77],[-9,-76],[-11,-75],[-13,-74],[-15,-75],[-17,-73],[-19,-70],
-    [-21,-65],[-23,-60],[-24,-55],[-25,-50],[-26,-48],[-28,-49],[-30,-51],
-    [-32,-52],[-34,-53],[-36,-56],[-38,-58],[-40,-62],[-42,-64],[-44,-66],
-    [-46,-68],[-48,-70],[-50,-73],[-52,-70],[-54,-69],[-55,-66],[-54,-64],
-    [-52,-70],[-48,-66],[-44,-62],[-40,-58],[-37,-55],[-34,-52],[-30,-50],
-    [-27,-49],[-24,-46],[-20,-44],[-16,-42],[-12,-40],[-8,-38],[-5,-37],
-    [-2,-35],[0,-40],[2,-48],[4,-52],[6,-56],[8,-60],[10,-64],[11,-68],[12,-72],
-  ],
-  // Europe
-  [
-    [71,28],[70,32],[68,35],[65,30],[63,25],[60,22],[58,18],[57,12],
-    [56,10],[55,8],[54,9],[53,5],[52,4],[51,2],[50,0],[49,-2],[48,-5],
-    [47,-6],[46,-2],[45,0],[43,-3],[42,-6],[41,-8],[40,-8],[38,-8],
-    [37,-6],[36,-5],[36,0],[37,5],[38,10],[39,15],[40,18],[41,20],
-    [42,22],[43,25],[44,20],[45,14],[46,13],[47,15],[48,17],[49,18],
-    [50,20],[51,22],[52,21],[53,24],[54,20],[55,23],[56,25],[57,25],
-    [58,28],[60,30],[62,28],[64,27],[66,25],[68,22],[70,25],[71,28],
-  ],
-  // Africa
-  [
-    [37,-10],[36,-5],[35,-2],[34,0],[33,5],[32,10],[31,12],[30,15],
-    [28,20],[25,25],[22,28],[20,30],[18,32],[15,34],[12,35],[10,38],
-    [8,40],[5,42],[3,42],[1,40],[0,42],[-2,40],[-5,38],[-8,35],
-    [-10,33],[-12,30],[-15,28],[-18,25],[-20,22],[-22,20],[-25,18],
-    [-27,20],[-29,25],[-30,28],[-32,30],[-34,28],[-35,22],[-34,18],
-    [-33,16],[-30,15],[-27,13],[-24,12],[-20,10],[-17,8],[-14,5],
-    [-12,2],[-10,-2],[-8,-5],[-5,-8],[-2,-10],[0,-12],[2,-15],
-    [5,-17],[8,-16],[10,-14],[12,-12],[15,-15],[18,-17],[20,-16],
-    [22,-15],[25,-14],[28,-12],[30,-10],[33,-8],[35,-8],[37,-10],
-  ],
-  // Asia (simplified but higher res)
-  [
-    [42,28],[40,35],[38,40],[36,42],[34,45],[32,48],[30,50],[28,52],
-    [25,55],[22,58],[20,60],[18,62],[15,65],[12,70],[10,75],[8,78],
-    [6,80],[5,85],[3,90],[2,95],[1,100],[0,105],[-2,108],[-5,110],
-    [-7,112],[-8,115],[-6,118],[-3,120],[0,120],[3,118],[5,115],
-    [8,112],[10,110],[12,108],[15,110],[18,112],[20,115],[22,118],
-    [25,120],[28,122],[30,125],[32,128],[35,130],[37,132],[38,135],
-    [40,135],[42,133],[44,135],[46,140],[48,143],[50,145],[52,143],
-    [54,140],[55,137],[56,135],[58,138],[60,142],[62,148],[64,155],
-    [66,160],[68,170],[67,175],[65,170],[62,165],[60,160],[58,155],
-    [56,150],[55,145],[53,140],[52,135],[50,130],[48,128],[46,125],
-    [44,120],[42,115],[40,110],[38,105],[36,100],[35,95],[34,90],
-    [35,85],[36,80],[38,75],[40,70],[42,65],[44,60],[46,55],
-    [48,50],[50,45],[52,42],[54,40],[56,38],[58,35],[60,32],
-    [62,30],[64,28],[66,25],[68,22],[70,20],[72,25],[72,35],
-    [72,50],[72,65],[72,80],[72,95],[72,110],[72,125],[72,140],
-    [72,155],[72,170],[70,175],[68,170],[66,165],[64,160],
-  ],
-  // Australia
-  [
-    [-12,130],[-14,128],[-16,125],[-18,122],[-20,118],[-22,115],
-    [-24,114],[-26,114],[-28,114],[-30,115],[-32,116],[-34,116],
-    [-35,118],[-36,120],[-37,125],[-38,130],[-38,135],[-38,140],
-    [-37,145],[-36,148],[-35,150],[-34,152],[-32,153],[-30,153],
-    [-28,152],[-26,150],[-24,149],[-22,148],[-20,148],[-18,146],
-    [-16,145],[-14,143],[-13,140],[-12,138],[-12,135],[-12,132],[-12,130],
-  ],
-]
-
-/* ------------------------------------------------------------------ */
 /*  City dots — "night Earth" geographic context                       */
 /* ------------------------------------------------------------------ */
 
@@ -256,6 +183,74 @@ function statusColor(status: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Country borders — loaded from Natural Earth 110m TopoJSON          */
+/* ------------------------------------------------------------------ */
+
+function CountryBorders({ globeRotation }: { globeRotation: React.MutableRefObject<number> }) {
+  const groupRef = useRef<THREE.Group>(null)
+  const [lines, setLines] = useState<THREE.Line[]>([])
+
+  useEffect(() => {
+    fetch('/world-110m.json')
+      .then((r) => r.json())
+      .then((topology: unknown) => {
+        // The Natural Earth 110m file exposes "countries" as the geometry object
+        const topoAny = topology as Record<string, unknown>
+        const objects = topoAny.objects as Record<string, unknown>
+        const objectKey = objects.countries ? 'countries' : Object.keys(objects)[0]
+        const countries = topoFeature(topology, objects[objectKey])
+
+        const countryLines: THREE.Line[] = []
+        const mat = new THREE.LineBasicMaterial({
+          color:       '#8A8A9E',
+          transparent: true,
+          opacity:     0.6,
+        })
+
+        for (const feat of countries.features) {
+          const geom = feat.geometry
+          if (!geom) continue
+
+          // Outer ring only — Polygon gives one ring, MultiPolygon gives one per sub-polygon
+          const rings: number[][][] =
+            geom.type === 'Polygon'
+              ? [(geom.coordinates as number[][][])[0]]
+              : geom.type === 'MultiPolygon'
+              ? (geom.coordinates as number[][][][]).map((poly) => poly[0])
+              : []
+
+          for (const ring of rings) {
+            const points: THREE.Vector3[] = ring.map(([lng, lat]) =>
+              latLngToVector3(lat as number, lng as number, GLOBE_RADIUS + 0.005)
+            )
+            if (points.length > 2) {
+              const geo = new THREE.BufferGeometry().setFromPoints(points)
+              countryLines.push(new THREE.Line(geo, mat.clone()))
+            }
+          }
+        }
+
+        setLines(countryLines)
+      })
+      .catch((err) => console.warn('Failed to load country borders:', err))
+  }, [])
+
+  useFrame(() => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y = globeRotation.current
+    }
+  })
+
+  return (
+    <group ref={groupRef}>
+      {lines.map((line, i) => (
+        <primitive key={i} object={line} />
+      ))}
+    </group>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /*  Globe mesh with city dots and grid lines                           */
 /* ------------------------------------------------------------------ */
 
@@ -264,7 +259,6 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
   const glowRef       = useRef<THREE.Mesh>(null)
   const dotsRef       = useRef<THREE.Group>(null)
   const gridRef       = useRef<THREE.Group>(null)
-  const continentRef  = useRef<THREE.Group>(null)
 
   // Build city-dot geometry once
   const cityDotObjects = useMemo(() => {
@@ -320,23 +314,6 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
     return lines
   }, [])
 
-  // Build continent outline lines once
-  const continentLines = useMemo(() => {
-    const lines: THREE.Line[] = []
-    const R = GLOBE_RADIUS + 0.008
-    CONTINENT_OUTLINES.forEach((path) => {
-      const pts = path.map(([lat, lng]) => latLngToVector3(lat, lng, R))
-      const geo = new THREE.BufferGeometry().setFromPoints(pts)
-      const mat = new THREE.LineBasicMaterial({
-        color:       '#7A7A8E',
-        transparent: true,
-        opacity:     0.5,
-      })
-      lines.push(new THREE.Line(geo, mat))
-    })
-    return lines
-  }, [])
-
   useFrame((_, delta) => {
     const dr = delta * 0.05
     rotationRef.current += dr
@@ -344,7 +321,6 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
     if (glowRef.current)      glowRef.current.rotation.y      += dr
     if (dotsRef.current)      dotsRef.current.rotation.y      += dr
     if (gridRef.current)      gridRef.current.rotation.y      += dr
-    if (continentRef.current) continentRef.current.rotation.y += dr
   })
 
   return (
@@ -372,13 +348,6 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
       <group ref={gridRef}>
         {gridLines.map((line, i) => (
           <primitive key={i} object={line} />
-        ))}
-      </group>
-
-      {/* Continent outline lines */}
-      <group ref={continentRef}>
-        {continentLines.map((line, i) => (
-          <primitive key={`cont-${i}`} object={line} />
         ))}
       </group>
     </group>
@@ -652,7 +621,7 @@ function ArcLine({ arc }: { arc: ArcEntry }) {
     const mat = new THREE.LineBasicMaterial({
       color:       arc.color,
       transparent: true,
-      opacity:     0.8,
+      opacity:     1.0,
     })
     return new THREE.Line(geo, mat)
   }, [arc.allPoints, arc.color])
@@ -689,7 +658,7 @@ function ArcLine({ arc }: { arc: ArcEntry }) {
 
     const mat     = lineObject.material as THREE.LineBasicMaterial
     // Older arcs are slightly dimmer; newest arcs are full brightness
-    mat.opacity   = arc.progress < 1 ? 0.8 : (arc.age > 0 ? 0.4 : 0.8)
+    mat.opacity   = arc.progress < 1 ? 1.0 : (arc.age > 0 ? 0.6 : 1.0)
   })
 
   return <primitive object={lineObject} ref={lineRef} />
@@ -895,6 +864,8 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       <Stars radius={60} depth={50} count={1500} factor={3} saturation={0.2} fade speed={0.5} />
 
       <GlobeMesh rotationRef={globeRotationRef} />
+
+      <CountryBorders globeRotation={globeRotationRef} />
 
       <RegionMarkers
         activeRegions={activeRegions}

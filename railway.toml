@@ -1,0 +1,11 @@
+[build]
+builder = "nixpacks"
+
+[build.nixpacks]
+installCmd = "npm install && npx prisma generate && cd pipeline-service && npm install"
+buildCmd = "echo 'No build needed - using tsx'"
+
+[deploy]
+startCommand = "npx tsx --tsconfig pipeline-service/tsconfig.json pipeline-service/server.ts"
+healthcheckPath = "/health"
+healthcheckTimeout = 30

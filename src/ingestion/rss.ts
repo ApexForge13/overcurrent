@@ -1,5 +1,5 @@
 import { fetchWithTimeout } from '@/lib/utils'
-import { getOutletsWithRss, getOutletsForRegion } from '@/data/outlets'
+import { getOutletsWithRss, getOutletsForRegion, OutletInfo } from '@/data/outlets'
 
 export interface RssResult {
   url: string
@@ -7,9 +7,12 @@ export interface RssResult {
   outlet: string
   publishedAt: string
   snippet?: string
+  region?: string
+  country?: string
 }
 
-const RSS_TIMEOUT = 15_000
+const RSS_TIMEOUT = 12_000
+const MAX_CONCURRENT = 30 // Limit concurrent feed fetches to avoid Vercel connection limits
 
 /**
  * Check if a string contains any of the given keywords (case-insensitive).
@@ -21,12 +24,114 @@ function matchesKeywords(text: string, keywords: string[]): boolean {
 
 /**
  * Extract keywords from a query string for matching.
+ * Also generates broader variants for international matching.
  */
 function queryToKeywords(query: string): string[] {
-  return query
+  const words = query
     .toLowerCase()
     .split(/\s+/)
     .filter((w) => w.length > 2)
+
+  // Add common international variations
+  const extras: string[] = []
+  if (words.includes('iran')) extras.push('tehran', 'iranian', 'araghchi', 'pezeshkian')
+  if (words.includes('pakistan')) extras.push('islamabad', 'pakistani', 'sharif')
+  if (words.includes('ceasefire')) extras.push('peace', 'talks', 'negotiations', 'truce', 'diplomacy', 'diplomatic')
+  if (words.includes('negotiations')) extras.push('talks', 'diplomacy', 'diplomatic', 'deal')
+  if (words.includes('trump')) extras.push('vance', 'witkoff', 'kushner')
+  if (words.includes('war')) extras.push('conflict', 'military', 'strike', 'attack')
+
+  return [...new Set([...words, ...extras])]
+}
+
+/**
+ * Fetch a single RSS feed and return matching articles.
+ */
+async function fetchFeed(
+  outlet: OutletInfo,
+  parser: { parseString: (xml: string) => Promise<{ items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }> },
+  keywords: string[],
+): Promise<RssResult[]> {
+  if (!outlet.rssUrl) return []
+
+  try {
+    const response = await fetchWithTimeout(outlet.rssUrl, RSS_TIMEOUT)
+    if (!response.ok) return []
+
+    const xml = await response.text()
+    const feed = await parser.parseString(xml)
+
+    const matched: RssResult[] = []
+    const items = feed.items ?? []
+
+    // For non-English outlets, be more lenient — include recent articles
+    // even if keyword match is weak
+    const isEnglishOutlet = outlet.language === 'en'
+
+    for (const item of items) {
+      const title = item.title ?? ''
+      const snippet = item.contentSnippet ?? item.content ?? ''
+      const searchText = `${title} ${snippet}`
+
+      if (matchesKeywords(searchText, keywords)) {
+        matched.push({
+          url: item.link ?? '',
+          title,
+          outlet: outlet.name,
+          publishedAt: item.isoDate ?? item.pubDate ?? '',
+          snippet: snippet ? snippet.slice(0, 300) : undefined,
+          region: outlet.region,
+          country: outlet.country,
+        })
+      } else if (!isEnglishOutlet) {
+        // For non-English outlets, include ANY recent article from feeds
+        // that cover international news — the triage agent will filter
+        const pubDate = item.isoDate || item.pubDate
+        if (pubDate) {
+          const age = Date.now() - new Date(pubDate).getTime()
+          const hoursOld = age / (1000 * 60 * 60)
+          if (hoursOld < 72) {
+            matched.push({
+              url: item.link ?? '',
+              title,
+              outlet: outlet.name,
+              publishedAt: pubDate,
+              snippet: snippet ? snippet.slice(0, 300) : undefined,
+              region: outlet.region,
+              country: outlet.country,
+            })
+          }
+        }
+      }
+    }
+
+    return matched
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Run feeds in batches to avoid overwhelming Vercel's connection limits.
+ */
+async function batchFetchFeeds(
+  outlets: OutletInfo[],
+  parser: { parseString: (xml: string) => Promise<{ items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }> },
+  keywords: string[],
+): Promise<RssResult[]> {
+  const allResults: RssResult[] = []
+
+  for (let i = 0; i < outlets.length; i += MAX_CONCURRENT) {
+    const batch = outlets.slice(i, i + MAX_CONCURRENT)
+    const batchResults = await Promise.all(
+      batch.map((outlet) => fetchFeed(outlet, parser, keywords))
+    )
+    for (const results of batchResults) {
+      allResults.push(...results)
+    }
+  }
+
+  return allResults
 }
 
 /**
@@ -38,7 +143,7 @@ export async function scanRssFeeds(
   region?: string,
 ): Promise<RssResult[]> {
   const outlets = region
-    ? getOutletsForRegion(region)
+    ? getOutletsForRegion(region).filter(o => !!o.rssUrl)
     : getOutletsWithRss()
 
   if (outlets.length === 0) return []
@@ -46,7 +151,6 @@ export async function scanRssFeeds(
   const keywords = queryToKeywords(query)
   if (keywords.length === 0) return []
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   let ParserClass: new () => { parseString: (xml: string) => Promise<{ items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }> }
   try {
     const mod = await import('rss-parser')
@@ -56,48 +160,11 @@ export async function scanRssFeeds(
     return []
   }
   const parser = new ParserClass()
-  const results: RssResult[] = []
 
-  const feedPromises = outlets.map(async (outlet) => {
-    if (!outlet.rssUrl) return []
+  // Fetch feeds in batches of MAX_CONCURRENT
+  const results = await batchFetchFeeds(outlets, parser, keywords)
 
-    try {
-      // Fetch the raw XML with timeout
-      const response = await fetchWithTimeout(outlet.rssUrl, RSS_TIMEOUT)
-      if (!response.ok) return []
-
-      const xml = await response.text()
-      const feed = await parser.parseString(xml)
-
-      const matched: RssResult[] = []
-
-      for (const item of feed.items ?? []) {
-        const title = item.title ?? ''
-        const snippet = item.contentSnippet ?? item.content ?? ''
-        const searchText = `${title} ${snippet}`
-
-        if (matchesKeywords(searchText, keywords)) {
-          matched.push({
-            url: item.link ?? '',
-            title,
-            outlet: outlet.name,
-            publishedAt: item.isoDate ?? item.pubDate ?? '',
-            snippet: snippet ? snippet.slice(0, 300) : undefined,
-          })
-        }
-      }
-
-      return matched
-    } catch (err) {
-      console.warn(`[RSS] Failed to fetch feed for ${outlet.name}:`, err)
-      return []
-    }
-  })
-
-  const feedResults = await Promise.all(feedPromises)
-  for (const batch of feedResults) {
-    results.push(...batch)
-  }
+  console.log(`[RSS] Scanned ${outlets.length} feeds. Found ${results.length} articles. Keywords: ${keywords.slice(0, 5).join(', ')}`)
 
   return results
 }

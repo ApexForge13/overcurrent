@@ -3,30 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "npx tsc",
-    "start": "node dist/server.js",
-    "dev": "npx tsx server.ts"
+    "start": "npx tsx --tsconfig tsconfig.json server.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.87.0",
-    "@google/generative-ai": "^0.25.0",
-    "@neondatabase/serverless": "^1.0.2",
-    "@prisma/adapter-neon": "^7.7.0",
-    "@prisma/client": "^7.7.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "jsdom": "^29.0.2",
-    "@mozilla/readability": "^0.6.0",
-    "openai": "^6.34.0",
-    "rss-parser": "^3.13.0"
+    "tsx": "^4.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/jsdom": "^28.0.1",
     "@types/node": "^20",
-    "prisma": "^7.7.0",
-    "tsx": "^4.0.0",
     "typescript": "^5"
   }
 }

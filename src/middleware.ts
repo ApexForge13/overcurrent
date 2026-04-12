@@ -51,9 +51,21 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Add CORS headers for API routes
+  if (request.nextUrl.pathname.startsWith('/api/')) {
+    const origin = request.headers.get('origin') || ''
+    const allowedOrigins = ['https://overcurrent.news', 'https://www.overcurrent.news', 'https://overcurrent.vercel.app']
+
+    if (allowedOrigins.includes(origin)) {
+      supabaseResponse.headers.set('Access-Control-Allow-Origin', origin)
+      supabaseResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      supabaseResponse.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    }
+  }
+
   return supabaseResponse
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/admin/:path*', '/api/analyze', '/api/undercurrent', '/login', '/signup'],
+  matcher: ['/admin/:path*', '/api/:path*', '/login', '/signup'],
 }

@@ -44,6 +44,10 @@ model Story {
   socialDrafts    SocialDraft[]
   discourseSnapshots  DiscourseSnapshot[]
   discourseGap        DiscourseGap?
+
+  @@index([status, createdAt])
+  @@index([primaryCategory])
+  @@index([status, primaryCategory])
 }
 
 model Source {
@@ -61,6 +65,8 @@ model Source {
   reliability     String   @default("unknown")
   summary         String?
   fetchedAt       DateTime @default(now())
+
+  @@index([storyId])
 }
 
 model Claim {
@@ -138,6 +144,8 @@ model DebateRound {
   outputTokens Int
   costUsd      Float
   createdAt    DateTime @default(now())
+
+  @@index([storyId])
 }
 
 model SocialDraft {
@@ -155,6 +163,9 @@ model SocialDraft {
   postedAt             DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+
+  @@index([storyId])
+  @@index([status])
 }
 
 // ═══════════════════════════════════════
@@ -242,6 +253,8 @@ model DiscourseSnapshot {
   dominantSentiment String?
   dominantFraming   String?
   posts             DiscoursePost[]
+
+  @@index([storyId])
 }
 
 model DiscoursePost {
@@ -297,6 +310,9 @@ model CostLog {
   agentType           String
   region              String?
   createdAt           DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([storyId])
 }
 
 // ═══════════════════════════════════════

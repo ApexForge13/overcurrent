@@ -33,20 +33,22 @@ export default function RootLayout({
         {/* Content */}
         <main className="flex-1">{children}</main>
 
-        {/* Footer — minimal */}
+        {/* Footer */}
         <footer className="border-t py-8" style={{ borderColor: 'var(--border-primary)' }}>
-          <div className="max-w-[1200px] mx-auto px-6">
+          <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                  OVERCURRENT — Coverage analysis, not journalism.
-                </span>
+              <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+                <a href="/methodology" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', textDecoration: 'none' }} className="hover:opacity-80">methodology</a>
+                <a href="/outlets" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', textDecoration: 'none' }} className="hover:opacity-80">outlets</a>
+                <a href="/suggest" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', textDecoration: 'none' }} className="hover:opacity-80">suggest a story</a>
+                <a href="mailto:hello@overcurrent.news" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', textDecoration: 'none' }} className="hover:opacity-80">contact</a>
               </div>
-              <div className="flex items-center gap-6">
-                <NewsletterSignup />
-              </div>
+              <NewsletterSignup />
             </div>
-            <div className="mt-4">
+            <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                OVERCURRENT — Coverage analysis, not journalism.
+              </span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-tertiary)' }}>
                 No tracking. No cookies. No ads.
               </span>

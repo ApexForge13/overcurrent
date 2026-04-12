@@ -1,11 +1,9 @@
 [build]
-builder = "nixpacks"
-
-[build.nixpacks]
-installCmd = "npm install && npx prisma generate && cd pipeline-service && npm install"
-buildCmd = "echo 'No build needed - using tsx'"
+builder = "DOCKERFILE"
+dockerfilePath = "pipeline-service/Dockerfile"
 
 [deploy]
-startCommand = "npx tsx --tsconfig pipeline-service/tsconfig.json pipeline-service/server.ts"
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { ThePattern } from "./ThePattern";
 import { RegionalCoverageMap } from "./RegionalCoverageMap";
@@ -240,8 +239,6 @@ const body: React.CSSProperties = { fontFamily: "var(--font-body)" };
 /* ── Main Component ── */
 
 export function StoryDetail({ story }: StoryDetailProps) {
-  const [sourcesOpen, setSourcesOpen] = useState(false);
-
   const sortedClaims = [...story.claims].sort((a, b) => a.sortOrder - b.sortOrder);
   const confidenceColor = getConfidenceColor(story.confidenceLevel);
   const modelCount = countModels(story.debateRounds);
@@ -257,11 +254,11 @@ export function StoryDetail({ story }: StoryDetailProps) {
     {}
   );
 
-  // Determine follow-up format
+  // Determine follow-up format — show new format whenever followUpQuestions exist,
+  // even if hypotheses are empty (they still show as expandable questions)
   const hasNewFollowUps =
     story.followUpQuestions &&
-    story.followUpQuestions.length > 0 &&
-    story.followUpQuestions.some((q) => q.hypotheses && q.hypotheses.length > 0);
+    story.followUpQuestions.length > 0;
 
   const oldFollowUps = story.followUps ?? [];
 
@@ -481,6 +478,13 @@ export function StoryDetail({ story }: StoryDetailProps) {
             const supporters = parseList(claim.supportedBy);
             const contradictors = parseList(claim.contradictedBy);
 
+            // Estimate consensus if consensusPct is 0 but we have supporting outlets
+            const supportCount = supporters.length;
+            const contradictCount = contradictors.length;
+            const total = supportCount + contradictCount;
+            const estimatedPct = total > 0 ? Math.round((supportCount / total) * 100) : 0;
+            const displayPct = claim.consensusPct > 0 ? claim.consensusPct : estimatedPct;
+
             return (
               <div
                 key={i}
@@ -533,7 +537,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                     >
                       <div
                         style={{
-                          width: `${Math.max(0, Math.min(100, claim.consensusPct))}%`,
+                          width: `${Math.max(0, Math.min(100, displayPct))}%`,
                           height: "100%",
                           background: iconColor,
                         }}
@@ -546,7 +550,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                         color: "var(--text-tertiary)",
                       }}
                     >
-                      {claim.consensusPct}%
+                      {displayPct}%
                     </span>
                   </div>
                   {supporters.length > 0 && (
@@ -1021,7 +1025,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
       {hasNewFollowUps && followUpQuestionsData ? (
         <CollapsibleSection
           title="FOLLOW-UP QUESTIONS"
-          preview={`${followUpQuestionsData.length} questions with hypotheses`}
+          preview={`${followUpQuestionsData.length} questions to investigate`}
         >
           <FollowUpQuestions questions={followUpQuestionsData} />
         </CollapsibleSection>
@@ -1077,100 +1081,79 @@ export function StoryDetail({ story }: StoryDetailProps) {
           defaultOpen={false}
         >
           <div>
-            <button
-              onClick={() => setSourcesOpen(!sourcesOpen)}
-              style={{
-                ...mono,
-                fontSize: "12px",
-                color: "var(--text-tertiary)",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: "8px 0",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              {sourcesOpen ? "\u25BC" : "\u25B6"} {story.sources.length} sources
-            </button>
-            {sourcesOpen && (
-              <div>
-                {Object.entries(groupedSources).map(([region, regionSources]) => (
-                  <div key={region} style={{ marginBottom: "16px" }}>
-                    <p
+            {Object.entries(groupedSources).map(([region, regionSources]) => (
+              <div key={region} style={{ marginBottom: "16px" }}>
+                <p
+                  style={{
+                    ...mono,
+                    fontSize: "10px",
+                    fontWeight: 600,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    color: "var(--text-tertiary)",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {region}
+                </p>
+                {regionSources.map((source, j) => (
+                  <div
+                    key={j}
+                    style={{
+                      padding: "8px 0",
+                      borderBottom: "1px solid var(--border-primary)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      flexWrap: "wrap",
+                      fontSize: "13px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        ...body,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {source.outlet}
+                    </span>
+                    <span
                       style={{
                         ...mono,
                         fontSize: "10px",
-                        fontWeight: 600,
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
                         color: "var(--text-tertiary)",
-                        marginBottom: "8px",
                       }}
                     >
-                      {region}
-                    </p>
-                    {regionSources.map((source, j) => (
-                      <div
-                        key={j}
+                      &middot; {source.country}
+                    </span>
+                    {source.politicalLean && (
+                      <span
                         style={{
-                          padding: "8px 0",
-                          borderBottom: "1px solid var(--border-primary)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          flexWrap: "wrap",
-                          fontSize: "13px",
+                          ...mono,
+                          fontSize: "10px",
+                          color: "var(--text-tertiary)",
                         }}
                       >
-                        <span
-                          style={{
-                            ...body,
-                            color: "var(--text-primary)",
-                          }}
-                        >
-                          {source.outlet}
-                        </span>
-                        <span
-                          style={{
-                            ...mono,
-                            fontSize: "10px",
-                            color: "var(--text-tertiary)",
-                          }}
-                        >
-                          &middot; {source.country}
-                        </span>
-                        {source.politicalLean && (
-                          <span
-                            style={{
-                              ...mono,
-                              fontSize: "10px",
-                              color: "var(--text-tertiary)",
-                            }}
-                          >
-                            &middot; {source.politicalLean}
-                          </span>
-                        )}
-                        <a
-                          href={source.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            ...mono,
-                            fontSize: "11px",
-                            color: "var(--text-tertiary)",
-                            marginLeft: "auto",
-                          }}
-                        >
-                          link &rarr;
-                        </a>
-                      </div>
-                    ))}
+                        &middot; {source.politicalLean}
+                      </span>
+                    )}
+                    <a
+                      href={source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        ...mono,
+                        fontSize: "11px",
+                        color: "var(--text-tertiary)",
+                        marginLeft: "auto",
+                      }}
+                    >
+                      link &rarr;
+                    </a>
                   </div>
                 ))}
               </div>
-            )}
+            ))}
           </div>
         </CollapsibleSection>
       )}

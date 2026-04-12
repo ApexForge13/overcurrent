@@ -84,7 +84,7 @@ Response shape:
 // ---------------------------------------------------------------------------
 
 export async function triageSources(
-  rawSources: Array<{ url: string; title: string; domain: string; sourcecountry: string }>,
+  rawSources: Array<{ url: string; title: string; domain: string; sourcecountry: string; knownRegion?: string }>,
   query: string,
   storyId?: string,
 ): Promise<TriageResult> {
@@ -95,7 +95,39 @@ export async function triageSources(
     seen.add(s.url)
     return true
   })
-  const truncated = deduped.slice(0, 100)
+
+  // Ensure regional diversity — don't just take the first 100 (which would be all North American)
+  // Group by sourcecountry/region, then sample proportionally
+  const byRegion = new Map<string, typeof deduped>()
+  for (const s of deduped) {
+    const region = s.knownRegion || 'Unknown'
+    if (!byRegion.has(region)) byRegion.set(region, [])
+    byRegion.get(region)!.push(s)
+  }
+
+  const truncated: typeof deduped = []
+  const maxTotal = 100
+  const regionCount = byRegion.size || 1
+
+  if (regionCount <= 1) {
+    // Only one region — just take the first 100
+    truncated.push(...deduped.slice(0, maxTotal))
+  } else {
+    // Multiple regions — guarantee minimum 5 per region, then fill remaining proportionally
+    const minPerRegion = Math.min(10, Math.floor(maxTotal / regionCount))
+    const remaining: typeof deduped = []
+
+    for (const [, sources] of byRegion) {
+      truncated.push(...sources.slice(0, minPerRegion))
+      remaining.push(...sources.slice(minPerRegion))
+    }
+
+    // Fill remaining slots proportionally
+    const slotsLeft = maxTotal - truncated.length
+    if (slotsLeft > 0) {
+      truncated.push(...remaining.slice(0, slotsLeft))
+    }
+  }
 
   const userPrompt = `Query: ${query}
 

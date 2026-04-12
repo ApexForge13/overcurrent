@@ -1,4 +1,4 @@
-import { callClaude, parseJSON, HAIKU } from '@/lib/anthropic'
+import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
 import { ANTI_HALLUCINATION_RULES, JSON_RULES } from './prompts'
 
 // ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ export async function triageSources(
   }
 
   const truncated: typeof deduped = []
-  const maxTotal = 150
+  const maxTotal = 200
   const regionCount = byRegion.size || 1
 
   if (regionCount <= 1) {
@@ -138,7 +138,7 @@ Raw sources (${truncated.length} of ${rawSources.length} total):
 ${JSON.stringify(truncated, null, 2)}`
 
   const { text, costUsd } = await callClaude({
-    model: HAIKU,
+    model: SONNET,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     agentType: 'triage',

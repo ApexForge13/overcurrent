@@ -142,7 +142,7 @@ ${sourceText}`
 
   const result = await callModel({
     provider: 'anthropic',
-    tier: 'deep',
+    tier: 'premium',
     system: buildSystemPrompt(region, query),
     userMessage: userPrompt,
     maxTokens: 8192,

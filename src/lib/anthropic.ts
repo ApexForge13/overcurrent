@@ -7,12 +7,14 @@ import { prisma } from '@/lib/db'
 
 export const HAIKU = 'claude-haiku-4-5-20251001' as const
 export const SONNET = 'claude-sonnet-4-20250514' as const
+export const OPUS = 'claude-opus-4-20250514' as const
 
-type Model = typeof HAIKU | typeof SONNET
+type Model = typeof HAIKU | typeof SONNET | typeof OPUS
 
 const PRICING: Record<Model, { input: number; output: number }> = {
   [HAIKU]:  { input: 0.80 / 1_000_000, output: 4.0 / 1_000_000 },
   [SONNET]: { input: 3.0 / 1_000_000,  output: 15.0 / 1_000_000 },
+  [OPUS]:   { input: 15.0 / 1_000_000, output: 75.0 / 1_000_000 },
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { callClaude, parseJSON, OPUS } from '@/lib/anthropic'
 import { ANTI_HALLUCINATION_RULES, LANGUAGE_RULES, JSON_RULES } from './prompts'
 import type { RegionalAnalysis } from '@/agents/regional'
 import type { SilenceAnalysis } from '@/agents/silence'
@@ -333,11 +333,11 @@ ${JSON.stringify(
 )}`
 
   const { text, costUsd } = await callClaude({
-    model: SONNET,
+    model: OPUS,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     agentType: 'synthesis',
-    maxTokens: 8192,
+    maxTokens: 16384,
     storyId,
   })
 

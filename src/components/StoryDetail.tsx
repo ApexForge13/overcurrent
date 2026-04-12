@@ -7,7 +7,7 @@ import { FollowUpQuestions } from "./FollowUpQuestions";
 import { DebateHighlights } from "./DebateHighlights";
 import { DiscourseGap } from "./DiscourseGap";
 import { BuriedEvidence } from "./BuriedEvidence";
-import { PropagationMap } from "./PropagationMap";
+import { PropagationGlobeClient } from "./PropagationGlobeWrapper";
 import { FactSurvival } from "./FactSurvival";
 import { CostDisplay } from "./CostDisplay";
 
@@ -1001,7 +1001,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
           title="HOW THIS STORY TRAVELED"
           preview={`Tracked across ${new Set(propagationTimeline.flatMap((f: { regions: Array<{ region_id: string }> }) => f.regions.map((r: { region_id: string }) => r.region_id))).size} regions over ${propagationTimeline[propagationTimeline.length - 1]?.label || '72 hrs'}`}
         >
-          <PropagationMap
+          <PropagationGlobeClient
             timeline={propagationTimeline}
             storyHeadline={story.headline}
           />

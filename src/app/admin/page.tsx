@@ -31,6 +31,10 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [reviewStories, setReviewStories] = useState<ReviewStory[]>([] )
   const [actionInFlight, setActionInFlight] = useState<string | null>(null)
+  const [analyzeMode, setAnalyzeMode] = useState<'verify' | 'undercurrent'>('verify')
+  const [analyzeQuery, setAnalyzeQuery] = useState('')
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analyzeStatus, setAnalyzeStatus] = useState('')
 
   const fetchReviewStories = useCallback(() => {
     fetch('/api/admin/stories?status=review')
@@ -77,8 +81,88 @@ export default function AdminDashboard() {
     }
   }
 
+  async function handleAnalyze(e: React.FormEvent) {
+    e.preventDefault()
+    if (!analyzeQuery.trim() || isAnalyzing) return
+    setIsAnalyzing(true)
+    setAnalyzeStatus('Starting analysis...')
+
+    const endpoint = analyzeMode === 'verify' ? '/api/analyze' : '/api/undercurrent'
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: analyzeQuery.trim() }),
+      })
+      if (!response.body) throw new Error('No stream')
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              setAnalyzeStatus(data.message || data.phase || '')
+              if (data.phase === 'complete') {
+                setIsAnalyzing(false)
+                setAnalyzeQuery('')
+                setAnalyzeStatus('Complete — story is in review below')
+                fetchReviewStories()
+              }
+              if (data.phase === 'error') {
+                setIsAnalyzing(false)
+                setAnalyzeStatus(`Error: ${data.message}`)
+              }
+            } catch { /* skip */ }
+          }
+        }
+      }
+    } catch {
+      setIsAnalyzing(false)
+      setAnalyzeStatus('Analysis failed')
+    }
+  }
+
   return (
     <div>
+      {/* Analyze form */}
+      <div className="mb-8 p-5" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
+        <div className="flex items-center gap-3 mb-3">
+          <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
+            New Analysis
+          </h3>
+          <button onClick={() => setAnalyzeMode('verify')}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '2px 8px', color: analyzeMode === 'verify' ? 'var(--accent-green)' : 'var(--text-tertiary)', border: analyzeMode === 'verify' ? '1px solid var(--accent-green)' : '1px solid transparent', background: 'none', cursor: 'pointer' }}>
+            verify
+          </button>
+          <button onClick={() => setAnalyzeMode('undercurrent')}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '2px 8px', color: analyzeMode === 'undercurrent' ? 'var(--accent-purple)' : 'var(--text-tertiary)', border: analyzeMode === 'undercurrent' ? '1px solid var(--accent-purple)' : '1px solid transparent', background: 'none', cursor: 'pointer' }}>
+            undercurrent
+          </button>
+        </div>
+        <form onSubmit={handleAnalyze} className="flex gap-3">
+          <input type="text" value={analyzeQuery} onChange={e => setAnalyzeQuery(e.target.value)}
+            placeholder={analyzeMode === 'verify' ? 'Enter a story to analyze...' : 'Enter the dominant story...'}
+            disabled={isAnalyzing}
+            style={{ flex: 1, padding: '8px 12px', fontFamily: 'var(--font-body)', fontSize: '13px', background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', outline: 'none' }} />
+          <button type="submit" disabled={isAnalyzing || !analyzeQuery.trim()}
+            style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', background: 'transparent', cursor: isAnalyzing ? 'wait' : 'pointer', opacity: isAnalyzing ? 0.5 : 1 }}>
+            {isAnalyzing ? 'analyzing...' : 'analyze'}
+          </button>
+        </form>
+        {analyzeStatus && (
+          <p className="mt-2" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: isAnalyzing ? 'var(--accent-amber)' : analyzeStatus.includes('Error') ? 'var(--accent-red)' : 'var(--accent-green)' }}>
+            {analyzeStatus}
+          </p>
+        )}
+      </div>
+
       <h2 className="font-display font-bold text-xl mb-6">Dashboard</h2>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
         <StatCard label="Stories" value={stats?.totalStories ?? 0} />

@@ -81,7 +81,7 @@ export default function SocialAdminPage() {
   }
 
   function copyToClipboard(draft: SocialDraft) {
-    const text = (draft.editedContent || draft.content).replace(/\[LINK\]/g, `https://overcurrent.vercel.app/story/${draft.story?.slug || ''}`)
+    const text = (draft.editedContent || draft.content).replace(/\[LINK\]/g, `https://overcurrent.news/story/${draft.story?.slug || ''}`)
     navigator.clipboard.writeText(text)
   }
 

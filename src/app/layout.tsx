@@ -16,15 +16,15 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-col">
         {/* Navigation */}
         <header className="sticky top-0 z-50 border-b" style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-primary)' }}>
-          <nav className="max-w-[1200px] mx-auto px-6 h-14 flex items-center justify-between">
+          <nav className="max-w-[1200px] mx-auto px-4 sm:px-6 min-h-[56px] py-2 flex items-center justify-between flex-wrap gap-2">
             <a href="/" className="flex items-baseline gap-1">
               <span style={{ fontFamily: 'var(--font-display)', fontSize: '18px', fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-primary)' }}>
                 OVERCURRENT
               </span>
             </a>
-            <div className="flex items-center gap-6">
-              <a href="/methodology" className="text-sm hover:opacity-80 transition-opacity" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>methodology</a>
-              <a href="/outlets" className="text-sm hover:opacity-80 transition-opacity" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>outlets</a>
+            <div className="flex items-center gap-3 sm:gap-6">
+              <a href="/methodology" className="text-xs sm:text-sm hover:opacity-80 transition-opacity" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>methodology</a>
+              <a href="/outlets" className="text-xs sm:text-sm hover:opacity-80 transition-opacity" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>outlets</a>
               <AuthNav />
             </div>
           </nav>

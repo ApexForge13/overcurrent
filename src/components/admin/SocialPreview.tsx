@@ -19,7 +19,7 @@ const PLATFORM_STYLES: Record<string, { bg: string; maxChars: number | null; lab
 
 export function SocialPreview({ platform, content, headline, confidenceLevel, consensusScore }: SocialPreviewProps) {
   const style = PLATFORM_STYLES[platform] || PLATFORM_STYLES.twitter_hook
-  const displayContent = content.replace(/\[LINK\]/g, 'overcurrent.vercel.app/story/...')
+  const displayContent = content.replace(/\[LINK\]/g, 'overcurrent.news/story/...')
   const charCount = content.length
   const overLimit = style.maxChars ? charCount > style.maxChars : false
 
@@ -162,7 +162,7 @@ export function SocialPreview({ platform, content, headline, confidenceLevel, co
           background: 'rgba(255,255,255,0.03)',
         }}>
           <p style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-tertiary)' }}>
-            overcurrent.vercel.app
+            overcurrent.news
           </p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: '#E8E6E3', fontWeight: 500, marginTop: '2px' }}>
             {headline || 'Overcurrent Analysis'}

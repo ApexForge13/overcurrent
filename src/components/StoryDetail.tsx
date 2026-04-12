@@ -311,6 +311,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
 
   return (
     <article
+      className="story-article"
       style={{
         maxWidth: "720px",
         margin: "0 auto",
@@ -338,6 +339,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
       <div style={{ marginTop: "32px" }}>
         {/* Confidence bar row */}
         <div
+          className="confidence-row"
           style={{
             display: "flex",
             alignItems: "center",
@@ -860,6 +862,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
               </p>
               {/* Two-column side-by-side */}
               <div
+                className="discrepancy-columns"
                 style={{
                   display: "flex",
                   gap: "0",
@@ -902,6 +905,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                   </p>
                 </div>
                 <div
+                  className="discrepancy-divider"
                   style={{
                     width: "1px",
                     background: "var(--border-primary)",

@@ -98,7 +98,7 @@ ${JSON_RULES}
       "Slide 2: The Pattern (shareable insight)",
       "Slide 3: Framing Split comparison",
       "Slide 4: Discourse Gap score",
-      "Slide 5: CTA — overcurrent.vercel.app"
+      "Slide 5: CTA — overcurrent.news"
     ]
   },
   "newsletter": "1 paragraph snippet"

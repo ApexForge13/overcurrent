@@ -516,6 +516,7 @@ export function PropagationMap({ timeline, storyHeadline }: PropagationMapProps)
                   </div>
                   {r.dominant_quote && (
                     <div
+                      className="propagation-quote"
                       style={{
                         fontSize: '10px',
                         fontStyle: 'italic',

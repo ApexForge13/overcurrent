@@ -118,6 +118,42 @@ h1, h2, h3, h4, h5, h6 {
 ::-webkit-scrollbar-thumb { background: var(--border-accent); }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 
+/* Mobile responsiveness helpers */
+@media (max-width: 639px) {
+  .discrepancy-columns {
+    flex-direction: column !important;
+  }
+  .discrepancy-columns > .discrepancy-divider {
+    width: 100% !important;
+    height: 1px !important;
+  }
+  .discrepancy-columns > div:first-child {
+    padding-right: 0 !important;
+    padding-bottom: 12px !important;
+  }
+  .discrepancy-columns > div:last-child {
+    padding-left: 0 !important;
+    padding-top: 12px !important;
+  }
+  .confidence-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+  .confidence-row .confidence-blocks {
+    width: 100% !important;
+    letter-spacing: 2px !important;
+  }
+  .story-article {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .propagation-quote {
+    margin-left: 0 !important;
+    max-width: 100% !important;
+  }
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

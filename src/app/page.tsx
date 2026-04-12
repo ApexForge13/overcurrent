@@ -65,6 +65,7 @@ export default function HomePage() {
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchFeed = useCallback(async () => {
     try {
@@ -129,82 +130,25 @@ export default function HomePage() {
   const filteredStories = categoryFilter === "all"
     ? stories
     : stories.filter((s) => s.primaryCategory === categoryFilter);
-  const featured = filteredStories[0];
-  const rest = filteredStories.slice(1);
+  const searchFiltered = searchQuery.trim()
+    ? filteredStories.filter(s =>
+        s.headline.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.synopsis?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : filteredStories;
+  const featured = searchFiltered[0];
+  const rest = searchFiltered.slice(1);
 
   return (
     <div className="max-w-[1200px] mx-auto px-6">
-      {/* Tagline + analyze trigger */}
-      <div className="flex items-center justify-between py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
+      {/* Tagline */}
+      <div className="py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-tertiary)' }}>
-          See what's under the surface.
+          Every outlet shows you their version. We show you everyone&apos;s.
         </p>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setAnalyzeMode("verify"); setShowAnalyzeInput(!showAnalyzeInput || analyzeMode !== "verify"); }}
-            className="text-xs px-3 py-1.5 border transition-colors hover:opacity-80"
-            style={{
-              fontFamily: 'var(--font-mono)',
-              color: showAnalyzeInput && analyzeMode === "verify" ? 'var(--text-primary)' : 'var(--accent-green)',
-              borderColor: showAnalyzeInput && analyzeMode === "verify" ? 'var(--accent-green)' : 'var(--border-accent)',
-              background: 'transparent',
-              letterSpacing: '0.04em',
-            }}
-          >
-            + verify
-          </button>
-          <button
-            onClick={() => { setAnalyzeMode("undercurrent"); setShowAnalyzeInput(!showAnalyzeInput || analyzeMode !== "undercurrent"); }}
-            className="text-xs px-3 py-1.5 border transition-colors hover:opacity-80"
-            style={{
-              fontFamily: 'var(--font-mono)',
-              color: showAnalyzeInput && analyzeMode === "undercurrent" ? 'var(--text-primary)' : 'var(--accent-purple)',
-              borderColor: showAnalyzeInput && analyzeMode === "undercurrent" ? 'var(--accent-purple)' : 'var(--border-accent)',
-              background: 'transparent',
-              letterSpacing: '0.04em',
-            }}
-          >
-            + undercurrent
-          </button>
-        </div>
       </div>
 
-      {/* Analyze input (expandable) */}
-      {showAnalyzeInput && (
-        <form onSubmit={handleAnalyze} className="py-4 border-b" style={{ borderColor: 'var(--border-primary)' }}>
-          <div className="flex gap-3">
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={analyzeMode === "verify" ? "Enter a story to verify..." : "Enter the dominant story everyone\u2019s watching..."}
-              disabled={isAnalyzing}
-              className="flex-1 px-3 py-2 text-sm border bg-transparent outline-none"
-              style={{
-                fontFamily: 'var(--font-body)',
-                color: 'var(--text-primary)',
-                borderColor: 'var(--border-accent)',
-              }}
-            />
-            <button
-              type="submit"
-              disabled={isAnalyzing || !query.trim()}
-              className="px-4 py-2 text-sm border transition-opacity"
-              style={{
-                fontFamily: 'var(--font-mono)',
-                color: isAnalyzing ? 'var(--text-tertiary)' : 'var(--text-primary)',
-                borderColor: 'var(--border-accent)',
-                background: 'transparent',
-                opacity: isAnalyzing ? 0.5 : 1,
-              }}
-            >
-              {isAnalyzing ? "analyzing..." : "analyze"}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Analysis progress */}
+      {/* Analysis progress (visible if admin triggers from /admin) */}
       {events.length > 0 && (
         <div className="py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
           <AnalysisProgress events={events} mode={analyzeMode} />
@@ -213,7 +157,7 @@ export default function HomePage() {
 
       {/* Category filter pills */}
       {stories.length > 0 && (
-        <div className="flex items-center gap-2 py-4 overflow-x-auto" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+        <div className="flex items-center gap-2 py-4 overflow-x-auto flex-nowrap" style={{ borderBottom: '1px solid var(--border-primary)' }}>
           <button
             onClick={() => setCategoryFilter("all")}
             style={{
@@ -250,6 +194,30 @@ export default function HomePage() {
               {CATEGORIES[slug].label.split(' ')[0]}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Search input */}
+      {stories.length > 0 && (
+        <div className="pt-4">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search stories..."
+            style={{
+              width: '100%',
+              padding: '8px 0',
+              fontFamily: 'var(--font-body)',
+              fontSize: '14px',
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              border: 'none',
+              borderBottom: '1px solid var(--border-primary)',
+              outline: 'none',
+              marginBottom: '8px',
+            }}
+          />
         </div>
       )}
 

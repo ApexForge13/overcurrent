@@ -500,10 +500,17 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
     fillMeshes.forEach(({ mesh, regionId }) => {
       const mat        = mesh.material as THREE.MeshBasicMaterial
       const regionData = activeRegions?.get(regionId)
+      const secondaryStatus = secondaryStatuses?.get(regionId)
+
       if (regionData && regionData.status !== 'silent') {
-        const fillColor = STATUS_COLORS[regionData.status] || '#2A2A3E'
+        // Fill uses SECONDARY status if one exists (e.g., Iran is original but contradicted)
+        // Otherwise falls back to primary status
+        const fillStatus = secondaryStatus && secondaryStatus !== regionData.status
+          ? secondaryStatus
+          : regionData.status
+        const fillColor = STATUS_COLORS[fillStatus] || '#2A2A3E'
         mat.color.set(fillColor)
-        mat.opacity = 0.2
+        mat.opacity = secondaryStatus && secondaryStatus !== regionData.status ? 0.25 : 0.15
       } else {
         mat.color.set('#2A2A3E')
         mat.opacity = 0.03

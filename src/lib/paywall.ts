@@ -1,4 +1,4 @@
-const FREE_READS = 10
+const FREE_READS = 5
 const STORAGE_KEY = 'overcurrent_reads'
 
 // Get read count from localStorage (anonymous users)

@@ -51,7 +51,7 @@ export default function SignupPage() {
         Create account
       </h1>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-tertiary)', marginBottom: '32px' }}>
-        10 free analyses — full experience, no feature restrictions. Then $4.99/mo for unlimited access.
+        5 free analyses — full experience, no feature restrictions. Then $4.99/mo for unlimited access.
       </p>
 
       <form onSubmit={handleSignup} className="space-y-4">

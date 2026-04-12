@@ -37,7 +37,7 @@ export function Paywall({ readCount, isLoggedIn }: PaywallProps) {
           textTransform: 'uppercase',
           marginBottom: '16px',
         }}>
-          {readCount} of 10 free reads used
+          {readCount} of 5 free reads used
         </p>
 
         <h2 style={{
@@ -48,7 +48,7 @@ export function Paywall({ readCount, isLoggedIn }: PaywallProps) {
           lineHeight: 1.2,
           marginBottom: '12px',
         }}>
-          You&apos;ve read your 10 free analyses
+          You&apos;ve read your 5 free analyses
         </h2>
 
         <p style={{

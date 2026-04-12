@@ -99,7 +99,7 @@ export function StoryPaywallWrapper({ slug, children }: StoryPaywallWrapperProps
             lineHeight: 1.6,
             marginBottom: '20px',
           }}>
-            10 free analyses. Full experience — framing splits, AI debate replay, propagation maps, everything. No feature restrictions.
+            5 free analyses. Full experience — framing splits, AI debate replay, propagation maps, everything. No feature restrictions.
           </p>
           <a
             href="/signup"

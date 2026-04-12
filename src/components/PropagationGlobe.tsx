@@ -1553,6 +1553,14 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
             </span>
           </div>
         ))}
+        <div style={{ marginTop: '8px', borderTop: '1px solid #2A2A2E', paddingTop: '6px' }}>
+          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.4, maxWidth: '140px' }}>
+            <span style={{ color: '#6A6A7E' }}>Border</span> = how they received the story
+          </div>
+          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.4, maxWidth: '140px' }}>
+            <span style={{ color: '#6A6A7E' }}>Fill</span> = how they reported it
+          </div>
+        </div>
       </div>
 
       {/* Active regions info panel */}
@@ -1560,14 +1568,16 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
         <div
           style={{
             position:   'absolute',
-            bottom:     '76px',
+            top:        '16px',
             right:      '16px',
+            bottom:     '76px',
             zIndex:     10,
-            width:      '200px',
+            width:      '220px',
             background: 'rgba(10, 10, 11, 0.88)',
             border:     '1px solid #1e1e1e',
             borderRadius: '6px',
             padding:    '10px 12px',
+            overflowY:  'auto',
           }}
         >
           <div

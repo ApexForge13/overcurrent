@@ -85,6 +85,9 @@ const MOCK_TIMELINE = [
       { region_id: "il", status: "original", coverage_volume: 35, dominant_quote: "Nuclear threat demands action", outlet_count: 3, key_outlets: ["Jerusalem Post", "Haaretz"] },
       { region_id: "jp", status: "wire_copy", coverage_volume: 15, dominant_quote: "Oil supply fears mount", outlet_count: 2, key_outlets: ["Nikkei", "Japan Times"] },
       { region_id: "la", status: "wire_copy", coverage_volume: 10, dominant_quote: "Markets react to failed talks", outlet_count: 1, key_outlets: ["La Nación"] },
+      { region_id: "af", status: "wire_copy", coverage_volume: 10, dominant_quote: "Wire coverage only", outlet_count: 2, key_outlets: ["Punch Nigeria", "News24"] },
+      { region_id: "au", status: "wire_copy", coverage_volume: 8, dominant_quote: "Oil supply concerns mount", outlet_count: 1, key_outlets: ["ABC Australia"] },
+      { region_id: "mx", status: "wire_copy", coverage_volume: 5, dominant_quote: "Diplomacia fracasa en Islamabad", outlet_count: 1, key_outlets: ["El Universal"] },
     ],
     flows: [
       { from: "us", to: "jp", type: "wire_copy" },

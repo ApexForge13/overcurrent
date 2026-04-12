@@ -340,6 +340,60 @@ interface CountryLine {
   regionId: string
 }
 
+interface CountryFill {
+  mesh:     THREE.Mesh
+  regionId: string
+}
+
+/** Skip rings that cross the antimeridian — their flat 2D triangulation breaks on the sphere. */
+function ringCrossesAntimeridian(ring: number[][]): boolean {
+  for (let i = 0; i < ring.length - 1; i++) {
+    const lngA = ring[i][0]
+    const lngB = ring[i + 1][0]
+    if (Math.abs(lngA - lngB) > 180) return true
+  }
+  return false
+}
+
+function createCountryFillMesh(ring: number[][], status: string | null): THREE.Mesh | null {
+  if (ring.length < 3) return null
+  if (ringCrossesAntimeridian(ring)) return null
+
+  // Build a flat 2D shape from lng/lat coordinates
+  const shape = new THREE.Shape()
+  shape.moveTo(ring[0][0], ring[0][1]) // lng, lat
+  for (let i = 1; i < ring.length; i++) {
+    shape.lineTo(ring[i][0], ring[i][1])
+  }
+  shape.closePath()
+
+  const shapeGeo = new THREE.ShapeGeometry(shape, 1)
+
+  // Remap flat vertices onto the sphere surface
+  const pos = shapeGeo.attributes.position
+  for (let i = 0; i < pos.count; i++) {
+    const lng = pos.getX(i)
+    const lat = pos.getY(i)
+    const v = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.003)
+    pos.setXYZ(i, v.x, v.y, v.z)
+  }
+  pos.needsUpdate = true
+  shapeGeo.computeVertexNormals()
+
+  const color   = status && STATUS_COLORS[status] ? STATUS_COLORS[status] : '#2A2A3E'
+  const opacity = status && status !== 'silent' ? 0.2 : 0.03
+
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    side:        THREE.DoubleSide,
+    depthWrite:  false,
+  })
+
+  return new THREE.Mesh(shapeGeo, mat)
+}
+
 interface CountryBordersProps {
   globeRotation:    React.MutableRefObject<number>
   activeRegions?:   Map<string, { status: string }>
@@ -349,6 +403,7 @@ interface CountryBordersProps {
 function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: CountryBordersProps) {
   const groupRef    = useRef<THREE.Group>(null)
   const [countryLines, setCountryLines] = useState<CountryLine[]>([])
+  const [fillMeshes, setFillMeshes]     = useState<CountryFill[]>([])
 
   useEffect(() => {
     fetch('/world-110m.json')
@@ -361,6 +416,7 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
         const countries = topoFeature(topology, objects[objectKey])
 
         const built: CountryLine[] = []
+        const fills: CountryFill[] = []
 
         for (const feat of countries.features) {
           const geom = feat.geometry
@@ -380,10 +436,10 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
           for (const ring of rings) {
             if (ring.length < 3) continue
 
+            // Border line
             const points: THREE.Vector3[] = ring.map(([lng, lat]) =>
               latLngToVector3(lat as number, lng as number, GLOBE_RADIUS + 0.005)
             )
-
             const mat = new THREE.LineBasicMaterial({
               color:       '#8A8A9E',
               transparent: true,
@@ -391,20 +447,26 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
             })
             const geo = new THREE.BufferGeometry().setFromPoints(points)
             built.push({ line: new THREE.Line(geo, mat), regionId })
+
+            // Fill mesh
+            const fillMesh = createCountryFillMesh(ring, null)
+            if (fillMesh) fills.push({ mesh: fillMesh, regionId })
           }
         }
 
         setCountryLines(built)
+        setFillMeshes(fills)
       })
       .catch((err) => console.warn('Failed to load country borders:', err))
   }, [])
 
-  // Update line colors whenever activeRegions or secondaryStatuses changes.
+  // Update line AND fill colors whenever activeRegions or secondaryStatuses changes.
   // Priority: if a country has BOTH a primary and secondary status (dual-status),
   // shift the border color toward the secondary (incoming-flow) status to surface
   // contradictions visually — without needing separate glow ring objects.
   useEffect(() => {
     const hasActive = activeRegions && activeRegions.size > 0
+
     countryLines.forEach(({ line, regionId }) => {
       const mat           = line.material as THREE.LineBasicMaterial
       const regionData    = activeRegions?.get(regionId)
@@ -414,8 +476,6 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
       if (primaryStatus) {
         const hasDual = !!secondaryStatus && secondaryStatus !== primaryStatus
         if (hasDual) {
-          // Dual-status: use the secondary (incoming) color at slightly dimmer opacity.
-          // The contradiction / reframe is the more notable signal.
           const secColor = STATUS_COLORS[secondaryStatus!]
           mat.color.set(secColor && secColor !== STATUS_COLORS.silent ? secColor : '#8A8A9E')
           mat.opacity = 0.5
@@ -425,21 +485,32 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
           mat.opacity = 0.85
         }
       } else if (regionId && hasActive) {
-        // Country is in a mapped region but not active — dim it
         mat.color.set('#8A8A9E')
         mat.opacity = 0.25
       } else if (!regionId) {
-        // Unmapped country: keep visible but clearly dimmed (#4A4A5E at 30%)
         mat.color.set('#4A4A5E')
         mat.opacity = 0.3
       } else {
-        // Mapped but no active regions at all — normal idle state
         mat.color.set('#8A8A9E')
         mat.opacity = 0.6
       }
       mat.needsUpdate = true
     })
-  }, [activeRegions, secondaryStatuses, countryLines])
+
+    fillMeshes.forEach(({ mesh, regionId }) => {
+      const mat        = mesh.material as THREE.MeshBasicMaterial
+      const regionData = activeRegions?.get(regionId)
+      if (regionData && regionData.status !== 'silent') {
+        const fillColor = STATUS_COLORS[regionData.status] || '#2A2A3E'
+        mat.color.set(fillColor)
+        mat.opacity = 0.2
+      } else {
+        mat.color.set('#2A2A3E')
+        mat.opacity = 0.03
+      }
+      mat.needsUpdate = true
+    })
+  }, [activeRegions, secondaryStatuses, countryLines, fillMeshes])
 
   useFrame(() => {
     if (groupRef.current) {
@@ -449,8 +520,11 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
 
   return (
     <group ref={groupRef}>
+      {fillMeshes.map(({ mesh }, i) => (
+        <primitive key={`fill-${i}`} object={mesh} />
+      ))}
       {countryLines.map(({ line }, i) => (
-        <primitive key={i} object={line} />
+        <primitive key={`line-${i}`} object={line} />
       ))}
     </group>
   )
@@ -829,6 +903,50 @@ function computeSecondaryStatuses(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Auto-generate flows from region data                               */
+/* ------------------------------------------------------------------ */
+
+function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] {
+  const regions = frame.regions.filter((r) => r.status !== 'silent' && r.coverage_volume > 0)
+  if (regions.length < 2) return frame.flows || []
+
+  const origin = regions.find((r) => r.status === 'original')
+  if (!origin) return frame.flows || []
+
+  const flows: TimelineFrame['flows'] = [...(frame.flows || [])]
+  const existingFlowKeys = new Set(flows.map((f) => `${f.from}-${f.to}`))
+
+  // Flow from origin to every other active region
+  for (const region of regions) {
+    if (region.region_id === origin.region_id) continue
+    const key = `${origin.region_id}-${region.region_id}`
+    if (existingFlowKeys.has(key)) continue
+    flows.push({ from: origin.region_id, to: region.region_id, type: region.status })
+    existingFlowKeys.add(key)
+  }
+
+  // Cross-flows between non-origin regions with different statuses
+  for (let i = 0; i < regions.length; i++) {
+    for (let j = i + 1; j < regions.length; j++) {
+      if (
+        regions[i].status !== regions[j].status &&
+        regions[i].status !== 'original' &&
+        regions[j].status !== 'original'
+      ) {
+        const key = `${regions[i].region_id}-${regions[j].region_id}`
+        if (existingFlowKeys.has(key)) continue
+        const from = regions[i].status === 'wire_copy' ? regions[i] : regions[j]
+        const to   = regions[i].status === 'wire_copy' ? regions[j] : regions[i]
+        flows.push({ from: from.region_id, to: to.region_id, type: to.status })
+        existingFlowKeys.add(key)
+      }
+    }
+  }
+
+  return flows
+}
+
+/* ------------------------------------------------------------------ */
 /*  Arc data                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1008,16 +1126,19 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
     [frame]
   )
 
+  // Auto-generate flows from region data, supplementing any AI-provided flows
+  const allFlows = useMemo(() => generateFlowsFromRegions(frame), [frame])
+
   // Compute dual-status map: for each destination region, record the incoming
   // flow type if it differs from the region's own primary status.
   const secondaryStatuses = useMemo(
-    () => computeSecondaryStatuses(frame.flows, activeRegions),
-    [frame.flows, activeRegions]
+    () => computeSecondaryStatuses(allFlows, activeRegions),
+    [allFlows, activeRegions]
   )
 
   // When frame changes, spawn arcs for new flows
   useEffect(() => {
-    const newFlows = frame.flows.slice(0, MAX_ARCS)
+    const newFlows = allFlows.slice(0, MAX_ARCS)
     let added = false
 
     newFlows.forEach((flow, i) => {
@@ -1052,7 +1173,7 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       console.log('[Globe] Created arcs. Total:', arcsRef.current.length)
       setArcs([...arcsRef.current])
     }
-  }, [currentFrameIdx, frame.flows, globeRotationRef])
+  }, [currentFrameIdx, allFlows, globeRotationRef])
 
   useFrame((_, delta) => {
     // Sync arcs group rotation with globe

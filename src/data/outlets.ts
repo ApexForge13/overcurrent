@@ -1370,7 +1370,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-right",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://english.alarabiya.net/tools/rss",
+    rssUrl: "https://english.alarabiya.net/rss.xml",
   },
   {
     name: "Haaretz",
@@ -1414,7 +1414,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "state-controlled",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.trtworld.com/rss",
+    rssUrl: "https://www.trtworld.com/rss/news",
   },
   {
     name: "Daily Nation",
@@ -1547,7 +1547,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "state-controlled",
     reliability: "low",
     language: "en",
-    rssUrl: "https://www.presstv.ir/RSS",
+    rssUrl: "https://www.presstv.ir/rss.xml",
   },
   {
     name: "IRNA",
@@ -1569,7 +1569,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "state-controlled",
     reliability: "low",
     language: "en",
-    rssUrl: "https://www.tasnimnews.com/en/rss",
+    rssUrl: "https://www.tasnimnews.com/en/rss/feed",
   },
   {
     name: "Daily Sabah",
@@ -2084,7 +2084,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.dawn.com/feed",
+    rssUrl: "https://www.dawn.com/feeds/home",
   },
   {
     name: "The Express Tribune",

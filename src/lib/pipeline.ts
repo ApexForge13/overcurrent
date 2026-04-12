@@ -65,10 +65,8 @@ export async function runVerifyPipeline(
     // GDELT failed — continue with RSS + Reddit only
   }
 
-  // Deduplicate by URL across all sources + limit per outlet
+  // Deduplicate by URL only — let triage handle relevance filtering
   const seenUrls = new Set<string>()
-  const outletCounts = new Map<string, number>()
-  const MAX_PER_OUTLET = 3 // Prevent one outlet dominating (Axios 19x problem)
   const rawSources: Array<{ url: string; title: string; domain: string; sourcecountry: string; knownRegion: string }> = []
 
   // Helper: determine sourcecountry and region for a domain
@@ -109,15 +107,9 @@ export async function runVerifyPipeline(
     }
   }
 
-  // Add RSS results — use outlet registry for country/region, limit per outlet
+  // Add RSS results — use outlet registry for country/region
   for (const rss of rssResults) {
     if (rss.url && !seenUrls.has(rss.url)) {
-      // Per-outlet limit
-      const outletKey = rss.outlet || 'unknown'
-      const currentCount = outletCounts.get(outletKey) || 0
-      if (currentCount >= MAX_PER_OUTLET) continue
-      outletCounts.set(outletKey, currentCount + 1)
-
       seenUrls.add(rss.url)
       try {
         const domain = new URL(rss.url).hostname

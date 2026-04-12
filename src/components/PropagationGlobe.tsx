@@ -307,11 +307,12 @@ interface CountryLine {
 }
 
 interface CountryBordersProps {
-  globeRotation:  React.MutableRefObject<number>
-  activeRegions?: Map<string, { status: string }>
+  globeRotation:    React.MutableRefObject<number>
+  activeRegions?:   Map<string, { status: string }>
+  secondaryStatuses?: Map<string, string>
 }
 
-function CountryBorders({ globeRotation, activeRegions }: CountryBordersProps) {
+function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: CountryBordersProps) {
   const groupRef    = useRef<THREE.Group>(null)
   const [countryLines, setCountryLines] = useState<CountryLine[]>([])
 
@@ -364,27 +365,47 @@ function CountryBorders({ globeRotation, activeRegions }: CountryBordersProps) {
       .catch((err) => console.warn('Failed to load country borders:', err))
   }, [])
 
-  // Update line colors whenever activeRegions changes
+  // Update line colors whenever activeRegions or secondaryStatuses changes.
+  // Priority: if a country has BOTH a primary and secondary status (dual-status),
+  // shift the border color toward the secondary (incoming-flow) status to surface
+  // contradictions visually — without needing separate glow ring objects.
   useEffect(() => {
     const hasActive = activeRegions && activeRegions.size > 0
     countryLines.forEach(({ line, regionId }) => {
-      const mat = line.material as THREE.LineBasicMaterial
-      const regionData = activeRegions?.get(regionId)
-      if (regionData) {
-        const sc = STATUS_COLORS[regionData.status]
-        mat.color.set(sc && sc !== STATUS_COLORS.silent ? sc : '#8A8A9E')
-        mat.opacity = 0.85
-      } else if (hasActive) {
-        // Dim countries not in any active region
+      const mat           = line.material as THREE.LineBasicMaterial
+      const regionData    = activeRegions?.get(regionId)
+      const primaryStatus = regionData?.status
+      const secondaryStatus = secondaryStatuses?.get(regionId)
+
+      if (primaryStatus) {
+        const hasDual = !!secondaryStatus && secondaryStatus !== primaryStatus
+        if (hasDual) {
+          // Dual-status: use the secondary (incoming) color at slightly dimmer opacity.
+          // The contradiction / reframe is the more notable signal.
+          const secColor = STATUS_COLORS[secondaryStatus!]
+          mat.color.set(secColor && secColor !== STATUS_COLORS.silent ? secColor : '#8A8A9E')
+          mat.opacity = 0.5
+        } else {
+          const sc = STATUS_COLORS[primaryStatus]
+          mat.color.set(sc && sc !== STATUS_COLORS.silent ? sc : '#8A8A9E')
+          mat.opacity = 0.85
+        }
+      } else if (regionId && hasActive) {
+        // Country is in a mapped region but not active — dim it
         mat.color.set('#8A8A9E')
         mat.opacity = 0.25
+      } else if (!regionId) {
+        // Unmapped country: keep visible but clearly dimmed (#4A4A5E at 30%)
+        mat.color.set('#4A4A5E')
+        mat.opacity = 0.3
       } else {
+        // Mapped but no active regions at all — normal idle state
         mat.color.set('#8A8A9E')
         mat.opacity = 0.6
       }
       mat.needsUpdate = true
     })
-  }, [activeRegions, countryLines])
+  }, [activeRegions, secondaryStatuses, countryLines])
 
   useFrame(() => {
     if (groupRef.current) {
@@ -637,16 +658,13 @@ function TacticalMarker({ regionId, lat, lng, data, activeCount, globeRotation }
 function RegionMarkers({
   activeRegions,
   globeRotationRef,
-  secondaryStatuses,
 }: {
-  activeRegions:     Map<string, RegionData>
-  globeRotationRef:  React.MutableRefObject<number>
-  secondaryStatuses: Map<string, string>
+  activeRegions:    Map<string, RegionData>
+  globeRotationRef: React.MutableRefObject<number>
 }) {
-  const groupRef         = useRef<THREE.Group>(null)
-  const meshMap          = useRef<Map<string, THREE.Mesh>>(new Map())
-  const secondaryMeshMap = useRef<Map<string, THREE.Mesh>>(new Map())
-  const pulsePhase       = useRef<Map<string, number>>(new Map())
+  const groupRef   = useRef<THREE.Group>(null)
+  const meshMap    = useRef<Map<string, THREE.Mesh>>(new Map())
+  const pulsePhase = useRef<Map<string, number>>(new Map())
 
   useFrame((_, delta) => {
     if (groupRef.current) {
@@ -677,26 +695,6 @@ function RegionMarkers({
         mesh.scale.setScalar(0.5)
       }
     })
-
-    // Animate secondary glow rings for dual-status regions.
-    // Primary dot = region's own status. Ring = what incoming flows say about it.
-    secondaryMeshMap.current.forEach((ring, regionId) => {
-      const secondaryStatus = secondaryStatuses.get(regionId)
-      const primaryStatus   = activeRegions.get(regionId)?.status
-      const hasDual = !!secondaryStatus && secondaryStatus !== primaryStatus
-
-      const ringMat = ring.material as THREE.MeshBasicMaterial
-      if (hasDual) {
-        const phase = pulsePhase.current.get(regionId) ?? 0
-        // Pulse ring at offset phase from primary dot so the two animate distinctly
-        ringMat.color.set(statusColor(secondaryStatus!))
-        ringMat.opacity = 0.3 + Math.sin(phase * 1.5 + Math.PI * 0.5) * 0.15
-        ring.scale.setScalar(2.0 + Math.sin(phase * 1.2 + 1.0) * 0.5)
-        ring.visible = true
-      } else {
-        ring.visible = false
-      }
-    })
   })
 
   const entries = useMemo(() => Object.entries(REGION_COORDS), [])
@@ -704,8 +702,7 @@ function RegionMarkers({
   return (
     <group ref={groupRef}>
       {entries.map(([regionId, [lat, lng]]) => {
-        const primaryPos   = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.04)
-        const secondaryPos = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.055)
+        const primaryPos = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.04)
         return (
           <group key={`region-${regionId}`}>
             {/* Primary pulse dot — color = region's own status */}
@@ -717,20 +714,6 @@ function RegionMarkers({
             >
               <sphereGeometry args={[0.02, 8, 8]} />
               <meshBasicMaterial color="#333340" transparent opacity={0.3} />
-            </mesh>
-
-            {/* Secondary status glow ring — visible only when region has dual status.
-                The ring color shows what incoming flows report about this region,
-                distinct from the primary dot which shows the region's own reporting. */}
-            <mesh
-              position={secondaryPos}
-              ref={(el: THREE.Mesh | null) => {
-                if (el) secondaryMeshMap.current.set(regionId, el)
-              }}
-              visible={false}
-            >
-              <ringGeometry args={[0.034, 0.058, 16]} />
-              <meshBasicMaterial color="#ffffff" transparent opacity={0} side={THREE.DoubleSide} />
             </mesh>
           </group>
         )
@@ -826,65 +809,50 @@ interface ArcEntry {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Single arc rendered via primitive THREE.Line                        */
+/*  Single arc rendered via TubeGeometry mesh                          */
+/*  TubeGeometry creates a proper mesh — R3F renders it reliably.      */
 /* ------------------------------------------------------------------ */
 
 function ArcLine({ arc }: { arc: ArcEntry }) {
-  const ref = useRef<THREE.Group>(null)
+  const matRef  = useRef<THREE.MeshBasicMaterial>(null)
 
-  // Create geometry from ALL points at construction time — this is the key.
-  // setFromPoints populates the buffer once; setDrawRange controls visibility.
-  const [geo] = useState(() =>
-    new THREE.BufferGeometry().setFromPoints(arc.allPoints)
-  )
-
-  const [mat] = useState(() =>
-    new THREE.LineBasicMaterial({
-      color:       arc.color,
-      transparent: true,
-      opacity:     1.0,
-    })
-  )
-
-  // Memoize the Line object itself so it is not recreated on every render.
-  const [lineObj] = useState(() => new THREE.Line(geo, mat))
-
-  // Update draw range each frame — this is the standard Three.js progressive
-  // line drawing pattern and is guaranteed to work.
-  useFrame(() => {
-    const count = arc.progress >= 1
-      ? arc.allPoints.length
-      : Math.max(2, Math.ceil(arc.progress * arc.allPoints.length))
-    geo.setDrawRange(0, count)
-
-    // Dim older completed arcs so recent ones stand out
-    mat.opacity = arc.progress >= 1 ? (arc.age > 3 ? 0.4 : 0.7) : 1.0
+  // Build the tube geometry once from the full arc curve.
+  // We control how much of the tube is visible via setDrawRange each frame.
+  const [tube] = useState<THREE.TubeGeometry>(() => {
+    const curve = new THREE.CatmullRomCurve3(arc.allPoints)
+    return new THREE.TubeGeometry(curve, Math.max(arc.allPoints.length, 60), 0.006, 4, false)
   })
 
+  // Dispose tube when the arc unmounts.
   useEffect(() => {
-    return () => {
-      geo.dispose()
-      mat.dispose()
-    }
-  }, [geo, mat])
+    return () => { tube.dispose() }
+  }, [tube])
 
-  // Debug endpoint spheres: always visible regardless of line rendering state,
-  // so we can confirm arc endpoints are positioned correctly on the globe.
-  const startPos = arc.allPoints[0]
-  const endPos   = arc.allPoints[arc.allPoints.length - 1]
+  // Each frame: update draw range to animate the tube growing along the arc,
+  // and fade opacity for older completed arcs.
+  useFrame(() => {
+    const totalVerts = tube.attributes.position.count
+    const visibleVerts = arc.progress >= 1
+      ? totalVerts
+      : Math.max(6, Math.ceil(arc.progress * totalVerts))
+    tube.setDrawRange(0, visibleVerts)
+
+    if (matRef.current) {
+      matRef.current.opacity = arc.progress >= 1 ? (arc.age > 3 ? 0.4 : 0.7) : 1.0
+    }
+  })
 
   return (
-    <group ref={ref}>
-      <primitive object={lineObj} />
-      <mesh position={startPos}>
-        <sphereGeometry args={[0.03, 6, 6]} />
-        <meshBasicMaterial color={arc.color} transparent opacity={0.9} />
-      </mesh>
-      <mesh position={endPos}>
-        <sphereGeometry args={[0.03, 6, 6]} />
-        <meshBasicMaterial color={arc.color} transparent opacity={0.9} />
-      </mesh>
-    </group>
+    <mesh geometry={tube} renderOrder={999}>
+      <meshBasicMaterial
+        ref={matRef}
+        color={arc.color}
+        transparent
+        opacity={1.0}
+        depthWrite={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
   )
 }
 
@@ -1099,12 +1067,15 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
 
       <GlobeMesh rotationRef={globeRotationRef} />
 
-      <CountryBorders globeRotation={globeRotationRef} activeRegions={activeRegions} />
+      <CountryBorders
+        globeRotation={globeRotationRef}
+        activeRegions={activeRegions}
+        secondaryStatuses={secondaryStatuses}
+      />
 
       <RegionMarkers
         activeRegions={activeRegions}
         globeRotationRef={globeRotationRef}
-        secondaryStatuses={secondaryStatuses}
       />
 
       <TacticalMarkerLayer

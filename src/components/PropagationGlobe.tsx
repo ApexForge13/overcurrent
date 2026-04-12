@@ -814,36 +814,35 @@ interface ArcEntry {
 /* ------------------------------------------------------------------ */
 
 function ArcLine({ arc }: { arc: ArcEntry }) {
-  const matRef  = useRef<THREE.MeshBasicMaterial>(null)
+  const matRef = useRef<THREE.MeshBasicMaterial>(null)
+  const meshRef = useRef<THREE.Mesh>(null)
 
-  // Build the tube geometry once from the full arc curve.
-  // We control how much of the tube is visible via setDrawRange each frame.
-  const [tube] = useState<THREE.TubeGeometry>(() => {
+  // Build full tube geometry once — no draw range animation
+  const tube = useMemo(() => {
     const curve = new THREE.CatmullRomCurve3(arc.allPoints)
-    return new THREE.TubeGeometry(curve, Math.max(arc.allPoints.length, 60), 0.006, 4, false)
-  })
+    return new THREE.TubeGeometry(curve, 80, 0.008, 6, false)
+  }, [arc.allPoints])
 
-  // Dispose tube when the arc unmounts.
   useEffect(() => {
     return () => { tube.dispose() }
   }, [tube])
 
-  // Each frame: update draw range to animate the tube growing along the arc,
-  // and fade opacity for older completed arcs.
+  // Show tube only when progress > 0, fade based on age
   useFrame(() => {
-    const totalVerts = tube.attributes.position.count
-    const visibleVerts = arc.progress >= 1
-      ? totalVerts
-      : Math.max(6, Math.ceil(arc.progress * totalVerts))
-    tube.setDrawRange(0, visibleVerts)
-
+    if (meshRef.current) {
+      meshRef.current.visible = arc.progress > 0.1
+    }
     if (matRef.current) {
-      matRef.current.opacity = arc.progress >= 1 ? (arc.age > 3 ? 0.4 : 0.7) : 1.0
+      if (arc.progress < 1) {
+        matRef.current.opacity = 0.3 + arc.progress * 0.7
+      } else {
+        matRef.current.opacity = arc.age > 5 ? 0.3 : 0.6
+      }
     }
   })
 
   return (
-    <mesh geometry={tube} renderOrder={999}>
+    <mesh ref={meshRef} geometry={tube} renderOrder={999} visible={false}>
       <meshBasicMaterial
         ref={matRef}
         color={arc.color}

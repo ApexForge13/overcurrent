@@ -10,7 +10,7 @@ import * as topojsonClient from 'topojson-client'
 type TopoFeatureFn = (
   topology: unknown,
   object: unknown
-) => { features: Array<{ geometry: { type: string; coordinates: number[][][][] | number[][][] } }> }
+) => { features: Array<{ id?: string | number; geometry: { type: string; coordinates: number[][][][] | number[][][] } }> }
 const topoFeature = (topojsonClient as unknown as { feature: TopoFeatureFn }).feature
 
 /* ------------------------------------------------------------------ */
@@ -188,19 +188,55 @@ function statusColor(status: string): string {
 /*  Country borders — loaded from Natural Earth 110m TopoJSON          */
 /* ------------------------------------------------------------------ */
 
-/** Map a country polygon centroid (lat/lng) to a rough region_id. */
-function getRegionForCoords(lat: number, lng: number): string {
-  if (lat > 15 && lng > -140 && lng < -50) return 'us'   // North America
-  if (lat < 15 && lat > -60 && lng > -90 && lng < -30)  return 'la'  // Latin America
-  if (lat > 35 && lng > -15 && lng < 40)  return 'eu'   // Europe
-  if (lat > 50 && lng > 40)               return 'ru'   // Russia
-  if (lat > 20 && lat < 45 && lng > 25 && lng < 65) return 'me'  // Middle East
-  if (lat > 0  && lat < 40 && lng > 65 && lng < 100) return 'in'  // India
-  if (lat > 20 && lng > 100 && lng < 145) return 'cn'   // China
-  if (lat > -15 && lat < 20 && lng > 90 && lng < 140) return 'sea' // SE Asia
-  if (lat < -10 && lng > 110 && lng < 155) return 'au'  // Australia
-  if (lat > -40 && lat < 40 && lng > -25 && lng < 55) return 'af'  // Africa
-  return ''
+/** Map TopoJSON ISO 3166-1 numeric country IDs to region_id. */
+const COUNTRY_ID_TO_REGION: Record<string, string> = {
+  // North America
+  '840': 'us', '124': 'us', '484': 'mx',
+  // Latin America
+  '032': 'la', '076': 'la', '152': 'la', '170': 'la', '218': 'la',
+  '604': 'la', '858': 'la', '862': 'la', '192': 'la', '068': 'la',
+  '600': 'la', '328': 'la', '740': 'la', '780': 'la',
+  // Europe
+  '826': 'uk', '372': 'uk',
+  '276': 'eu', '250': 'eu', '724': 'eu', '380': 'eu', '528': 'eu',
+  '056': 'eu', '040': 'eu', '752': 'eu', '578': 'eu', '208': 'eu',
+  '246': 'eu', '616': 'eu', '203': 'eu', '642': 'eu', '348': 'eu',
+  '756': 'eu', '620': 'eu', '300': 'eu', '804': 'eu',
+  // Russia
+  '643': 'ru',
+  // Turkey
+  '792': 'tr',
+  // Middle East
+  '682': 'me', '784': 'me', '634': 'me', '414': 'me', '048': 'me',
+  '512': 'me', '368': 'me', '400': 'me', '422': 'me', '760': 'me',
+  '818': 'me', '887': 'me',
+  // Iran
+  '364': 'ir',
+  // Israel
+  '376': 'il',
+  // Pakistan
+  '586': 'pk', '004': 'pk',
+  // India / South Asia
+  '356': 'in', '050': 'in', '144': 'in', '524': 'in',
+  // China
+  '156': 'cn', '344': 'cn', '158': 'cn',
+  // Japan
+  '392': 'jp',
+  // South Korea
+  '410': 'kr',
+  // Southeast Asia
+  '702': 'sea', '458': 'sea', '764': 'sea', '704': 'sea',
+  '608': 'sea', '360': 'sea', '104': 'sea',
+  // Australia
+  '036': 'au', '554': 'au',
+  // Africa
+  '710': 'af', '566': 'af', '404': 'af', '231': 'af', '288': 'af',
+  '834': 'af', '012': 'af', '024': 'af', '508': 'af', '180': 'af',
+  '800': 'af', '854': 'af', '686': 'af',
+}
+
+function getRegionForCountryId(id: string | number): string {
+  return COUNTRY_ID_TO_REGION[String(id)] || ''
 }
 
 interface CountryLine {
@@ -233,6 +269,9 @@ function CountryBorders({ globeRotation, activeRegions }: CountryBordersProps) {
           const geom = feat.geometry
           if (!geom) continue
 
+          // Use TopoJSON feature ID (ISO 3166-1 numeric) for exact country-to-region mapping
+          const regionId = getRegionForCountryId(feat.id ?? '')
+
           // Outer ring only — Polygon gives one ring, MultiPolygon gives one per sub-polygon
           const rings: number[][][] =
             geom.type === 'Polygon'
@@ -243,16 +282,6 @@ function CountryBorders({ globeRotation, activeRegions }: CountryBordersProps) {
 
           for (const ring of rings) {
             if (ring.length < 3) continue
-
-            // Compute centroid of this ring to determine region
-            let sumLat = 0, sumLng = 0
-            for (const [lng, lat] of ring) {
-              sumLat += lat as number
-              sumLng += lng as number
-            }
-            const centLat = sumLat / ring.length
-            const centLng = sumLng / ring.length
-            const regionId = getRegionForCoords(centLat, centLng)
 
             const points: THREE.Vector3[] = ring.map(([lng, lat]) =>
               latLngToVector3(lat as number, lng as number, GLOBE_RADIUS + 0.005)
@@ -697,30 +726,21 @@ function ArcLine({ arc }: { arc: ArcEntry }) {
     const visibleCount = arc.progress >= 1
       ? arc.allPoints.length
       : Math.max(2, Math.floor(arc.progress * arc.allPoints.length))
-    const pts          = arc.allPoints.slice(0, visibleCount)
 
-    const geo = lineObject.geometry
-    const buf = geo.getAttribute('position') as THREE.BufferAttribute
+    const geo       = lineObject.geometry
+    const positions = new Float32Array(visibleCount * 3)
 
-    if (buf.count !== pts.length) {
-      const newBuf = new THREE.BufferAttribute(new Float32Array(pts.length * 3), 3)
-      for (let i = 0; i < pts.length; i++) {
-        newBuf.setXYZ(i, pts[i].x, pts[i].y, pts[i].z)
-      }
-      geo.setAttribute('position', newBuf)
-    } else {
-      for (let i = 0; i < pts.length; i++) {
-        buf.setXYZ(i, pts[i].x, pts[i].y, pts[i].z)
-      }
-      buf.needsUpdate = true
+    for (let i = 0; i < visibleCount; i++) {
+      positions[i * 3]     = arc.allPoints[i].x
+      positions[i * 3 + 1] = arc.allPoints[i].y
+      positions[i * 3 + 2] = arc.allPoints[i].z
     }
 
-    geo.setDrawRange(0, pts.length)
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     geo.computeBoundingSphere()
 
-    const mat     = lineObject.material as THREE.LineBasicMaterial
-    // Older arcs are slightly dimmer; newest arcs are full brightness
-    mat.opacity   = arc.progress < 1 ? 1.0 : (arc.age > 0 ? 0.6 : 1.0)
+    const mat   = lineObject.material as THREE.LineBasicMaterial
+    mat.opacity = arc.progress < 1 ? 1.0 : (arc.age > 2 ? 0.5 : 0.8)
   })
 
   return <primitive object={lineObject} ref={lineRef} />
@@ -880,7 +900,10 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       added = true
     })
 
-    if (added) setArcs([...arcsRef.current])
+    if (added) {
+      console.log('[Globe] Created arcs. Total:', arcsRef.current.length)
+      setArcs([...arcsRef.current])
+    }
   }, [currentFrameIdx, frame.flows, globeRotationRef])
 
   useFrame((_, delta) => {

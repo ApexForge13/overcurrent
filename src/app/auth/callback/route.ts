@@ -25,5 +25,6 @@ export async function GET(request: Request) {
     await supabase.auth.exchangeCodeForSession(code)
   }
 
-  return NextResponse.redirect(`${origin}${next}`)
+  const baseUrl = 'https://overcurrent.news'
+  return NextResponse.redirect(`${baseUrl}${next}`)
 }

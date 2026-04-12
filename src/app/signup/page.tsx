@@ -51,7 +51,7 @@ export default function SignupPage() {
         Create account
       </h1>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-tertiary)', marginBottom: '32px' }}>
-        10 free analyses. Full experience. No feature restrictions.
+        10 free analyses — full experience, no feature restrictions. Then $4.99/mo for unlimited access.
       </p>
 
       <form onSubmit={handleSignup} className="space-y-4">
@@ -110,6 +110,10 @@ export default function SignupPage() {
 
       <p className="mt-6 text-center" style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-tertiary)' }}>
         Already have an account? <a href="/login" style={{ color: 'var(--accent-blue)', textDecoration: 'underline' }}>Sign in</a>
+      </p>
+
+      <p className="mt-6 text-center" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+        Founding members: $3.99/mo locked for life (first 500 subscribers)
       </p>
     </div>
   )

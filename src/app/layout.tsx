@@ -26,7 +26,7 @@ export default function RootLayout({
         <header className="sticky top-0 z-50 border-b" style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-primary)' }}>
           <nav className="max-w-[1200px] mx-auto px-4 sm:px-6 min-h-[56px] py-2 flex items-center justify-between flex-wrap gap-2">
             <a href="/" className="flex items-center">
-              <img src="/logo.svg" alt="OVERCURRENT" style={{ height: '20px' }} />
+              <img src="/logo.svg" alt="OVERCURRENT" style={{ height: '28px' }} />
             </a>
             <div className="flex items-center gap-3 sm:gap-6">
               <a href="/methodology" className="text-xs sm:text-sm hover:opacity-80 transition-opacity" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>methodology</a>

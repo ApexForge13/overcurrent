@@ -165,19 +165,53 @@ function latLngToVector3(lat: number, lng: number, radius: number): THREE.Vector
   return new THREE.Vector3(x, y, z)
 }
 
-function createArcCurve(
+function createArcPoints(
   start: THREE.Vector3,
   end: THREE.Vector3,
-  radius: number
-): THREE.CubicBezierCurve3 {
-  const mid = start.clone().add(end).multiplyScalar(0.5)
-  const distance = start.distanceTo(end)
-  // Cap arc height — never more than 0.8 above surface regardless of distance
-  const arcHeight = Math.min(distance * 0.25, 0.8)
-  mid.normalize().multiplyScalar(radius + arcHeight)
-  const control1 = start.clone().lerp(mid, 0.33)
-  const control2 = end.clone().lerp(mid, 0.33)
-  return new THREE.CubicBezierCurve3(start, control1, control2, end)
+  radius: number,
+  segments: number = 80
+): THREE.Vector3[] {
+  // Great-circle interpolation with height offset — works for ANY distance
+  // Slerp along the sphere surface, then push each point outward by arc height
+  const points: THREE.Vector3[] = []
+  const startNorm = start.clone().normalize()
+  const endNorm = end.clone().normalize()
+
+  // Angle between the two points on the sphere
+  const angle = startNorm.angleTo(endNorm)
+
+  // Arc height peaks at midpoint, proportional to angle (longer = higher)
+  const maxHeight = Math.min(angle * 0.4, 0.6) * radius * 0.5
+
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments
+
+    // Slerp (spherical linear interpolation) between start and end
+    const point = new THREE.Vector3()
+
+    if (angle < 0.001) {
+      // Points are basically the same — just lerp
+      point.lerpVectors(start, end, t)
+    } else {
+      // Proper slerp
+      const sinAngle = Math.sin(angle)
+      const a = Math.sin((1 - t) * angle) / sinAngle
+      const b = Math.sin(t * angle) / sinAngle
+      point.x = startNorm.x * a + endNorm.x * b
+      point.y = startNorm.y * a + endNorm.y * b
+      point.z = startNorm.z * a + endNorm.z * b
+    }
+
+    // Push outward from globe center — base radius + arc height
+    // Height follows a sine curve: peaks at midpoint
+    const heightFactor = Math.sin(t * Math.PI)
+    const pointRadius = radius + maxHeight * heightFactor + 0.02 // 0.02 offset so it's above surface
+    point.normalize().multiplyScalar(pointRadius)
+
+    points.push(point)
+  }
+
+  return points
 }
 
 function statusColor(status: string): string {
@@ -800,7 +834,7 @@ function computeSecondaryStatuses(
 
 interface ArcEntry {
   id:         string
-  curve:      THREE.CubicBezierCurve3
+
   color:      THREE.Color
   progress:   number
   age:        number
@@ -820,7 +854,7 @@ function ArcLine({ arc }: { arc: ArcEntry }) {
   // Build full tube geometry once — no draw range animation
   const tube = useMemo(() => {
     const curve = new THREE.CatmullRomCurve3(arc.allPoints)
-    return new THREE.TubeGeometry(curve, 80, 0.008, 6, false)
+    return new THREE.TubeGeometry(curve, 60, 0.012, 5, false)
   }, [arc.allPoints])
 
   useEffect(() => {
@@ -998,13 +1032,11 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       const start = latLngToVector3(fromCoords[0], fromCoords[1], GLOBE_RADIUS)
       const end   = latLngToVector3(toCoords[0],   toCoords[1],   GLOBE_RADIUS)
 
-      const curve     = createArcCurve(start, end, GLOBE_RADIUS)
       const color     = new THREE.Color(statusColor(flow.type))
-      const allPoints = curve.getPoints(120)
+      const allPoints = createArcPoints(start, end, GLOBE_RADIUS, 80)
 
       const entry: ArcEntry = {
         id: key,
-        curve,
         color,
         progress:   0,
         age:        0,

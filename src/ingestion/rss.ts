@@ -114,24 +114,46 @@ async function fetchFeed(
 /**
  * Run feeds in batches to avoid overwhelming Vercel's connection limits.
  */
+interface FeedDiagnostics {
+  total: number
+  success: number
+  failed: number
+  empty: number
+  byRegion: Record<string, { queried: number; returned: number }>
+}
+
 async function batchFetchFeeds(
   outlets: OutletInfo[],
   parser: { parseString: (xml: string) => Promise<{ items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }> },
   keywords: string[],
-): Promise<RssResult[]> {
+): Promise<{ results: RssResult[]; diagnostics: FeedDiagnostics }> {
   const allResults: RssResult[] = []
+  const diagnostics: FeedDiagnostics = { total: outlets.length, success: 0, failed: 0, empty: 0, byRegion: {} }
 
   for (let i = 0; i < outlets.length; i += MAX_CONCURRENT) {
     const batch = outlets.slice(i, i + MAX_CONCURRENT)
     const batchResults = await Promise.all(
-      batch.map((outlet) => fetchFeed(outlet, parser, keywords))
+      batch.map(async (outlet) => {
+        const region = outlet.region || 'Unknown'
+        if (!diagnostics.byRegion[region]) diagnostics.byRegion[region] = { queried: 0, returned: 0 }
+        diagnostics.byRegion[region].queried++
+
+        const results = await fetchFeed(outlet, parser, keywords)
+        if (results.length > 0) {
+          diagnostics.success++
+          diagnostics.byRegion[region].returned += results.length
+        } else {
+          diagnostics.empty++
+        }
+        return results
+      })
     )
     for (const results of batchResults) {
       allResults.push(...results)
     }
   }
 
-  return allResults
+  return { results: allResults, diagnostics }
 }
 
 /**
@@ -162,9 +184,10 @@ export async function scanRssFeeds(
   const parser = new ParserClass()
 
   // Fetch feeds in batches of MAX_CONCURRENT
-  const results = await batchFetchFeeds(outlets, parser, keywords)
+  const { results, diagnostics } = await batchFetchFeeds(outlets, parser, keywords)
 
-  console.log(`[RSS] Scanned ${outlets.length} feeds. Found ${results.length} articles. Keywords: ${keywords.slice(0, 5).join(', ')}`)
+  console.log(`[RSS] Scanned ${diagnostics.total} feeds. ${diagnostics.success} returned results, ${diagnostics.empty} empty. ${results.length} total articles.`)
+  console.log(`[RSS] By region:`, JSON.stringify(diagnostics.byRegion))
 
   return results
 }

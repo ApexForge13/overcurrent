@@ -172,7 +172,9 @@ function createArcCurve(
 ): THREE.CubicBezierCurve3 {
   const mid = start.clone().add(end).multiplyScalar(0.5)
   const distance = start.distanceTo(end)
-  mid.normalize().multiplyScalar(radius + distance * 0.35)
+  // Cap arc height — never more than 0.8 above surface regardless of distance
+  const arcHeight = Math.min(distance * 0.25, 0.8)
+  mid.normalize().multiplyScalar(radius + arcHeight)
   const control1 = start.clone().lerp(mid, 0.33)
   const control2 = end.clone().lerp(mid, 0.33)
   return new THREE.CubicBezierCurve3(start, control1, control2, end)
@@ -186,9 +188,34 @@ function statusColor(status: string): string {
 /*  Country borders — loaded from Natural Earth 110m TopoJSON          */
 /* ------------------------------------------------------------------ */
 
-function CountryBorders({ globeRotation }: { globeRotation: React.MutableRefObject<number> }) {
-  const groupRef = useRef<THREE.Group>(null)
-  const [lines, setLines] = useState<THREE.Line[]>([])
+/** Map a country polygon centroid (lat/lng) to a rough region_id. */
+function getRegionForCoords(lat: number, lng: number): string {
+  if (lat > 15 && lng > -140 && lng < -50) return 'us'   // North America
+  if (lat < 15 && lat > -60 && lng > -90 && lng < -30)  return 'la'  // Latin America
+  if (lat > 35 && lng > -15 && lng < 40)  return 'eu'   // Europe
+  if (lat > 50 && lng > 40)               return 'ru'   // Russia
+  if (lat > 20 && lat < 45 && lng > 25 && lng < 65) return 'me'  // Middle East
+  if (lat > 0  && lat < 40 && lng > 65 && lng < 100) return 'in'  // India
+  if (lat > 20 && lng > 100 && lng < 145) return 'cn'   // China
+  if (lat > -15 && lat < 20 && lng > 90 && lng < 140) return 'sea' // SE Asia
+  if (lat < -10 && lng > 110 && lng < 155) return 'au'  // Australia
+  if (lat > -40 && lat < 40 && lng > -25 && lng < 55) return 'af'  // Africa
+  return ''
+}
+
+interface CountryLine {
+  line:     THREE.Line
+  regionId: string
+}
+
+interface CountryBordersProps {
+  globeRotation:  React.MutableRefObject<number>
+  activeRegions?: Map<string, { status: string }>
+}
+
+function CountryBorders({ globeRotation, activeRegions }: CountryBordersProps) {
+  const groupRef    = useRef<THREE.Group>(null)
+  const [countryLines, setCountryLines] = useState<CountryLine[]>([])
 
   useEffect(() => {
     fetch('/world-110m.json')
@@ -200,12 +227,7 @@ function CountryBorders({ globeRotation }: { globeRotation: React.MutableRefObje
         const objectKey = objects.countries ? 'countries' : Object.keys(objects)[0]
         const countries = topoFeature(topology, objects[objectKey])
 
-        const countryLines: THREE.Line[] = []
-        const mat = new THREE.LineBasicMaterial({
-          color:       '#8A8A9E',
-          transparent: true,
-          opacity:     0.6,
-        })
+        const built: CountryLine[] = []
 
         for (const feat of countries.features) {
           const geom = feat.geometry
@@ -220,20 +242,58 @@ function CountryBorders({ globeRotation }: { globeRotation: React.MutableRefObje
               : []
 
           for (const ring of rings) {
+            if (ring.length < 3) continue
+
+            // Compute centroid of this ring to determine region
+            let sumLat = 0, sumLng = 0
+            for (const [lng, lat] of ring) {
+              sumLat += lat as number
+              sumLng += lng as number
+            }
+            const centLat = sumLat / ring.length
+            const centLng = sumLng / ring.length
+            const regionId = getRegionForCoords(centLat, centLng)
+
             const points: THREE.Vector3[] = ring.map(([lng, lat]) =>
               latLngToVector3(lat as number, lng as number, GLOBE_RADIUS + 0.005)
             )
-            if (points.length > 2) {
-              const geo = new THREE.BufferGeometry().setFromPoints(points)
-              countryLines.push(new THREE.Line(geo, mat.clone()))
-            }
+
+            const mat = new THREE.LineBasicMaterial({
+              color:       '#8A8A9E',
+              transparent: true,
+              opacity:     0.6,
+            })
+            const geo = new THREE.BufferGeometry().setFromPoints(points)
+            built.push({ line: new THREE.Line(geo, mat), regionId })
           }
         }
 
-        setLines(countryLines)
+        setCountryLines(built)
       })
       .catch((err) => console.warn('Failed to load country borders:', err))
   }, [])
+
+  // Update line colors whenever activeRegions changes
+  useEffect(() => {
+    const hasActive = activeRegions && activeRegions.size > 0
+    countryLines.forEach(({ line, regionId }) => {
+      const mat = line.material as THREE.LineBasicMaterial
+      const regionData = activeRegions?.get(regionId)
+      if (regionData) {
+        const sc = STATUS_COLORS[regionData.status]
+        mat.color.set(sc && sc !== STATUS_COLORS.silent ? sc : '#8A8A9E')
+        mat.opacity = 0.85
+      } else if (hasActive) {
+        // Dim countries not in any active region
+        mat.color.set('#8A8A9E')
+        mat.opacity = 0.25
+      } else {
+        mat.color.set('#8A8A9E')
+        mat.opacity = 0.6
+      }
+      mat.needsUpdate = true
+    })
+  }, [activeRegions, countryLines])
 
   useFrame(() => {
     if (groupRef.current) {
@@ -243,7 +303,7 @@ function CountryBorders({ globeRotation }: { globeRotation: React.MutableRefObje
 
   return (
     <group ref={groupRef}>
-      {lines.map((line, i) => (
+      {countryLines.map(({ line }, i) => (
         <primitive key={i} object={line} />
       ))}
     </group>
@@ -634,7 +694,9 @@ function ArcLine({ arc }: { arc: ArcEntry }) {
   }, [lineObject])
 
   useFrame(() => {
-    const visibleCount = Math.max(2, Math.floor(arc.progress * arc.allPoints.length))
+    const visibleCount = arc.progress >= 1
+      ? arc.allPoints.length
+      : Math.max(2, Math.floor(arc.progress * arc.allPoints.length))
     const pts          = arc.allPoints.slice(0, visibleCount)
 
     const geo = lineObject.geometry
@@ -802,7 +864,7 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
 
       const curve     = createArcCurve(start, end, GLOBE_RADIUS)
       const color     = new THREE.Color(statusColor(flow.type))
-      const allPoints = curve.getPoints(80)
+      const allPoints = curve.getPoints(120)
 
       const entry: ArcEntry = {
         id: key,
@@ -865,7 +927,7 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
 
       <GlobeMesh rotationRef={globeRotationRef} />
 
-      <CountryBorders globeRotation={globeRotationRef} />
+      <CountryBorders globeRotation={globeRotationRef} activeRegions={activeRegions} />
 
       <RegionMarkers
         activeRegions={activeRegions}

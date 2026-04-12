@@ -476,9 +476,9 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
       if (primaryStatus) {
         const hasDual = !!secondaryStatus && secondaryStatus !== primaryStatus
         if (hasDual) {
-          const secColor = STATUS_COLORS[secondaryStatus!]
-          mat.color.set(secColor && secColor !== STATUS_COLORS.silent ? secColor : '#8A8A9E')
-          mat.opacity = 0.5
+          // BORDER stays PRIMARY status color (e.g., green for original)
+          mat.color.set(STATUS_COLORS[primaryStatus] || '#8A8A9E')
+          mat.opacity = 0.85
         } else {
           const sc = STATUS_COLORS[primaryStatus]
           mat.color.set(sc && sc !== STATUS_COLORS.silent ? sc : '#8A8A9E')
@@ -496,6 +496,11 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
       }
       mat.needsUpdate = true
     })
+
+    // Debug: log secondary statuses
+    if (secondaryStatuses && secondaryStatuses.size > 0) {
+      console.log('[Globe] Secondary statuses:', Object.fromEntries(secondaryStatuses))
+    }
 
     fillMeshes.forEach(({ mesh, regionId }) => {
       const mat        = mesh.material as THREE.MeshBasicMaterial

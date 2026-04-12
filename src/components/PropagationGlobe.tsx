@@ -933,7 +933,10 @@ function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] 
     if (region.region_id === origin.region_id) continue
     const key = `${origin.region_id}-${region.region_id}`
     if (existingFlowKeys.has(key)) continue
-    flows.push({ from: origin.region_id, to: region.region_id, type: region.status })
+    // If destination is ALSO an original source, the flow is "contradicted"
+    // (two competing original narratives = contradiction)
+    const flowType = region.status === 'original' ? 'contradicted' : region.status
+    flows.push({ from: origin.region_id, to: region.region_id, type: flowType })
     existingFlowKeys.add(key)
   }
 

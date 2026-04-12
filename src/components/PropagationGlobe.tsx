@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Stars, Html } from '@react-three/drei'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 
 /* ------------------------------------------------------------------ */
@@ -101,6 +102,25 @@ const STATUS_LABELS: Record<string, string> = {
 const MAX_ARCS = 50
 
 /* ------------------------------------------------------------------ */
+/*  Continent outlines — rough coastline paths for geographic context   */
+/* ------------------------------------------------------------------ */
+
+const CONTINENT_OUTLINES: [number, number][][] = [
+  // North America (rough outline)
+  [[60,-140],[55,-130],[48,-125],[35,-120],[30,-115],[25,-110],[20,-105],[15,-90],[20,-85],[25,-80],[30,-82],[35,-75],[40,-74],[45,-67],[50,-60],[55,-60],[60,-65],[65,-70],[70,-80],[65,-100],[60,-140]],
+  // South America
+  [[10,-75],[5,-77],[0,-80],[-5,-80],[-10,-77],[-15,-75],[-20,-60],[-25,-50],[-30,-50],[-35,-55],[-40,-62],[-45,-65],[-50,-70],[-55,-68],[-50,-75],[-40,-73],[-30,-70],[-20,-63],[-10,-52],[-5,-50],[0,-50],[5,-60],[10,-75]],
+  // Europe
+  [[35,-10],[37,0],[40,5],[43,5],[46,0],[48,2],[52,5],[54,10],[55,12],[57,18],[60,25],[65,25],[70,28],[70,40],[65,40],[60,30],[55,20],[50,15],[48,10],[45,15],[40,25],[38,22],[35,25],[35,-10]],
+  // Africa
+  [[35,-10],[32,0],[30,10],[25,15],[20,20],[15,18],[10,15],[5,10],[0,10],[-5,12],[-10,15],[-15,20],[-20,25],[-25,30],[-30,32],[-35,25],[-35,18],[-30,30],[-25,35],[-20,40],[-15,45],[-10,42],[-5,40],[0,42],[5,45],[10,50],[15,45],[20,40],[25,38],[30,32],[32,35],[35,35],[37,10],[35,-10]],
+  // Asia (rough)
+  [[25,45],[30,50],[35,55],[40,55],[45,50],[50,55],[55,60],[60,70],[65,80],[60,90],[55,80],[50,90],[45,90],[40,80],[35,75],[30,70],[25,65],[20,60],[15,100],[10,105],[5,100],[0,105],[-5,110],[-8,115],[0,120],[10,120],[20,115],[25,120],[30,120],[35,130],[40,130],[45,135],[50,140],[55,135],[60,140],[65,170],[60,165],[55,160],[50,155],[55,140],[60,130],[65,120],[70,100],[70,70],[65,60],[60,50],[55,45],[50,40],[45,35],[40,40],[35,45],[25,45]],
+  // Australia
+  [[-15,130],[-20,115],[-25,115],[-30,115],[-35,117],[-35,138],[-37,145],[-35,150],[-30,153],[-25,150],[-20,148],[-15,145],[-12,142],[-12,135],[-15,130]],
+]
+
+/* ------------------------------------------------------------------ */
 /*  City dots — "night Earth" geographic context                       */
 /* ------------------------------------------------------------------ */
 
@@ -109,59 +129,36 @@ const CITY_DOTS: [number, number][] = [
   [40.7,  -74.0],  // New York
   [34.0, -118.2],  // Los Angeles
   [41.9,  -87.6],  // Chicago
-  [29.8,  -95.4],  // Houston
-  [45.5,  -73.6],  // Montreal
-  [43.7,  -79.4],  // Toronto
   [19.4,  -99.1],  // Mexico City
-  [25.7,  -80.2],  // Miami
   [38.9,  -77.0],  // Washington DC
-  [37.8, -122.4],  // San Francisco
   // Europe
   [51.5,   -0.1],  // London
   [48.9,    2.3],  // Paris
   [52.5,   13.4],  // Berlin
   [41.9,   12.5],  // Rome
   [40.4,   -3.7],  // Madrid
-  [59.3,   18.1],  // Stockholm
-  [55.7,   12.6],  // Copenhagen
-  [52.4,    4.9],  // Amsterdam
   [55.8,   37.6],  // Moscow
-  [50.1,   14.4],  // Prague
-  [48.2,   16.4],  // Vienna
   // Middle East
   [35.7,   51.4],  // Tehran
-  [33.3,   44.4],  // Baghdad
-  [24.7,   46.7],  // Riyadh
-  [31.8,   35.2],  // Jerusalem
-  [25.3,   55.3],  // Dubai
-  [36.2,   37.2],  // Aleppo
-  [33.9,   35.5],  // Beirut
   [41.0,   29.0],  // Istanbul
   [30.0,   31.2],  // Cairo
+  [24.7,   46.7],  // Riyadh
+  [25.3,   55.3],  // Dubai
   // Asia
   [39.9,  116.4],  // Beijing
   [31.2,  121.5],  // Shanghai
   [35.7,  139.7],  // Tokyo
   [37.6,  127.0],  // Seoul
-  [22.3,  114.2],  // Hong Kong
   [ 1.3,  103.9],  // Singapore
-  [13.8,  100.5],  // Bangkok
   [28.6,   77.2],  // New Delhi
   [19.1,   72.9],  // Mumbai
-  [33.7,   73.0],  // Islamabad
-  [24.9,   67.0],  // Karachi
-  [31.5,   74.4],  // Lahore
   // Africa
   [-33.9,  18.4],  // Cape Town
   [ -1.3,  36.8],  // Nairobi
   [  6.5,   3.4],  // Lagos
-  [  9.0,  38.7],  // Addis Ababa
   // Latin America
   [-23.5, -46.6],  // Sao Paulo
   [-34.6, -58.4],  // Buenos Aires
-  [  4.7, -74.1],  // Bogota
-  [-33.4, -70.6],  // Santiago
-  [-12.0, -77.0],  // Lima
   // Australia
   [-33.9, 151.2],  // Sydney
   [-37.8, 145.0],  // Melbourne
@@ -202,20 +199,21 @@ function statusColor(status: string): string {
 /* ------------------------------------------------------------------ */
 
 function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number> }) {
-  const globeRef  = useRef<THREE.Mesh>(null)
-  const glowRef   = useRef<THREE.Mesh>(null)
-  const dotsRef   = useRef<THREE.Group>(null)
-  const gridRef   = useRef<THREE.Group>(null)
+  const globeRef      = useRef<THREE.Mesh>(null)
+  const glowRef       = useRef<THREE.Mesh>(null)
+  const dotsRef       = useRef<THREE.Group>(null)
+  const gridRef       = useRef<THREE.Group>(null)
+  const continentRef  = useRef<THREE.Group>(null)
 
   // Build city-dot geometry once
   const cityDotObjects = useMemo(() => {
     return CITY_DOTS.map(([lat, lng]) => {
       const pos = latLngToVector3(lat, lng, GLOBE_RADIUS + 0.012)
-      const geo = new THREE.SphereGeometry(0.008, 5, 5)
+      const geo = new THREE.SphereGeometry(0.015, 5, 5)
       const mat = new THREE.MeshBasicMaterial({
-        color: '#3A3A4E',
+        color: '#4A4A5E',
         transparent: true,
-        opacity: 0.85,
+        opacity: 1.0,
       })
       const mesh = new THREE.Mesh(geo, mat)
       mesh.position.copy(pos)
@@ -238,7 +236,7 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
       const mat = new THREE.LineBasicMaterial({
         color: '#2A2A4A',
         transparent: true,
-        opacity: 0.04,
+        opacity: 0.02,
       })
       lines.push(new THREE.Line(geo, mat))
     }
@@ -253,7 +251,7 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
       const mat = new THREE.LineBasicMaterial({
         color: '#2A2A4A',
         transparent: true,
-        opacity: 0.04,
+        opacity: 0.02,
       })
       lines.push(new THREE.Line(geo, mat))
     }
@@ -261,13 +259,31 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
     return lines
   }, [])
 
+  // Build continent outline lines once
+  const continentLines = useMemo(() => {
+    const lines: THREE.Line[] = []
+    const R = GLOBE_RADIUS + 0.008
+    CONTINENT_OUTLINES.forEach((path) => {
+      const pts = path.map(([lat, lng]) => latLngToVector3(lat, lng, R))
+      const geo = new THREE.BufferGeometry().setFromPoints(pts)
+      const mat = new THREE.LineBasicMaterial({
+        color:       '#4A4A5E',
+        transparent: true,
+        opacity:     0.12,
+      })
+      lines.push(new THREE.Line(geo, mat))
+    })
+    return lines
+  }, [])
+
   useFrame((_, delta) => {
     const dr = delta * 0.05
     rotationRef.current += dr
-    if (globeRef.current) globeRef.current.rotation.y  += dr
-    if (glowRef.current)  glowRef.current.rotation.y   += dr
-    if (dotsRef.current)  dotsRef.current.rotation.y   += dr
-    if (gridRef.current)  gridRef.current.rotation.y   += dr
+    if (globeRef.current)     globeRef.current.rotation.y     += dr
+    if (glowRef.current)      glowRef.current.rotation.y      += dr
+    if (dotsRef.current)      dotsRef.current.rotation.y      += dr
+    if (gridRef.current)      gridRef.current.rotation.y      += dr
+    if (continentRef.current) continentRef.current.rotation.y += dr
   })
 
   return (
@@ -297,6 +313,13 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
           <primitive key={i} object={line} />
         ))}
       </group>
+
+      {/* Continent outline lines */}
+      <group ref={continentRef}>
+        {continentLines.map((line, i) => (
+          <primitive key={`cont-${i}`} object={line} />
+        ))}
+      </group>
     </group>
   )
 }
@@ -317,14 +340,15 @@ interface TacticalMarkerProps {
   lat:         number
   lng:         number
   data:        RegionData | undefined
-  globeRef:    React.MutableRefObject<THREE.Mesh | null>
+  activeCount: number
 }
 
-function TacticalMarker({ regionId, lat, lng, data, globeRef }: TacticalMarkerProps) {
-  const isActive = !!data
-  const color    = isActive ? statusColor(data!.status) : '#333344'
-  const label    = REGION_LABELS[regionId] ?? regionId.toUpperCase()
-  const pos      = useMemo(
+function TacticalMarker({ regionId, lat, lng, data, activeCount }: TacticalMarkerProps) {
+  const isActive     = !!data
+  const color        = isActive ? statusColor(data!.status) : '#333344'
+  const label        = REGION_LABELS[regionId] ?? regionId.toUpperCase()
+  const showFullDetail = activeCount < 5
+  const pos          = useMemo(
     () => latLngToVector3(lat, lng, GLOBE_RADIUS + 0.12),
     [lat, lng]
   )
@@ -333,63 +357,42 @@ function TacticalMarker({ regionId, lat, lng, data, globeRef }: TacticalMarkerPr
     <Html
       position={pos}
       center
-      occlude={globeRef.current ? [globeRef as React.RefObject<THREE.Object3D>] : true}
+      occlude="raycast"
       style={{ pointerEvents: 'none' }}
       distanceFactor={6}
     >
       <div
         style={{
           position:    'relative',
-          padding:     '4px 8px',
-          minWidth:    '56px',
+          padding:     '3px 6px',
+          minWidth:    '44px',
           border:      `1px solid ${color}`,
           background:  isActive ? `${color}12` : 'transparent',
           fontFamily:  '"JetBrains Mono", "Courier New", monospace',
-          opacity:     isActive ? 1 : 0.25,
+          opacity:     isActive ? 1 : 0.2,
           transition:  'opacity 0.4s ease, border-color 0.4s ease',
           boxSizing:   'border-box',
         }}
       >
-        {/* Corner bracket — top-left */}
-        <div style={{
-          position:    'absolute',
-          top:    -2,
-          left:   -2,
-          width:   7,
-          height:  7,
-          borderTop:  `2px solid ${color}`,
-          borderLeft: `2px solid ${color}`,
-        }} />
-        {/* Corner bracket — top-right */}
-        <div style={{
-          position:    'absolute',
-          top:    -2,
-          right:  -2,
-          width:   7,
-          height:  7,
-          borderTop:   `2px solid ${color}`,
-          borderRight: `2px solid ${color}`,
-        }} />
-        {/* Corner bracket — bottom-left */}
-        <div style={{
-          position:    'absolute',
-          bottom: -2,
-          left:   -2,
-          width:   7,
-          height:  7,
-          borderBottom: `2px solid ${color}`,
-          borderLeft:   `2px solid ${color}`,
-        }} />
-        {/* Corner bracket — bottom-right */}
-        <div style={{
-          position:    'absolute',
-          bottom: -2,
-          right:  -2,
-          width:   7,
-          height:  7,
-          borderBottom: `2px solid ${color}`,
-          borderRight:  `2px solid ${color}`,
-        }} />
+        {/* Corner brackets — only when fewer than 5 active regions */}
+        {showFullDetail && isActive && (<>
+          <div style={{
+            position: 'absolute', top: -2, left: -2, width: 7, height: 7,
+            borderTop: `2px solid ${color}`, borderLeft: `2px solid ${color}`,
+          }} />
+          <div style={{
+            position: 'absolute', top: -2, right: -2, width: 7, height: 7,
+            borderTop: `2px solid ${color}`, borderRight: `2px solid ${color}`,
+          }} />
+          <div style={{
+            position: 'absolute', bottom: -2, left: -2, width: 7, height: 7,
+            borderBottom: `2px solid ${color}`, borderLeft: `2px solid ${color}`,
+          }} />
+          <div style={{
+            position: 'absolute', bottom: -2, right: -2, width: 7, height: 7,
+            borderBottom: `2px solid ${color}`, borderRight: `2px solid ${color}`,
+          }} />
+        </>)}
 
         {/* Region label */}
         <div style={{
@@ -404,8 +407,8 @@ function TacticalMarker({ regionId, lat, lng, data, globeRef }: TacticalMarkerPr
           {label}
         </div>
 
-        {/* Data readout — only when active */}
-        {isActive && (
+        {/* Data readout — only when active and showing full detail */}
+        {isActive && showFullDetail && (
           <div style={{
             fontSize:     '7px',
             color:        '#8A8880',
@@ -434,11 +437,9 @@ function TacticalMarker({ regionId, lat, lng, data, globeRef }: TacticalMarkerPr
 function RegionMarkers({
   activeRegions,
   globeRotationRef,
-  globeMeshRef,
 }: {
   activeRegions:    Map<string, RegionData>
   globeRotationRef: React.MutableRefObject<number>
-  globeMeshRef:     React.MutableRefObject<THREE.Mesh | null>
 }) {
   const groupRef   = useRef<THREE.Group>(null)
   const meshMap    = useRef<Map<string, THREE.Mesh>>(new Map())
@@ -466,7 +467,7 @@ function RegionMarkers({
         mat.color.copy(color).multiplyScalar(brightness)
         mat.opacity = 0.9
         const baseScale = data?.status === 'original' ? 1.6 : 1.1
-        mesh.scale.setScalar(baseScale + Math.sin(phase) * 0.15)
+        mesh.scale.setScalar(baseScale + Math.sin(phase) * 0.1)
       } else {
         mat.color.set('#333340')
         mat.opacity = 0.3
@@ -490,7 +491,7 @@ function RegionMarkers({
               if (el) meshMap.current.set(regionId, el)
             }}
           >
-            <sphereGeometry args={[0.04, 8, 8]} />
+            <sphereGeometry args={[0.02, 8, 8]} />
             <meshBasicMaterial color="#333340" transparent opacity={0.3} />
           </mesh>
         )
@@ -508,11 +509,9 @@ function RegionMarkers({
 function TacticalMarkerLayer({
   activeRegions,
   globeRotationRef,
-  globeMeshRef,
 }: {
   activeRegions:    Map<string, RegionData>
   globeRotationRef: React.MutableRefObject<number>
-  globeMeshRef:     React.MutableRefObject<THREE.Mesh | null>
 }) {
   const groupRef = useRef<THREE.Group>(null)
 
@@ -523,7 +522,8 @@ function TacticalMarkerLayer({
     }
   })
 
-  const entries = useMemo(() => Object.entries(REGION_COORDS), [])
+  const entries     = useMemo(() => Object.entries(REGION_COORDS), [])
+  const activeCount = activeRegions.size
 
   return (
     <group ref={groupRef}>
@@ -534,7 +534,7 @@ function TacticalMarkerLayer({
           lat={lat}
           lng={lng}
           data={activeRegions.get(regionId)}
-          globeRef={globeMeshRef}
+          activeCount={activeCount}
         />
       ))}
     </group>
@@ -604,8 +604,8 @@ function ArcLine({ arc }: { arc: ArcEntry }) {
     geo.computeBoundingSphere()
 
     const mat     = lineObject.material as THREE.LineBasicMaterial
-    const opacity = arc.age > 4 ? Math.max(0, 1 - (arc.age - 4) / 3) : 0.8
-    mat.opacity   = opacity
+    // Older arcs are slightly dimmer; newest arcs are full brightness
+    mat.opacity   = arc.progress < 1 ? 0.8 : (arc.age > 0 ? 0.4 : 0.8)
   })
 
   return <primitive object={lineObject} ref={lineRef} />
@@ -655,23 +655,17 @@ function DestFlash({
 /* ------------------------------------------------------------------ */
 
 interface CameraFollowProps {
-  playing:      boolean
-  activeRegions: Map<string, RegionData>
+  playing:          boolean
+  activeRegions:    Map<string, RegionData>
   globeRotationRef: React.MutableRefObject<number>
-  controlsRef:  React.MutableRefObject<{ target: THREE.Vector3; getDistance: () => number; minDistance: number; maxDistance: number } | null>
+  controlsRef:      React.MutableRefObject<OrbitControlsImpl | null>
 }
 
 function CameraFollow({ playing, activeRegions, globeRotationRef, controlsRef }: CameraFollowProps) {
   const { camera } = useThree()
-  const userInteracting = useRef(false)
-  const lastInteract    = useRef(0)
 
   useFrame((_, delta) => {
     if (!controlsRef.current || !playing) return
-
-    const now = performance.now() / 1000
-    // Give user override priority for 3 seconds after interaction
-    if (userInteracting.current && now - lastInteract.current < 3) return
 
     const regionEntries = Array.from(activeRegions.entries())
     if (regionEntries.length === 0) return
@@ -693,9 +687,9 @@ function CameraFollow({ playing, activeRegions, globeRotationRef, controlsRef }:
     const targetDir = centroid.clone().normalize().multiplyScalar(0.4)
     controlsRef.current.target.lerp(targetDir, 0.012)
 
-    // Pull back as more regions activate (3.5 → 5.5)
+    // Pull back as more regions activate (5.5 → 7.5)
     const regionCount   = regionEntries.length
-    const targetDist    = 3.5 + (regionCount / 12) * 2.0
+    const targetDist    = 5.5 + (regionCount / 12) * 2.0
     const currentDist   = controlsRef.current.getDistance()
     const distDelta     = (targetDist - currentDist) * delta * 0.6
 
@@ -727,8 +721,7 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
   >([])
   const processedFlows = useRef<Set<string>>(new Set())
   const arcsRef        = useRef<ArcEntry[]>([])
-  const globeMeshRef   = useRef<THREE.Mesh | null>(null)
-  const controlsRef    = useRef<{ target: THREE.Vector3; getDistance: () => number; minDistance: number; maxDistance: number } | null>(null)
+  const controlsRef    = useRef<OrbitControlsImpl | null>(null)
 
   const frame = timeline[currentFrameIdx]
   const activeRegions = useMemo(
@@ -797,18 +790,13 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
         }
         return { ...arc, progress: newProgress }
       }
+      // Arc is fully drawn — accumulate age but NEVER remove it
       const newAge = arc.age + delta
       changed = true
       return { ...arc, age: newAge }
     })
 
-    // Remove faded arcs
-    const filtered = arcsRef.current.filter((a) => a.age < 7)
-    if (filtered.length !== arcsRef.current.length) {
-      arcsRef.current = filtered
-      changed = true
-    }
-
+    // Arcs persist permanently — no removal based on age
     if (changed) setArcs([...arcsRef.current])
   })
 
@@ -819,20 +807,18 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       <pointLight position={[-10, -5, -5]}  intensity={0.4} color="#221133" />
       <pointLight position={[0, 8, 0]}      intensity={0.3} color="#334488" />
 
-      <Stars radius={60} depth={50} count={4000} factor={3} saturation={0.2} fade speed={0.5} />
+      <Stars radius={60} depth={50} count={1500} factor={3} saturation={0.2} fade speed={0.5} />
 
       <GlobeMesh rotationRef={globeRotationRef} />
 
       <RegionMarkers
         activeRegions={activeRegions}
         globeRotationRef={globeRotationRef}
-        globeMeshRef={globeMeshRef}
       />
 
       <TacticalMarkerLayer
         activeRegions={activeRegions}
         globeRotationRef={globeRotationRef}
-        globeMeshRef={globeMeshRef}
       />
 
       {arcs.map((arc) => (
@@ -858,15 +844,15 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       />
 
       <OrbitControls
-        ref={(c: unknown) => {
-          if (c) controlsRef.current = c as { target: THREE.Vector3; getDistance: () => number; minDistance: number; maxDistance: number }
+        ref={(c: OrbitControlsImpl | null) => {
+          controlsRef.current = c
         }}
         enableDamping
         dampingFactor={0.05}
         rotateSpeed={0.4}
         zoomSpeed={0.6}
-        minDistance={2.5}
-        maxDistance={8}
+        minDistance={3.0}
+        maxDistance={10}
         enablePan={false}
       />
     </>
@@ -967,6 +953,16 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
   const activeRegions = frame
     ? frame.regions.filter((r) => r.status !== 'silent').slice(0, 8)
     : []
+
+  // Compute initial camera position looking at the origin region, zoomed out
+  const cameraStart = useMemo(() => {
+    const originRegion = timeline[0]?.regions?.[0]?.region_id ?? 'us'
+    const originCoords = REGION_COORDS[originRegion] ?? [39.8, -98.5]
+    const originPos    = latLngToVector3(originCoords[0], originCoords[1], GLOBE_RADIUS)
+    const dir          = originPos.clone().normalize()
+    return [dir.x * 5.5, dir.y * 5.5 + 1, dir.z * 5.5] as [number, number, number]
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /* ---- empty state ---- */
   if (limited) {
@@ -1090,7 +1086,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
       {/* Canvas */}
       <div style={{ width: '100%', aspectRatio: '16/9', maxHeight: '500px' }}>
         <Canvas
-          camera={{ position: [0, 0, 5], fov: 45, near: 0.1, far: 200 }}
+          camera={{ position: cameraStart, fov: 45, near: 0.1, far: 200 }}
           style={{ background: '#0A0A0B' }}
           gl={{ antialias: true, alpha: false }}
         >

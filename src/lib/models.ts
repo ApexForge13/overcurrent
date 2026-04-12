@@ -90,18 +90,36 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
 
   if (options.provider === 'anthropic') {
     const client = getAnthropic()
-    const response = await client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system: options.system,
-      messages: [{ role: 'user', content: options.userMessage }],
-    })
-    text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n')
-    inputTokens = response.usage.input_tokens
-    outputTokens = response.usage.output_tokens
+    const useStreaming = model.includes('opus') || maxTokens > 8192
+
+    if (useStreaming) {
+      const stream = await client.messages.stream({
+        model,
+        max_tokens: maxTokens,
+        system: options.system,
+        messages: [{ role: 'user', content: options.userMessage }],
+      })
+      const finalMessage = await stream.finalMessage()
+      text = finalMessage.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n')
+      inputTokens = finalMessage.usage.input_tokens
+      outputTokens = finalMessage.usage.output_tokens
+    } else {
+      const response = await client.messages.create({
+        model,
+        max_tokens: maxTokens,
+        system: options.system,
+        messages: [{ role: 'user', content: options.userMessage }],
+      })
+      text = response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n')
+      inputTokens = response.usage.input_tokens
+      outputTokens = response.usage.output_tokens
+    }
 
   } else if (options.provider === 'openai' || options.provider === 'xai') {
     const client = options.provider === 'xai' ? getXAI() : getOpenAI()

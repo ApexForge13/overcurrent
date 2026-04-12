@@ -84,23 +84,43 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
     undercurrentReportId,
   } = options
 
-  // --- API call ---
+  // --- API call (use streaming for large/slow models) ---
   const maxTokens = options.maxTokens ?? 4096
-  const response = await client.messages.create({
-    model,
-    max_tokens: maxTokens,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userPrompt }],
-  })
+  const useStreaming = model === OPUS || maxTokens > 8192
 
-  const text =
-    response.content
+  let text = ''
+  let inputTokens = 0
+  let outputTokens = 0
+
+  if (useStreaming) {
+    const stream = await client.messages.stream({
+      model,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+
+    const finalMessage = await stream.finalMessage()
+    text = finalMessage.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
       .map((block) => block.text)
       .join('\n') || ''
-
-  const inputTokens = response.usage.input_tokens
-  const outputTokens = response.usage.output_tokens
+    inputTokens = finalMessage.usage.input_tokens
+    outputTokens = finalMessage.usage.output_tokens
+  } else {
+    const response = await client.messages.create({
+      model,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+    text = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n') || ''
+    inputTokens = response.usage.input_tokens
+    outputTokens = response.usage.output_tokens
+  }
 
   // --- Cost calculation ---
   const pricing = PRICING[model]

@@ -38,7 +38,17 @@ export default function AdminDashboard() {
   const [analyzeMode, setAnalyzeMode] = useState<'verify' | 'undercurrent'>('verify')
   const [analyzeQuery, setAnalyzeQuery] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [analyzeStatus, setAnalyzeStatus] = useState('')
+  const [analyzeStatus, setAnalyzeStatus] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    try {
+      const saved = JSON.parse(localStorage.getItem('oc_analysis') || '{}')
+      if (saved.msg && !saved.running) return saved.msg // Show last result
+      if (saved.msg && saved.running && Date.now() - saved.ts < 600_000) {
+        return `${saved.msg} (pipeline was running for "${saved.query}" — may still be processing on Railway)`
+      }
+    } catch {}
+    return ''
+  })
 
   const fetchReviewStories = useCallback(() => {
     fetch('/api/admin/stories?status=review')
@@ -131,7 +141,11 @@ export default function AdminDashboard() {
     e.preventDefault()
     if (!analyzeQuery.trim() || isAnalyzing) return
     setIsAnalyzing(true)
-    setAnalyzeStatus('Starting analysis...')
+    const statusUpdate = (msg: string, running = true) => {
+      setAnalyzeStatus(msg)
+      try { localStorage.setItem('oc_analysis', JSON.stringify({ msg, running, ts: Date.now(), query: analyzeQuery.trim() })) } catch {}
+    }
+    statusUpdate('Starting analysis...')
 
     // Use Railway pipeline service (no timeout) instead of Vercel serverless function
     const railwayBase = 'https://overcurrent-production.up.railway.app'
@@ -142,10 +156,12 @@ export default function AdminDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: analyzeQuery.trim() }),
       })
-      if (!response.body) throw new Error('No stream')
+      if (!response.ok) throw new Error(`Railway returned ${response.status}: ${response.statusText}`)
+      if (!response.body) throw new Error('No stream body')
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let finished = false
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -156,24 +172,31 @@ export default function AdminDashboard() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
-              setAnalyzeStatus(data.message || data.phase || '')
+              statusUpdate(data.message || data.phase || '')
               if (data.phase === 'complete') {
+                finished = true
                 setIsAnalyzing(false)
                 setAnalyzeQuery('')
-                setAnalyzeStatus('Complete — story is in review below')
+                statusUpdate('Complete — story is in review below', false)
                 fetchReviewStories()
               }
               if (data.phase === 'error') {
+                finished = true
                 setIsAnalyzing(false)
-                setAnalyzeStatus(`Error: ${data.message}`)
+                statusUpdate(`Error: ${data.message}`, false)
               }
-            } catch { /* skip */ }
+            } catch { /* skip malformed SSE */ }
           }
         }
       }
-    } catch {
+      // Stream ended without complete/error event — likely crashed
+      if (!finished) {
+        setIsAnalyzing(false)
+        statusUpdate('Stream ended unexpectedly — pipeline may have crashed. Check Railway logs.', false)
+      }
+    } catch (err) {
       setIsAnalyzing(false)
-      setAnalyzeStatus('Analysis failed')
+      statusUpdate(`Analysis failed: ${err instanceof Error ? err.message : 'connection lost'}`, false)
     }
   }
 

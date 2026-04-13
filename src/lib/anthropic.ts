@@ -61,12 +61,15 @@ const BASE_DELAY_MS = 5_000 // 5s, 10s, 20s
 function isRetryable(err: unknown): boolean {
   if (err && typeof err === 'object') {
     const e = err as Record<string, unknown>
-    // Anthropic SDK errors
-    if (e.status === 529 || e.status === 503 || e.status === 429) return true
-    if (typeof e.message === 'string' && /overloaded|rate.?limit|capacity|too many/i.test(e.message)) return true
+    // Anthropic SDK errors — status codes
+    if (e.status === 529 || e.status === 503 || e.status === 429 || e.status === 500) return true
+    // Message-based detection (all providers)
+    if (typeof e.message === 'string' && /overloaded|rate.?limit|capacity|too many|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed/i.test(e.message)) return true
     // Nested error shape from API response
     const inner = e.error as Record<string, unknown> | undefined
     if (inner?.type === 'overloaded_error') return true
+    // Anthropic SDK APIConnectionError (network failures)
+    if (e.constructor && (e.constructor as { name?: string }).name === 'APIConnectionError') return true
   }
   return false
 }

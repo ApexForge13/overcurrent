@@ -31,6 +31,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [reviewStories, setReviewStories] = useState<ReviewStory[]>([] )
   const [actionInFlight, setActionInFlight] = useState<string | null>(null)
+  const [mapStatus, setMapStatus] = useState<Record<string, string>>({})
   const [analyzeMode, setAnalyzeMode] = useState<'verify' | 'undercurrent'>('verify')
   const [analyzeQuery, setAnalyzeQuery] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -78,6 +79,21 @@ export default function AdminDashboard() {
       // ignore
     } finally {
       setActionInFlight(null)
+    }
+  }
+
+  async function regenerateMap(storyId: string) {
+    setMapStatus(prev => ({ ...prev, [storyId]: 'regenerating...' }))
+    try {
+      const resp = await fetch(`/api/admin/stories/${storyId}/regenerate-map`, { method: 'POST' })
+      const data = await resp.json()
+      if (data.success) {
+        setMapStatus(prev => ({ ...prev, [storyId]: `done — ${data.regions} regions, ${data.frames} frames` }))
+      } else {
+        setMapStatus(prev => ({ ...prev, [storyId]: `error: ${data.error}` }))
+      }
+    } catch {
+      setMapStatus(prev => ({ ...prev, [storyId]: 'failed' }))
     }
   }
 
@@ -204,7 +220,14 @@ export default function AdminDashboard() {
                       <span>{story.confidenceLevel}</span>
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
+                  <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                    <button
+                      onClick={() => regenerateMap(story.id)}
+                      disabled={!!mapStatus[story.id]?.startsWith('regenerating')}
+                      className="px-3 py-1.5 text-sm font-mono rounded bg-accent-purple/20 text-accent-purple hover:bg-accent-purple/30 transition-colors disabled:opacity-50"
+                    >
+                      {mapStatus[story.id]?.startsWith('regenerating') ? 'rebuilding...' : 'Regen Map'}
+                    </button>
                     <button
                       onClick={() => updateStoryStatus(story.id, 'published')}
                       disabled={actionInFlight === story.id}
@@ -220,6 +243,11 @@ export default function AdminDashboard() {
                       Archive
                     </button>
                   </div>
+                  {mapStatus[story.id] && !mapStatus[story.id].startsWith('regenerating') && (
+                    <p className="text-xs font-mono mt-1 text-right" style={{ color: mapStatus[story.id].startsWith('done') ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                      {mapStatus[story.id]}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}

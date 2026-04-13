@@ -34,11 +34,17 @@ export async function fetchTwitterDiscourse(
   }
 
   try {
-    // Build query with OR operators per spec:
-    // (keyword1 OR keyword2 OR keyword3) -is:retweet lang:en
-    const topKeywords = keywords.slice(0, 8)
-    const queryTerms = topKeywords.map(k => k.replace(/[()]/g, '')).join(' OR ')
-    const fullQuery = `(${queryTerms}) -is:retweet lang:en`
+    // Build two-group query: (topic terms) (context terms) -is:retweet lang:en
+    // First group requires at least one story-specific term.
+    // Second group adds context. This prevents matching unrelated tweets.
+    const storyTerms = keywords.filter(k => k.length > 3).slice(0, 5)
+    const contextTerms = keywords.filter(k => k.length > 3).slice(5, 10)
+    const group1 = storyTerms.map(k => k.replace(/[()]/g, '')).join(' OR ')
+    const group2 = contextTerms.length > 0
+      ? ` (${contextTerms.map(k => k.replace(/[()]/g, '')).join(' OR ')})`
+      : ''
+    const fullQuery = `(${group1})${group2} -is:retweet lang:en`
+    console.log(`[Twitter] Query: ${fullQuery}`)
 
     const params = new URLSearchParams({
       query: fullQuery,
@@ -111,16 +117,20 @@ export async function fetchTwitterDiscourse(
           _engagement: likes + retweets, // internal sorting field
         }
       })
-      // Filter: minimum likes (use minLikes param, default 100)
-      .filter((t: { likes: number }) => {
-        return t.likes >= minLikes
-      })
+      // Filter: minimum 50 likes (not 100 — too high for breaking news, not 10 — catches spam)
+      .filter((t: { likes: number }) => t.likes >= minLikes)
       // Filter: reject news outlet official accounts
       .filter((t: { author: string }) => !NEWS_OUTLET_HANDLES.has(t.author.toLowerCase()))
       // Filter: reject tweets that are just a link with no commentary (>20 chars)
       .filter((t: { content: string }) => {
         const textWithoutUrls = t.content.replace(/https?:\/\/\S+/g, '').trim()
         return textWithoutUrls.length >= 20
+      })
+      // Filter: post-fetch relevance — tweet must contain at least 2 story keywords
+      .filter((t: { content: string }) => {
+        const lower = t.content.toLowerCase()
+        const matches = storyTerms.filter(kw => lower.includes(kw.toLowerCase()))
+        return matches.length >= 2
       })
       // Sort by total engagement descending
       .sort((a: { _engagement: number }, b: { _engagement: number }) => b._engagement - a._engagement)

@@ -1041,7 +1041,7 @@ export async function runVerifyPipeline(
 
     const [redditPosts, twitterPosts] = await Promise.all([
       fetchRedditDiscourse(discourseKeywords, triageResult.suggestedCategory, 10, 50),
-      fetchTwitterDiscourse(discourseKeywords, 10, 10), // Low threshold — breaking news tweets gain likes over hours
+      fetchTwitterDiscourse(discourseKeywords, 10, 50), // 50 likes minimum — not too high (breaking news), not too low (spam)
     ])
 
     console.log(`[discourse] Fetched ${redditPosts.length} Reddit + ${twitterPosts.length} Twitter/X posts`)

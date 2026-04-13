@@ -100,8 +100,9 @@ export async function triageSources(
     return true
   })
 
-  // Ensure regional diversity — don't just take the first 100 (which would be all North American)
-  // Group by sourcecountry/region, then sample proportionally
+  // ── GROUP BY REGION ────────────────────────────────────────────────────
+  // Each batch contains sources from ONE region so the triage agent compares
+  // similar sources against each other (e.g., all Pakistani outlets together).
   const byRegion = new Map<string, typeof deduped>()
   for (const s of deduped) {
     const region = s.knownRegion || 'Unknown'
@@ -109,46 +110,48 @@ export async function triageSources(
     byRegion.get(region)!.push(s)
   }
 
-  const truncated: typeof deduped = []
-  const maxTotal = 150
-  const regionCount = byRegion.size || 1
-
-  if (regionCount <= 1) {
-    // Only one region — just take the first 100
-    truncated.push(...deduped.slice(0, maxTotal))
-  } else {
-    // Multiple regions — guarantee minimum 5 per region, then fill remaining proportionally
-    const minPerRegion = Math.min(10, Math.floor(maxTotal / regionCount))
-    const remaining: typeof deduped = []
-
-    for (const [, sources] of byRegion) {
-      truncated.push(...sources.slice(0, minPerRegion))
-      remaining.push(...sources.slice(minPerRegion))
-    }
-
-    // Fill remaining slots proportionally
-    const slotsLeft = maxTotal - truncated.length
-    if (slotsLeft > 0) {
-      truncated.push(...remaining.slice(0, slotsLeft))
-    }
+  console.log(`[Triage] Input: ${deduped.length} sources across ${byRegion.size} regions`)
+  for (const [region, sources] of byRegion) {
+    console.log(`[Triage]   ${region}: ${sources.length} sources`)
   }
 
-  // Batch triage: split sources into chunks of 50, run Sonnet on each,
-  // merge results. Prevents JSON parse failures from oversized input.
-  const BATCH_SIZE = 50
+  // ── BUILD REGION-GROUPED BATCHES OF ~25 ──────────────────────────────
+  // 25 sources per batch keeps Sonnet well within its effective processing
+  // limit. Each batch is homogeneous by region for better relevance scoring.
+  const BATCH_SIZE = 25
   const allTriagedSources: Record<string, unknown>[] = []
   let costUsd = 0
   let suggestedCategory = 'society'
   let searchQueryRefinement = query
   let suggestedSecondary: string[] = []
 
-  const batches: typeof truncated[] = []
-  for (let i = 0; i < truncated.length; i += BATCH_SIZE) {
-    batches.push(truncated.slice(i, i + BATCH_SIZE))
+  interface TriageBatch {
+    region: string
+    sources: typeof deduped
   }
 
-  for (const batch of batches) {
-    const batchPrompt = `Query: ${query}\n\nRaw sources (batch ${batches.indexOf(batch) + 1}/${batches.length}, ${batch.length} sources):\n${JSON.stringify(batch, null, 2)}`
+  const batches: TriageBatch[] = []
+  for (const [region, sources] of byRegion) {
+    // Cap per region at 40 sources to avoid wasting triage calls on 100+ US articles
+    const capped = sources.slice(0, 40)
+    for (let i = 0; i < capped.length; i += BATCH_SIZE) {
+      batches.push({ region, sources: capped.slice(i, i + BATCH_SIZE) })
+    }
+  }
+
+  console.log(`[Triage] Running ${batches.length} batches (${BATCH_SIZE} sources each, grouped by region)`)
+
+  // Run batches — sequential to avoid rate limits, but fast since each is small
+  for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+    const { region, sources: batch } = batches[bIdx]
+    const slimBatch = batch.map(s => ({
+      url: s.url,
+      title: s.title.substring(0, 120),
+      domain: s.domain,
+      country: s.sourcecountry,
+      region: s.knownRegion || '',
+    }))
+    const batchPrompt = `Query: ${query}\n\nRaw sources (batch ${bIdx + 1}/${batches.length}, region: ${region}, ${slimBatch.length} sources):\n${JSON.stringify(slimBatch)}`
 
     try {
       const result = await callClaude({
@@ -163,13 +166,16 @@ export async function triageSources(
 
       const batchParsed = parseJSON<Record<string, unknown>>(result.text)
       if (batchParsed.sources && Array.isArray(batchParsed.sources)) {
+        console.log(`[Triage] Batch ${bIdx + 1} (${region}): ${(batchParsed.sources as unknown[]).length} sources returned`)
         allTriagedSources.push(...(batchParsed.sources as Record<string, unknown>[]))
+      } else {
+        console.warn(`[Triage] Batch ${bIdx + 1} (${region}): no sources array in response`)
       }
       if (batchParsed.suggestedCategory) suggestedCategory = String(batchParsed.suggestedCategory)
       if (batchParsed.searchQueryRefinement) searchQueryRefinement = String(batchParsed.searchQueryRefinement)
       if (Array.isArray(batchParsed.suggestedSecondary)) suggestedSecondary = batchParsed.suggestedSecondary as string[]
     } catch (err) {
-      console.error(`[Triage] Batch ${batches.indexOf(batch) + 1} failed:`, err instanceof Error ? err.message : err)
+      console.error(`[Triage] Batch ${bIdx + 1} (${region}) failed:`, err instanceof Error ? err.message : err)
     }
   }
 

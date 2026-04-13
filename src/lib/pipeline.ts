@@ -301,12 +301,33 @@ export async function runVerifyPipeline(
   const triageResult = await triageSources(dedupedSources, query)
   totalCost += triageResult.costUsd
 
-  // Fallback: if triage returned 0 sources, use raw sources directly
-  if (triageResult.sources.length === 0 && rawSources.length > 0) {
-    const fallbackSources = rawSources.slice(0, 30).map((rs) => ({
+  // Fallback: if triage returned 0 sources, use deduplicated sources with regional diversity
+  if (triageResult.sources.length === 0 && dedupedSources.length > 0) {
+    // Sample regionally — don't just take first 50 (which would be all North American)
+    const fallbackByRegion = new Map<string, typeof dedupedSources>()
+    for (const s of dedupedSources) {
+      const r = s.knownRegion || 'Unknown'
+      if (!fallbackByRegion.has(r)) fallbackByRegion.set(r, [])
+      fallbackByRegion.get(r)!.push(s)
+    }
+    const fallbackSampled: typeof dedupedSources = []
+    const perRegion = Math.max(5, Math.floor(50 / (fallbackByRegion.size || 1)))
+    for (const [, sources] of fallbackByRegion) {
+      fallbackSampled.push(...sources.slice(0, perRegion))
+    }
+    // Fill remaining up to 50
+    if (fallbackSampled.length < 50) {
+      const usedFallback = new Set(fallbackSampled.map(s => s.url))
+      for (const s of dedupedSources) {
+        if (fallbackSampled.length >= 50) break
+        if (!usedFallback.has(s.url)) fallbackSampled.push(s)
+      }
+    }
+
+    const fallbackSources = fallbackSampled.slice(0, 50).map((rs) => ({
       url: rs.url,
       title: rs.title,
-      outlet: rs.domain,
+      outlet: rs.domain.replace(/^www\./, ''),
       outletType: 'digital' as const,
       country: rs.sourcecountry ? rs.sourcecountry.substring(0, 2).toUpperCase() : 'US',
       region: rs.knownRegion || 'North America',
@@ -316,13 +337,17 @@ export async function runVerifyPipeline(
       isWireCopy: false,
       originalSource: null,
       citesSource: null,
+      publishedAt: rs.publishedAt || undefined,
     }))
     triageResult.sources = fallbackSources
+    const fallbackRegions = new Set(fallbackSources.map(s => s.region))
+    const fallbackCountries = new Set(fallbackSources.map(s => s.country))
     onProgress('triage', {
       phase: 'triage',
-      message: `Triage returned 0 — using ${fallbackSources.length} raw sources as fallback`,
+      message: `Triage returned 0 — using ${fallbackSources.length} raw sources as fallback (${fallbackCountries.size} countries, ${fallbackRegions.size} regions)`,
       sourceCount: fallbackSources.length,
     })
+    console.warn(`[Triage] FALLBACK: ${fallbackSources.length} sources from ${fallbackCountries.size} countries, ${fallbackRegions.size} regions`)
   } else {
     onProgress('triage', {
       phase: 'triage',

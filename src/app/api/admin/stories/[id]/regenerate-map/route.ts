@@ -24,49 +24,41 @@ function mapCountryToRegionId(country: string): string {
 const STATE_MEDIA_REGIONS = new Set(['ru', 'cn', 'ir', 'tr'])
 
 /** Determine status for a region based on its sources and story context */
-/** Regions directly involved in the story → original (green) */
-function buildOriginalRegions(headline: string, synopsis: string): Set<string> {
-  const text = `${headline} ${synopsis}`.toLowerCase()
-  const originals = new Set<string>()
-
-  // Map country/region mentions in the story to region IDs
-  const mentionMap: Record<string, string[]> = {
-    'us': ['united states', 'u.s.', ' trump ', 'vance ', 'washington', 'pentagon', 'white house', 'centcom'],
-    'pk': ['pakistan', 'islamabad', 'pakistani'],
-    'ir': ['iran', 'iranian', 'tehran', 'ghalibaf', 'hormuz'],
-    'me': ['middle east', 'gulf states'],
-    'il': ['israel', 'israeli'],
-    'in': ['india', 'indian'],
-    'cn': ['china', 'chinese', 'beijing'],
-    'ru': ['russia', 'russian', 'moscow', 'kremlin'],
-    'uk': ['britain', 'british', 'london'],
-    'eu': ['europe', 'european', 'brussels', 'nato'],
-    'tr': ['turkey', 'turkish', 'ankara', 'erdogan'],
-    'jp': ['japan', 'japanese', 'tokyo'],
-    'kr': ['korea', 'korean', 'seoul'],
-    'au': ['australia', 'australian'],
-    'la': ['latin america'],
-  }
-
-  for (const [rid, keywords] of Object.entries(mentionMap)) {
-    if (keywords.some(kw => text.includes(kw))) {
-      originals.add(rid)
-    }
-  }
-
-  return originals
-}
-
+/**
+ * Determine status for each region. Uses three data sources:
+ * 1. Story headline/synopsis → which countries are PARTIES to the story (original)
+ * 2. Discrepancy/framing data → which regions actively disagree (contradicted/reframed)
+ * 3. Outlet metadata → state media detection (reframed)
+ *
+ * Status priority: original > contradicted > reframed > wire_copy
+ *
+ * "original" = this region is a PARTY to the events (US, Iran, Pakistan for this story)
+ * "reframed" = this region covered the story but with a different editorial angle
+ * "contradicted" = this region's coverage directly disputes key facts
+ * "wire_copy" = this region ran the story largely from wire services
+ */
 function determineRegionStatus(
   regionId: string,
   sources: Array<{ outlet: string; politicalLean: string; reliability: string; country: string }>,
-  originalRegions: Set<string>,
+  headline: string,
+  synopsis: string,
   contradictedRegions: Set<string>,
   reframedRegions: Set<string>,
 ): string {
-  // Region directly mentioned in the story headline/synopsis → original
-  // This takes priority — Iran IS the story, even if they contradict US framing
-  if (originalRegions.has(regionId)) return 'original'
+  const storyText = `${headline} ${synopsis}`.toLowerCase()
+
+  // Only the PARTIES to the story get original. Very strict matching.
+  // These are the countries whose governments/institutions are actors in the events.
+  const partyKeywords: Record<string, string[]> = {
+    'us': ['united states', 'u.s.', 'trump', 'vance', 'pentagon', 'white house', 'centcom', 'us navy', 'us-iran'],
+    'pk': ['pakistan', 'islamabad'],
+    'ir': ['iran', 'iranian', 'ghalibaf', 'hormuz'],
+  }
+
+  const partyMatches = partyKeywords[regionId]
+  if (partyMatches && partyMatches.some(kw => storyText.includes(kw))) {
+    return 'original'
+  }
 
   // Contradicted from discrepancy data
   if (contradictedRegions.has(regionId)) return 'contradicted'
@@ -77,6 +69,11 @@ function determineRegionStatus(
 
   // Reframed from framing analysis
   if (reframedRegions.has(regionId)) return 'reframed'
+
+  // Regions with many independent outlets doing their own analysis = reframed
+  // (they have their own editorial angle, not just wire copy)
+  const uniqueOutlets = new Set(sources.map(s => s.outlet)).size
+  if (uniqueOutlets >= 4) return 'reframed'
 
   // Default: wire_copy
   return 'wire_copy'
@@ -202,10 +199,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   console.log(`[regen-map] Framing quotes mapped: ${[...framingQuotes.entries()].map(([k, v]) => `${k}="${v.substring(0, 30)}"`).join(', ')}`)
 
-  // Determine which regions are directly involved in the story
-  const originalRegions = buildOriginalRegions(story.headline, story.synopsis || '')
-  console.log(`[regen-map] Original regions (mentioned in story): ${[...originalRegions].join(', ')}`)
-
   // ── BUILD 6 PROGRESSIVE FRAMES ────────────────────────────────────────
   const reportDate = story.createdAt
   const dateLabel = reportDate.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
@@ -215,7 +208,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       const uniqueOutlets = [...new Set(sources.map(s => s.outlet))]
       return {
         region_id: rid,
-        status: determineRegionStatus(rid, sources, originalRegions, contradictedRegions, reframedRegions),
+        status: determineRegionStatus(rid, sources, story.headline, story.synopsis || '', contradictedRegions, reframedRegions),
         coverage_volume: Math.min(100, sources.length * 12),
         dominant_quote: framingQuotes.get(rid) || `${uniqueOutlets.length} outlets covering`,
         outlet_count: uniqueOutlets.length,

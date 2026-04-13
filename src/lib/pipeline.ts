@@ -167,6 +167,73 @@ function buildTimelineBuckets(
   return buckets
 }
 
+/**
+ * Merge deterministic timeline buckets with AI-enriched framing.
+ * The AI often only enriches 2-3 regions. This ensures ALL regions with
+ * actual sources appear on the map with correct outlet counts.
+ */
+function buildFinalTimeline(
+  buckets: TimelineBucket[],
+  aiTimeline: Array<{
+    hour: number
+    timestamp?: string
+    label: string
+    description: string
+    regions: Array<{ region_id: string; status: string; coverage_volume: number; dominant_quote: string; outlet_count: number; key_outlets: string[] }>
+    flows: Array<{ from: string; to: string; type: string }>
+  }>,
+): typeof aiTimeline {
+  if (buckets.length === 0) return aiTimeline
+
+  // If AI returned nothing usable, build entirely from buckets
+  const frames = buckets.map((bucket, i) => {
+    // Try to find matching AI frame by hour or index
+    const aiFrame = aiTimeline.find(f => f.hour === bucket.hoursSinceFirst)
+      ?? aiTimeline[i]
+      ?? null
+
+    // Build region list from deterministic bucket data
+    const regions = bucket.regions.map((br, ri) => {
+      // See if AI enriched this region
+      const aiRegion = aiFrame?.regions?.find(ar => ar.region_id === br.region_id)
+
+      return {
+        region_id: br.region_id,
+        status: aiRegion?.status || (ri === 0 && i === 0 ? 'original' : 'wire_copy'),
+        coverage_volume: aiRegion?.coverage_volume ?? Math.min(100, br.outlet_count * 15),
+        dominant_quote: aiRegion?.dominant_quote || `${br.outlet_count} outlets covering`,
+        outlet_count: br.outlet_count, // Always use deterministic count
+        key_outlets: br.key_outlets,   // Always use deterministic outlets
+      }
+    })
+
+    // Build flows: connect first region to all others
+    const flows: Array<{ from: string; to: string; type: string }> = aiFrame?.flows ?? []
+    if (flows.length === 0 && regions.length >= 2) {
+      const origin = regions[0].region_id
+      for (let r = 1; r < regions.length; r++) {
+        flows.push({
+          from: origin,
+          to: regions[r].region_id,
+          type: regions[r].status || 'wire_copy',
+        })
+      }
+    }
+
+    return {
+      hour: bucket.hoursSinceFirst,
+      timestamp: bucket.timestamp,
+      label: bucket.label,
+      description: aiFrame?.description || `${regions.length} regions, ${regions.reduce((n, r) => n + r.outlet_count, 0)} outlets`,
+      regions,
+      flows,
+    }
+  })
+
+  console.log(`[timeline] Built ${frames.length} frames. Regions per frame: ${frames.map(f => f.regions.length).join(', ')}`)
+  return frames
+}
+
 // ---------------------------------------------------------------------------
 // Main pipeline
 // ---------------------------------------------------------------------------
@@ -638,7 +705,7 @@ export async function runVerifyPipeline(
         confidenceNote: JSON.stringify({
           note: synthesisResult.confidenceNote,
           buriedEvidence: synthesisResult.buriedEvidence,
-          propagationTimeline: synthesisResult.propagationTimeline,
+          propagationTimeline: buildFinalTimeline(timelineBuckets, synthesisResult.propagationTimeline),
           factSurvival: synthesisResult.factSurvival,
         }),
         category: triageResult.suggestedCategory,

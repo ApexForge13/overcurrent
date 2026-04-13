@@ -2304,11 +2304,29 @@ export const outlets: OutletInfo[] = [
  * Look up an outlet by its domain. Performs a normalised substring match
  * so that "www.nytimes.com" will match the entry with domain "nytimes.com".
  */
+// Alternate domains that map to the same outlet (RSS feeds use different domains)
+const DOMAIN_ALIASES: Record<string, string> = {
+  'bbc.co.uk': 'bbc.com',
+  'theguardian.co.uk': 'theguardian.com',
+  'independent.co.uk': 'independent.co.uk',
+  'news.sky.com': 'news.sky.com',
+  'telegraph.co.uk': 'telegraph.co.uk',
+  'ft.com': 'ft.com',
+  'reuters.co.uk': 'reuters.com',
+}
+
 export function findOutletByDomain(domain: string): OutletInfo | undefined {
   const normalised = domain.replace(/^www\./, "").toLowerCase()
+  // Check alias first
+  const aliased = DOMAIN_ALIASES[normalised]
+
   return outlets.find((o) => {
     const oDomain = o.domain.replace(/^www\./, "").toLowerCase()
-    return normalised === oDomain || normalised.endsWith("." + oDomain)
+    return normalised === oDomain
+      || normalised.endsWith("." + oDomain)
+      || (aliased && aliased === oDomain)
+      // Match .co.uk → .com pattern: "bbc.co.uk" matches "bbc.com"
+      || (normalised.endsWith('.co.uk') && oDomain === normalised.replace('.co.uk', '.com'))
   })
 }
 

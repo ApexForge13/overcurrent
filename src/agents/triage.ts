@@ -1,4 +1,4 @@
-import { callClaude, parseJSON, HAIKU } from '@/lib/anthropic'
+import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
 import { ANTI_HALLUCINATION_RULES, JSON_RULES } from './prompts'
 
 // ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ export async function triageSources(
   }
 
   const truncated: typeof deduped = []
-  const maxTotal = 100
+  const maxTotal = 150
   const regionCount = byRegion.size || 1
 
   if (regionCount <= 1) {
@@ -132,39 +132,61 @@ export async function triageSources(
     }
   }
 
-  const userPrompt = `Query: ${query}
-
-Raw sources (${truncated.length} of ${rawSources.length} total):
-${JSON.stringify(truncated, null, 2)}`
-
-  let text = ''
+  // Batch triage: split sources into chunks of 50, run Sonnet on each,
+  // merge results. Prevents JSON parse failures from oversized input.
+  const BATCH_SIZE = 50
+  const allTriagedSources: Record<string, unknown>[] = []
   let costUsd = 0
+  let suggestedCategory = 'society'
+  let searchQueryRefinement = query
+  let suggestedSecondary: string[] = []
 
-  // Try twice — if first attempt fails to parse, retry once
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await callClaude({
-      model: HAIKU,
-      systemPrompt: SYSTEM_PROMPT,
-      userPrompt,
-      agentType: 'triage',
-      maxTokens: 8192,
-      storyId,
-    })
-    text = result.text
-    costUsd += result.costUsd
+  const batches: typeof truncated[] = []
+  for (let i = 0; i < truncated.length; i += BATCH_SIZE) {
+    batches.push(truncated.slice(i, i + BATCH_SIZE))
+  }
+
+  for (const batch of batches) {
+    const batchPrompt = `Query: ${query}\n\nRaw sources (batch ${batches.indexOf(batch) + 1}/${batches.length}, ${batch.length} sources):\n${JSON.stringify(batch, null, 2)}`
 
     try {
-      parseJSON(text)
-      break // Parse succeeded
-    } catch {
-      if (attempt === 0) {
-        console.warn('[Triage] First attempt failed to parse JSON, retrying...')
-        continue
+      const result = await callClaude({
+        model: SONNET,
+        systemPrompt: SYSTEM_PROMPT,
+        userPrompt: batchPrompt,
+        agentType: 'triage',
+        maxTokens: 8192,
+        storyId,
+      })
+      costUsd += result.costUsd
+
+      const batchParsed = parseJSON<Record<string, unknown>>(result.text)
+      if (batchParsed.sources && Array.isArray(batchParsed.sources)) {
+        allTriagedSources.push(...(batchParsed.sources as Record<string, unknown>[]))
       }
+      if (batchParsed.suggestedCategory) suggestedCategory = String(batchParsed.suggestedCategory)
+      if (batchParsed.searchQueryRefinement) searchQueryRefinement = String(batchParsed.searchQueryRefinement)
+      if (Array.isArray(batchParsed.suggestedSecondary)) suggestedSecondary = batchParsed.suggestedSecondary as string[]
+    } catch (err) {
+      console.error(`[Triage] Batch ${batches.indexOf(batch) + 1} failed:`, err instanceof Error ? err.message : err)
     }
   }
 
-  const parsed = parseJSON<Omit<TriageResult, 'costUsd'>>(text)
+  // Deduplicate merged results by URL
+  const seenTriaged = new Set<string>()
+  const dedupedSources = allTriagedSources.filter(s => {
+    const url = String(s.url ?? '')
+    if (!url || seenTriaged.has(url)) return false
+    seenTriaged.add(url)
+    return true
+  })
+
+  const parsed = {
+    sources: dedupedSources,
+    suggestedCategory,
+    searchQueryRefinement,
+    suggestedSecondary,
+  } as unknown as Omit<TriageResult, 'costUsd'>
 
   return {
     sources: ((parsed.sources ?? []) as unknown as Record<string, unknown>[]).map((s) => ({

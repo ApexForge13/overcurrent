@@ -1425,7 +1425,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "state-controlled",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.trtworld.com/rss/news",
+    // RSS feed discontinued — will be picked up via web search fallback
   },
   {
     name: "Anadolu Agency",

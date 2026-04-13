@@ -14,6 +14,12 @@ export interface RssResult {
 const RSS_TIMEOUT = 12_000
 const MAX_CONCURRENT = 30 // Limit concurrent feed fetches to avoid Vercel connection limits
 
+// Browser User-Agent — many state media sites (PressTV, RT) block bot-looking requests
+const RSS_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  Accept: 'application/rss+xml, application/xml, text/xml, */*',
+}
+
 /**
  * Check if a string contains any of the given keywords (case-insensitive).
  */
@@ -55,7 +61,7 @@ async function fetchFeed(
   if (!outlet.rssUrl) return []
 
   try {
-    const response = await fetchWithTimeout(outlet.rssUrl, RSS_TIMEOUT)
+    const response = await fetchWithTimeout(outlet.rssUrl, RSS_TIMEOUT, { headers: RSS_HEADERS })
     if (!response.ok) {
       console.warn(`[rss] ${outlet.name} (${outlet.country}/${outlet.region}): HTTP ${response.status}`)
       return []
@@ -192,6 +198,67 @@ export async function scanRssFeeds(
 
   console.log(`[RSS] Scanned ${diagnostics.total} feeds. ${diagnostics.success} returned results, ${diagnostics.empty} empty. ${results.length} total articles.`)
   console.log(`[RSS] By region:`, JSON.stringify(diagnostics.byRegion))
+
+  // ── WEB SEARCH FALLBACK for high-priority outlets without RSS ────────
+  // State media outlets that block RSS or are unreachable from US IPs.
+  // Search Google for their recent articles matching story keywords.
+  const HIGH_PRIORITY_DOMAINS = [
+    'presstv.ir', 'tasnimnews.com', 'farsnews.ir',     // Iran
+    'trtworld.com', 'aa.com.tr',                         // Turkey
+    'rt.com', 'tass.com',                                // Russia
+    'globaltimes.cn', 'cgtn.com', 'xinhuanet.com',       // China
+  ]
+
+  // Check which high-priority outlets got zero results from RSS
+  const outletDomainsWithResults = new Set(results.map(r => {
+    try { return new URL(r.url).hostname.replace(/^www\./, '') } catch { return '' }
+  }))
+  const missingHighPriority = HIGH_PRIORITY_DOMAINS.filter(d => !outletDomainsWithResults.has(d))
+
+  if (missingHighPriority.length > 0) {
+    console.log(`[RSS] Missing high-priority outlets, attempting web search fallback: ${missingHighPriority.join(', ')}`)
+    const searchQuery = keywords.slice(0, 5).join(' ')
+
+    for (const domain of missingHighPriority.slice(0, 5)) { // Cap at 5 to avoid rate limits
+      try {
+        const searchUrl = `https://www.google.com/search?q=site:${domain}+${encodeURIComponent(searchQuery)}&tbs=qdr:w&num=3`
+        const resp = await fetchWithTimeout(searchUrl, 8000, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+        })
+        if (!resp.ok) continue
+        const html = await resp.text()
+
+        // Extract URLs from Google search results (href="/url?q=..." pattern)
+        const urlMatches = html.matchAll(/\/url\?q=(https?:\/\/[^&"]+)/g)
+        const outletInfo = outlets.find(o => o.domain.includes(domain.replace(/^www\./, '')))
+
+        let count = 0
+        for (const match of urlMatches) {
+          const articleUrl = decodeURIComponent(match[1])
+          if (!articleUrl.includes(domain)) continue
+          if (count >= 3) break
+
+          results.push({
+            url: articleUrl,
+            title: `[${outletInfo?.name ?? domain}] ${searchQuery}`,
+            outlet: outletInfo?.name ?? domain,
+            publishedAt: new Date().toISOString(), // Approximate — recent
+            region: outletInfo?.region,
+            country: outletInfo?.country,
+          })
+          count++
+        }
+
+        if (count > 0) {
+          console.log(`[RSS] Web search fallback: found ${count} articles from ${domain}`)
+        }
+      } catch {
+        // Skip search failures silently
+      }
+    }
+  }
 
   return results
 }

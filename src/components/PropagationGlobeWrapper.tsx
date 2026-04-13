@@ -10,8 +10,8 @@ const PropagationGlobe = dynamic(
       <div
         style={{
           width: '100%',
-          aspectRatio: '16/9',
-          maxHeight: '500px',
+          aspectRatio: '16/10',
+          maxHeight: '750px',
           background: '#0A0A0B',
           border: '1px solid #1e1e1e',
           borderRadius: '10px',

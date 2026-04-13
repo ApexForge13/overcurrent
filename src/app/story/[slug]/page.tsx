@@ -100,7 +100,7 @@ export default async function StoryPage({
         >
           &larr; Back
         </a>
-        <ReAnalyzeButton query={story.searchQuery} storySlug={story.slug} />
+        {/* ReAnalyzeButton hidden from public — admin only via /admin */}
       </div>
       <StoryPaywallWrapper slug={slug}>
         <StoryDetail story={story} />

@@ -429,8 +429,6 @@ export function StoryDetail({ story }: StoryDetailProps) {
           <span>{story.regionCount} {story.regionCount === 1 ? "region" : "regions"}</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span>{modelCount} AI models</span>
-          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <CostDisplay cost={story.totalCost} seconds={story.analysisSeconds} />
         </div>
 
         {/* Model dots */}

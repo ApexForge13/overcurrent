@@ -152,89 +152,52 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     }
   }
 
-  // Sort all sources by time for bucketing
-  // Use story.createdAt as anchor if sources lack publishedAt
-  const storyDate = story.createdAt
-  const sourcesWithDates = story.sources
-    .map(s => ({ ...s, date: s.publishedAt ? new Date(s.publishedAt) : storyDate }))
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
+  // ── BUILD 6 PROGRESSIVE FRAMES ────────────────────────────────────────
+  // Date = story.createdAt (report generation date). Frames show coverage
+  // building up: origin → wire services → regional → global → counter-narratives → full.
+  const reportDate = story.createdAt
+  const dateLabel = reportDate.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 
-  // Build timeline frames
-  const allSources = story.sources
-  const bucketCount = 6
-
-  if (sourcesWithDates.length === 0) {
-    // No timestamps — single frame with all sources, intelligent statuses
-    const regions = Array.from(regionSources.entries()).map(([rid, sources]) => ({
-      region_id: rid,
-      status: determineRegionStatus(rid, sources, rid === firstRegion, contradictedRegions, reframedRegions),
-      coverage_volume: Math.min(100, sources.length * 12),
-      dominant_quote: framingQuotes.get(rid) || `${sources.length} outlets covering`,
-      outlet_count: sources.length,
-      key_outlets: [...new Set(sources.map(s => s.outlet))].slice(0, 5),
-    }))
-
-    // Build diverse flows — from origin to each region, with correct type
-    const flows = buildFlows(regions, firstRegion)
-
-    const timeline = [{
-      hour: 0,
-      label: 'All sources',
-      description: `${regions.length} regions, ${allSources.length} outlets`,
-      regions,
-      flows,
-    }]
-
-    const existing = story.confidenceNote ? JSON.parse(story.confidenceNote) : {}
-    existing.propagationTimeline = timeline
-    await prisma.story.update({ where: { id }, data: { confidenceNote: JSON.stringify(existing) } })
-
-    return Response.json({ success: true, frames: 1, regions: regions.length })
-  }
-
-  // Bucketed timeline
-  const earliest = sourcesWithDates[0].date.getTime()
-  const latest = sourcesWithDates[sourcesWithDates.length - 1].date.getTime()
-  const span = Math.max(latest - earliest, 60_000)
-  const bucketSize = span / bucketCount
-
-  const timeline = []
-
-  for (let i = 0; i < bucketCount; i++) {
-    const bucketStart = earliest + (i * bucketSize)
-    const bucketEnd = earliest + ((i + 1) * bucketSize)
-    const bucketDate = new Date(bucketStart)
-
-    // Cumulative sources up to this bucket
-    const upTo = sourcesWithDates.filter(s => s.date.getTime() <= bucketEnd)
-
-    // Group by region
-    const bucketRegionMap = new Map<string, Array<{ outlet: string; politicalLean: string; reliability: string; country: string }>>()
-    for (const s of upTo) {
-      const rid = mapCountryToRegionId(s.country)
-      if (!bucketRegionMap.has(rid)) bucketRegionMap.set(rid, [])
-      bucketRegionMap.get(rid)!.push({ outlet: s.outlet, politicalLean: s.politicalLean, reliability: s.reliability, country: s.country })
-    }
-
-    const regions = Array.from(bucketRegionMap.entries()).map(([rid, sources]) => {
-      const isFirst = rid === firstRegion && i === 0
+  // Sort regions: origin first, then by outlet count descending
+  const sortedRegions = Array.from(regionSources.entries())
+    .map(([rid, sources]) => {
+      const uniqueOutlets = [...new Set(sources.map(s => s.outlet))]
       return {
         region_id: rid,
-        status: determineRegionStatus(rid, sources, isFirst, contradictedRegions, reframedRegions),
+        status: determineRegionStatus(rid, sources, rid === firstRegion, contradictedRegions, reframedRegions),
         coverage_volume: Math.min(100, sources.length * 12),
-        dominant_quote: framingQuotes.get(rid) || `${[...new Set(sources.map(s => s.outlet))].length} outlets covering`,
-        outlet_count: [...new Set(sources.map(s => s.outlet))].length,
-        key_outlets: [...new Set(sources.map(s => s.outlet))].slice(0, 5),
+        dominant_quote: framingQuotes.get(rid) || `${uniqueOutlets.length} outlets covering`,
+        outlet_count: uniqueOutlets.length,
+        key_outlets: uniqueOutlets.slice(0, 5),
       }
     })
+    .sort((a, b) => {
+      if (a.status === 'original') return -1
+      if (b.status === 'original') return 1
+      return b.outlet_count - a.outlet_count
+    })
 
-    const flows = buildFlows(regions, firstRegion)
+  const frameDescriptions = [
+    'Story breaks',
+    'Wire services pick up',
+    'Regional outlets respond',
+    'Global coverage spreads',
+    'Counter-narratives emerge',
+    'Full global picture',
+  ]
+
+  const timeline = []
+  for (let i = 0; i < 6; i++) {
+    // Progressive reveal: frame 0 = origin only, frame 5 = all regions
+    const count = Math.max(1, Math.ceil(sortedRegions.length * (i + 1) / 6))
+    const regionsInFrame = sortedRegions.slice(0, count)
+    const flows = buildFlows(regionsInFrame, firstRegion)
 
     timeline.push({
-      hour: Math.round((bucketStart - earliest) / (1000 * 60 * 60)),
-      label: formatTimelineLabel(bucketDate, span),
-      description: `${regions.length} regions, ${upTo.length} outlets`,
-      regions,
+      hour: i * 4,
+      label: `${dateLabel}`,
+      description: frameDescriptions[i],
+      regions: regionsInFrame,
       flows,
     })
   }
@@ -243,13 +206,11 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   existing.propagationTimeline = timeline
   await prisma.story.update({ where: { id }, data: { confidenceNote: JSON.stringify(existing) } })
 
-  const totalRegions = new Set(timeline.flatMap(f => f.regions.map(r => r.region_id))).size
-
   return Response.json({
     success: true,
-    frames: timeline.length,
-    regions: totalRegions,
-    span: `${Math.round(span / (1000 * 60 * 60))} hours`,
+    frames: 6,
+    regions: sortedRegions.length,
+    date: dateLabel,
   })
 }
 

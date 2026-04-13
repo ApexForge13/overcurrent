@@ -32,6 +32,9 @@ export default function AdminDashboard() {
   const [reviewStories, setReviewStories] = useState<ReviewStory[]>([] )
   const [actionInFlight, setActionInFlight] = useState<string | null>(null)
   const [mapStatus, setMapStatus] = useState<Record<string, string>>({})
+  const [socialStatus, setSocialStatus] = useState<Record<string, string>>({})
+  const [carouselSlides, setCarouselSlides] = useState<Record<string, Array<{ slide: number; filename: string; dataUrl: string }>>>({})
+  const [carouselLoading, setCarouselLoading] = useState<Record<string, boolean>>({})
   const [analyzeMode, setAnalyzeMode] = useState<'verify' | 'undercurrent'>('verify')
   const [analyzeQuery, setAnalyzeQuery] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -95,6 +98,33 @@ export default function AdminDashboard() {
     } catch {
       setMapStatus(prev => ({ ...prev, [storyId]: 'failed' }))
     }
+  }
+
+  async function regenerateSocial(storyId: string) {
+    setSocialStatus(prev => ({ ...prev, [storyId]: 'generating...' }))
+    try {
+      const resp = await fetch(`/api/admin/stories/${storyId}/regenerate-social`, { method: 'POST' })
+      const data = await resp.json()
+      if (data.success) {
+        setSocialStatus(prev => ({ ...prev, [storyId]: `done — ${data.drafts} drafts (${data.platforms.join(', ')})` }))
+      } else {
+        setSocialStatus(prev => ({ ...prev, [storyId]: `error: ${data.error}` }))
+      }
+    } catch {
+      setSocialStatus(prev => ({ ...prev, [storyId]: 'failed' }))
+    }
+  }
+
+  async function generateCarousel(storyId: string) {
+    setCarouselLoading(prev => ({ ...prev, [storyId]: true }))
+    try {
+      const resp = await fetch(`/api/admin/stories/${storyId}/carousel`, { method: 'POST' })
+      const data = await resp.json()
+      if (data.success) {
+        setCarouselSlides(prev => ({ ...prev, [storyId]: data.slides }))
+      }
+    } catch { /* skip */ }
+    setCarouselLoading(prev => ({ ...prev, [storyId]: false }))
   }
 
   async function handleAnalyze(e: React.FormEvent) {
@@ -229,6 +259,20 @@ export default function AdminDashboard() {
                       {mapStatus[story.id]?.startsWith('regenerating') ? 'rebuilding...' : 'Regen Map'}
                     </button>
                     <button
+                      onClick={() => regenerateSocial(story.id)}
+                      disabled={!!socialStatus[story.id]?.startsWith('generating')}
+                      className="px-3 py-1.5 text-sm font-mono rounded bg-accent-amber/20 text-accent-amber hover:bg-accent-amber/30 transition-colors disabled:opacity-50"
+                    >
+                      {socialStatus[story.id]?.startsWith('generating') ? 'generating...' : 'Regen Social'}
+                    </button>
+                    <button
+                      onClick={() => generateCarousel(story.id)}
+                      disabled={!!carouselLoading[story.id]}
+                      className="px-3 py-1.5 text-sm font-mono rounded bg-pink-500/20 text-pink-400 hover:bg-pink-500/30 transition-colors disabled:opacity-50"
+                    >
+                      {carouselLoading[story.id] ? 'generating...' : 'IG Carousel'}
+                    </button>
+                    <button
                       onClick={() => updateStoryStatus(story.id, 'published')}
                       disabled={actionInFlight === story.id}
                       className="px-3 py-1.5 text-sm font-mono rounded bg-accent-green/20 text-accent-green hover:bg-accent-green/30 transition-colors disabled:opacity-50"
@@ -247,6 +291,28 @@ export default function AdminDashboard() {
                     <p className="text-xs font-mono mt-1 text-right" style={{ color: mapStatus[story.id].startsWith('done') ? 'var(--accent-green)' : 'var(--accent-red)' }}>
                       {mapStatus[story.id]}
                     </p>
+                  )}
+                  {socialStatus[story.id] && !socialStatus[story.id].startsWith('generating') && (
+                    <p className="text-xs font-mono mt-1 text-right" style={{ color: socialStatus[story.id].startsWith('done') ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                      {socialStatus[story.id]}
+                    </p>
+                  )}
+                  {carouselSlides[story.id] && (
+                    <div className="mt-3 pt-3 border-t border-border">
+                      <p className="text-xs font-mono text-text-muted mb-2">Instagram Carousel — click to download</p>
+                      <div className="flex gap-2 overflow-x-auto">
+                        {carouselSlides[story.id].map(slide => (
+                          <a
+                            key={slide.slide}
+                            href={slide.dataUrl}
+                            download={slide.filename}
+                            className="flex-shrink-0 border border-border rounded hover:border-accent-purple transition-colors"
+                          >
+                            <img src={slide.dataUrl} alt={`Slide ${slide.slide}`} width={120} height={120} style={{ display: 'block' }} />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

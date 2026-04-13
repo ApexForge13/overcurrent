@@ -130,6 +130,9 @@ If consensus is >90%, include this note in confidence_note: "Near-universal cons
 
 ${ANTI_HALLUCINATION_RULES}
 
+CRITICAL SOURCE VERIFICATION RULE:
+Before writing ANY claim about a country or region having "zero coverage," "complete absence," "silence," or "no coverage found," CHECK THE SOURCE LIST YOU RECEIVED. If outlets from that country/region are present in your regional analyses, do NOT claim they are absent. Describe their actual contribution instead — thin coverage is different from no coverage. Getting this wrong destroys credibility.
+
 ${LANGUAGE_RULES}
 
 ${JSON_RULES}

@@ -682,6 +682,50 @@ export async function runVerifyPipeline(
     throw synthErr
   }
 
+  // ── POST-SYNTHESIS VERIFICATION ────────────────────────────────────────
+  // Check omission claims against actual source list. Catches contradictions
+  // like "zero Pakistani coverage" when Express Tribune is in the sources.
+  const sourceCountries = new Map<string, string[]>()
+  for (const s of triageResult.sources) {
+    const outlets = sourceCountries.get(s.country) ?? []
+    outlets.push(s.outlet)
+    sourceCountries.set(s.country, outlets)
+  }
+
+  const COUNTRY_KEYWORDS: Record<string, string[]> = {
+    PK: ['pakistani', 'pakistan', 'islamabad'],
+    IR: ['iranian', 'iran', 'tehran'],
+    CN: ['chinese', 'china', 'beijing'],
+    RU: ['russian', 'russia', 'moscow'],
+    TR: ['turkish', 'turkey', 'ankara'],
+    IN: ['indian', 'india', 'delhi'],
+    JP: ['japanese', 'japan', 'tokyo'],
+    IL: ['israeli', 'israel'],
+    SA: ['saudi', 'riyadh'],
+    QA: ['qatari', 'qatar', 'doha'],
+  }
+
+  if (synthesisResult.omissions) {
+    for (const omission of synthesisResult.omissions) {
+      const lower = (omission.missing ?? '').toLowerCase()
+      const hasAbsence = /\b(zero|no |absence|silent|missing|none found|not found|complete absence)\b/i.test(lower)
+      if (!hasAbsence) continue
+
+      for (const [code, keywords] of Object.entries(COUNTRY_KEYWORDS)) {
+        if (!keywords.some(kw => lower.includes(kw))) continue
+        const outlets = sourceCountries.get(code)
+        if (outlets && outlets.length > 0) {
+          const uniqueOutlets = [...new Set(outlets)]
+          console.log(`[verification] Synthesis claimed zero ${code} coverage but sources contain: ${uniqueOutlets.join(', ')}`)
+          omission.missing = omission.missing.replace(
+            /\b(zero|no |complete absence of|absence of)\b.*$/i,
+            `${uniqueOutlets.join(', ')} were included but provided limited direct coverage compared to other regions`
+          )
+        }
+      }
+    }
+  }
+
   // ── PHASE 6: SAVE ────────────────────────────────────────────────────
 
   const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)

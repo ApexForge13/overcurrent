@@ -1537,45 +1537,27 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
         </Canvas>
       </div>
 
-      {/* Legend — below timeline controls */}
+      {/* Legend — positioned inside map above timeline */}
       <div
         style={{
-          padding:       '12px 16px',
-          display:       'flex',
-          flexWrap:      'wrap',
-          gap:           '12px',
-          alignItems:    'center',
+          position:      'absolute',
+          bottom:        '64px',
+          left:          '16px',
+          zIndex:        10,
+          pointerEvents: 'none',
         }}
       >
         {Object.entries(STATUS_LABELS).map(([key, label]) => (
-          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span
-              style={{
-                display:      'inline-block',
-                width:        '7px',
-                height:       '7px',
-                borderRadius: '50%',
-                background:   statusColor(key),
-                flexShrink:   0,
-              }}
-            />
-            <span
-              style={{
-                fontSize:      '9px',
-                color:         '#5C5A56',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-              }}
-            >
-              {label}
-            </span>
+          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+            <span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', background: statusColor(key), flexShrink: 0 }} />
+            <span style={{ fontSize: '9px', color: '#5C5A56', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
           </div>
         ))}
-        <div style={{ borderLeft: '1px solid #2A2A2E', paddingLeft: '12px', display: 'flex', gap: '12px' }}>
-          <div style={{ fontSize: '9px', color: '#4A4A56', lineHeight: 1.4 }}>
+        <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #2A2A2E' }}>
+          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.5 }}>
             <span style={{ color: '#6A6A7E' }}>Border</span> = how they received the story
           </div>
-          <div style={{ fontSize: '9px', color: '#4A4A56', lineHeight: 1.4 }}>
+          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.5 }}>
             <span style={{ color: '#6A6A7E' }}>Fill</span> = how they reported it
           </div>
         </div>

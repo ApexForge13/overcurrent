@@ -252,7 +252,8 @@ function buildTimelineFromClassifications(
     (statusOrder[a.fill_status] ?? 3) - (statusOrder[b.fill_status] ?? 3)
   )
 
-  const dateLabel = buckets[0]?.label || new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  // Use current date (analysis run date) — source publishedAt timestamps can be unreliable
+  const dateLabel = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 
   const frameLabels = ['Story breaks', 'Wire services pick up', 'Regional outlets respond', 'Global coverage spreads', 'Counter-narratives emerge', 'Full global picture']
 
@@ -763,24 +764,41 @@ export async function runVerifyPipeline(
   }
 
   if (synthesisResult.omissions) {
-    for (const omission of synthesisResult.omissions) {
+    // Check EVERY omission that mentions a country/region we have sources from.
+    // Don't just check for "zero/no/absence" — the AI phrases it many ways:
+    // "Any coverage from Pakistani media", "Why is there no coverage from...",
+    // "Pakistani media despite...", "coverage from Middle Eastern outlets"
+    synthesisResult.omissions = synthesisResult.omissions.filter(omission => {
       const lower = (omission.missing ?? '').toLowerCase()
-      const hasAbsence = /\b(zero|no |absence|silent|missing|none found|not found|complete absence)\b/i.test(lower)
-      if (!hasAbsence) continue
 
       for (const [code, keywords] of Object.entries(COUNTRY_KEYWORDS)) {
         if (!keywords.some(kw => lower.includes(kw))) continue
         const outlets = sourceCountries.get(code)
         if (outlets && outlets.length > 0) {
           const uniqueOutlets = [...new Set(outlets)]
-          console.log(`[verification] Synthesis claimed zero ${code} coverage but sources contain: ${uniqueOutlets.join(', ')}`)
-          omission.missing = omission.missing.replace(
-            /\b(zero|no |complete absence of|absence of)\b.*$/i,
-            `${uniqueOutlets.join(', ')} were included but provided limited direct coverage compared to other regions`
-          )
+          console.log(`[verification] REMOVED omission claiming missing ${code} coverage. Sources contain: ${uniqueOutlets.join(', ')}`)
+          return false // Remove this omission entirely — it's factually wrong
         }
       }
-    }
+      return true // Keep omissions that don't contradict our source list
+    })
+  }
+
+  // Also fix follow-up questions that reference "zero coverage" from countries we have
+  if (synthesisResult.followUpQuestions) {
+    synthesisResult.followUpQuestions = synthesisResult.followUpQuestions.filter(q => {
+      const lower = (q.question ?? '').toLowerCase()
+      for (const [code, keywords] of Object.entries(COUNTRY_KEYWORDS)) {
+        if (!keywords.some(kw => lower.includes(kw))) continue
+        if (sourceCountries.has(code) && (sourceCountries.get(code)?.length ?? 0) > 0) {
+          if (/\b(zero|no |why is there|absence|silent|missing)\b/i.test(lower)) {
+            console.log(`[verification] REMOVED follow-up question about missing ${code} coverage`)
+            return false
+          }
+        }
+      }
+      return true
+    })
   }
 
   // ── MAP CLASSIFICATION ──────────────────────────────────────────────

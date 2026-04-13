@@ -131,10 +131,32 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     }
   }
 
+  // Build framing quotes map: region_id → dominant quote from framings
+  const framingQuotes = new Map<string, string>()
+  const regionNameToId: Record<string, string> = {
+    'north america': 'us', 'europe': 'eu', 'middle east': 'me',
+    'asia-pacific': 'sea', 'asia pacific': 'sea',
+    'south asia': 'in', 'south & central asia': 'in',
+    'latin america': 'la', 'russia': 'ru', 'china': 'cn',
+    'iran': 'ir', 'israel': 'il', 'turkey': 'tr', 'pakistan': 'pk',
+    'india': 'in', 'japan': 'jp', 'australia': 'au', 'uk': 'uk',
+    'middle east & africa': 'me',
+  }
+  for (const f of story.framings) {
+    const key = f.region.toLowerCase()
+    for (const [name, rid] of Object.entries(regionNameToId)) {
+      if (key.includes(name)) {
+        framingQuotes.set(rid, f.framing.substring(0, 60))
+        break
+      }
+    }
+  }
+
   // Sort all sources by time for bucketing
+  // Use story.createdAt as anchor if sources lack publishedAt
+  const storyDate = story.createdAt
   const sourcesWithDates = story.sources
-    .filter(s => s.publishedAt)
-    .map(s => ({ ...s, date: new Date(s.publishedAt!) }))
+    .map(s => ({ ...s, date: s.publishedAt ? new Date(s.publishedAt) : storyDate }))
     .sort((a, b) => a.date.getTime() - b.date.getTime())
 
   // Build timeline frames
@@ -147,7 +169,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       region_id: rid,
       status: determineRegionStatus(rid, sources, rid === firstRegion, contradictedRegions, reframedRegions),
       coverage_volume: Math.min(100, sources.length * 12),
-      dominant_quote: `${sources.length} outlets covering`,
+      dominant_quote: framingQuotes.get(rid) || `${sources.length} outlets covering`,
       outlet_count: sources.length,
       key_outlets: [...new Set(sources.map(s => s.outlet))].slice(0, 5),
     }))
@@ -200,7 +222,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
         region_id: rid,
         status: determineRegionStatus(rid, sources, isFirst, contradictedRegions, reframedRegions),
         coverage_volume: Math.min(100, sources.length * 12),
-        dominant_quote: `${[...new Set(sources.map(s => s.outlet))].length} outlets covering`,
+        dominant_quote: framingQuotes.get(rid) || `${[...new Set(sources.map(s => s.outlet))].length} outlets covering`,
         outlet_count: [...new Set(sources.map(s => s.outlet))].length,
         key_outlets: [...new Set(sources.map(s => s.outlet))].slice(0, 5),
       }

@@ -1309,6 +1309,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
   const [progress, setProgress] = useState(0)
   const [playing,  setPlaying]  = useState(true)
   const [speed,    setSpeed]    = useState(1)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const rafRef        = useRef<number | null>(null)
   const lastTimeRef   = useRef<number | null>(null)
   const stateRef      = useRef<PlaybackState>({ frameIdx: 0, progress: 0, playing: true, speed: 1 })
@@ -1581,7 +1582,31 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
       </div>
 
       {/* Active regions info panel */}
+      {/* Sidebar toggle button */}
       {activeRegions.length > 0 && (
+        <button
+          onClick={() => setSidebarOpen(prev => !prev)}
+          style={{
+            position:     'absolute',
+            top:          '16px',
+            right:        sidebarOpen ? '244px' : '16px',
+            zIndex:       11,
+            background:   'rgba(10, 10, 11, 0.88)',
+            border:       '1px solid #1e1e1e',
+            borderRadius: '4px',
+            color:        '#5C5A56',
+            fontSize:     '11px',
+            padding:      '4px 8px',
+            cursor:       'pointer',
+            fontFamily:   'var(--font-mono, monospace)',
+            transition:   'right 0.2s ease',
+          }}
+        >
+          {sidebarOpen ? '\u25B6' : '\u25C0'} {sidebarOpen ? 'Hide' : 'Regions'}
+        </button>
+      )}
+
+      {activeRegions.length > 0 && sidebarOpen && (
         <div
           style={{
             position:   'absolute',

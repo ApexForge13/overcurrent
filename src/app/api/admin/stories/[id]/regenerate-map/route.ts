@@ -31,23 +31,21 @@ function buildOriginalRegions(headline: string, synopsis: string): Set<string> {
 
   // Map country/region mentions in the story to region IDs
   const mentionMap: Record<string, string[]> = {
-    'us': ['united states', 'u.s.', 'trump', 'vance', 'washington', 'american', 'pentagon', 'white house'],
+    'us': ['united states', 'u.s.', ' trump ', 'vance ', 'washington', 'pentagon', 'white house', 'centcom'],
     'pk': ['pakistan', 'islamabad', 'pakistani'],
     'ir': ['iran', 'iranian', 'tehran', 'ghalibaf', 'hormuz'],
-    'me': ['middle east', 'gulf', 'strait of hormuz'],
-    'il': ['israel', 'israeli', 'jerusalem'],
-    'in': ['india', 'indian', 'delhi', 'mumbai'],
+    'me': ['middle east', 'gulf states'],
+    'il': ['israel', 'israeli'],
+    'in': ['india', 'indian'],
     'cn': ['china', 'chinese', 'beijing'],
     'ru': ['russia', 'russian', 'moscow', 'kremlin'],
-    'uk': ['britain', 'british', 'london', 'uk '],
-    'eu': ['europe', 'european', 'eu ', 'brussels', 'nato'],
+    'uk': ['britain', 'british', 'london'],
+    'eu': ['europe', 'european', 'brussels', 'nato'],
     'tr': ['turkey', 'turkish', 'ankara', 'erdogan'],
-    'sa': ['saudi', 'riyadh'],
-    'qa': ['qatar', 'doha'],
     'jp': ['japan', 'japanese', 'tokyo'],
     'kr': ['korea', 'korean', 'seoul'],
-    'au': ['australia', 'australian', 'canberra'],
-    'la': ['latin america', 'brazil', 'mexico', 'argentina'],
+    'au': ['australia', 'australian'],
+    'la': ['latin america'],
   }
 
   for (const [rid, keywords] of Object.entries(mentionMap)) {
@@ -66,7 +64,11 @@ function determineRegionStatus(
   contradictedRegions: Set<string>,
   reframedRegions: Set<string>,
 ): string {
-  // Contradicted takes priority (discrepancy data)
+  // Region directly mentioned in the story headline/synopsis → original
+  // This takes priority — Iran IS the story, even if they contradict US framing
+  if (originalRegions.has(regionId)) return 'original'
+
+  // Contradicted from discrepancy data
   if (contradictedRegions.has(regionId)) return 'contradicted'
 
   // State-controlled outlets → reframed
@@ -76,10 +78,7 @@ function determineRegionStatus(
   // Reframed from framing analysis
   if (reframedRegions.has(regionId)) return 'reframed'
 
-  // Region is directly mentioned in the story → original reporting
-  if (originalRegions.has(regionId)) return 'original'
-
-  // Default: wire_copy — covering someone else's story
+  // Default: wire_copy
   return 'wire_copy'
 }
 

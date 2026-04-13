@@ -52,6 +52,45 @@ export async function getTotalCost(): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// Retry helper — handles overloaded_error, rate limits, 529
+// ---------------------------------------------------------------------------
+
+const MAX_RETRIES = 3
+const BASE_DELAY_MS = 5_000 // 5s, 10s, 20s
+
+function isRetryable(err: unknown): boolean {
+  if (err && typeof err === 'object') {
+    const e = err as Record<string, unknown>
+    // Anthropic SDK errors
+    if (e.status === 529 || e.status === 503 || e.status === 429) return true
+    if (typeof e.message === 'string' && /overloaded|rate.?limit|capacity|too many/i.test(e.message)) return true
+    // Nested error shape from API response
+    const inner = e.error as Record<string, unknown> | undefined
+    if (inner?.type === 'overloaded_error') return true
+  }
+  return false
+}
+
+export async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  let lastErr: unknown
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      if (attempt < MAX_RETRIES && isRetryable(err)) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt)
+        console.warn(`[retry] ${label} attempt ${attempt + 1}/${MAX_RETRIES} failed (retryable). Waiting ${delay / 1000}s...`)
+        await new Promise(r => setTimeout(r, delay))
+      } else {
+        throw err
+      }
+    }
+  }
+  throw lastErr
+}
+
+// ---------------------------------------------------------------------------
 // Main API wrapper
 // ---------------------------------------------------------------------------
 
@@ -92,15 +131,19 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
   let inputTokens = 0
   let outputTokens = 0
 
-  if (useStreaming) {
-    const stream = await client.messages.stream({
-      model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    })
+  const retryLabel = `callClaude(${model}, ${agentType})`
 
-    const finalMessage = await stream.finalMessage()
+  if (useStreaming) {
+    const finalMessage = await withRetry(async () => {
+      const stream = await client.messages.stream({
+        model,
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      })
+      return stream.finalMessage()
+    }, retryLabel)
+
     text = finalMessage.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
       .map((block) => block.text)
@@ -108,12 +151,13 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
     inputTokens = finalMessage.usage.input_tokens
     outputTokens = finalMessage.usage.output_tokens
   } else {
-    const response = await client.messages.create({
+    const response = await withRetry(() => client.messages.create({
       model,
       max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
-    })
+    }), retryLabel)
+
     text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
       .map((block) => block.text)

@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { prisma } from '@/lib/db'
+import { withRetry } from '@/lib/anthropic'
 
 // Lazy-init clients
 let anthropicClient: Anthropic | null = null
@@ -88,18 +89,23 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
   let inputTokens = 0
   let outputTokens = 0
 
+  const retryLabel = `callModel(${options.provider}/${model}, ${options.agentType})`
+
   if (options.provider === 'anthropic') {
     const client = getAnthropic()
     const useStreaming = model.includes('opus') || maxTokens > 8192
 
     if (useStreaming) {
-      const stream = await client.messages.stream({
-        model,
-        max_tokens: maxTokens,
-        system: options.system,
-        messages: [{ role: 'user', content: options.userMessage }],
-      })
-      const finalMessage = await stream.finalMessage()
+      const finalMessage = await withRetry(async () => {
+        const stream = await client.messages.stream({
+          model,
+          max_tokens: maxTokens,
+          system: options.system,
+          messages: [{ role: 'user', content: options.userMessage }],
+        })
+        return stream.finalMessage()
+      }, retryLabel)
+
       text = finalMessage.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
         .map((b) => b.text)
@@ -107,12 +113,13 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
       inputTokens = finalMessage.usage.input_tokens
       outputTokens = finalMessage.usage.output_tokens
     } else {
-      const response = await client.messages.create({
+      const response = await withRetry(() => client.messages.create({
         model,
         max_tokens: maxTokens,
         system: options.system,
         messages: [{ role: 'user', content: options.userMessage }],
-      })
+      }), retryLabel)
+
       text = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
         .map((b) => b.text)
@@ -123,14 +130,15 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
 
   } else if (options.provider === 'openai' || options.provider === 'xai') {
     const client = options.provider === 'xai' ? getXAI() : getOpenAI()
-    const response = await client.chat.completions.create({
+    const response = await withRetry(() => client.chat.completions.create({
       model,
       max_tokens: maxTokens,
       messages: [
         { role: 'system', content: options.system },
         { role: 'user', content: options.userMessage },
       ],
-    })
+    }), retryLabel)
+
     text = response.choices[0]?.message?.content ?? ''
     inputTokens = response.usage?.prompt_tokens ?? 0
     outputTokens = response.usage?.completion_tokens ?? 0
@@ -138,7 +146,8 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
   } else if (options.provider === 'google') {
     const client = getGoogle()
     const genModel = client.getGenerativeModel({ model, systemInstruction: options.system })
-    const response = await genModel.generateContent(options.userMessage)
+    const response = await withRetry(() => genModel.generateContent(options.userMessage), retryLabel)
+
     text = response.response.text()
     inputTokens = response.response.usageMetadata?.promptTokenCount ?? 0
     outputTokens = response.response.usageMetadata?.candidatesTokenCount ?? 0

@@ -35,10 +35,7 @@ function determineRegionStatus(
   if (contradictedRegions.has(regionId)) return 'contradicted'
   if (reframedRegions.has(regionId)) return 'reframed'
 
-  // First region to publish = original
-  if (isFirst) return 'original'
-
-  // State-controlled outlets → reframed
+  // State-controlled outlets → reframed (check before original)
   const hasStateMedia = sources.some(s => s.politicalLean === 'state-controlled')
   if (hasStateMedia && STATE_MEDIA_REGIONS.has(regionId)) return 'reframed'
 
@@ -46,7 +43,20 @@ function determineRegionStatus(
   const allLow = sources.every(s => s.reliability === 'low')
   if (allLow) return 'reframed'
 
-  // Default: wire_copy
+  // First region = original
+  if (isFirst) return 'original'
+
+  // Multiple independent outlets = original reporting, not wire copy
+  // A region with 3+ unique outlets from high/medium reliability is doing
+  // original reporting, not just copying AP/Reuters wire
+  const uniqueOutlets = new Set(sources.map(s => s.outlet)).size
+  const hasHighReliability = sources.some(s => s.reliability === 'high' || s.reliability === 'medium')
+  if (uniqueOutlets >= 3 && hasHighReliability) return 'original'
+
+  // 2 outlets with at least one high reliability = original
+  if (uniqueOutlets >= 2 && sources.some(s => s.reliability === 'high')) return 'original'
+
+  // Default: wire_copy (1 outlet or all unknown reliability)
   return 'wire_copy'
 }
 

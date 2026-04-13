@@ -1,16 +1,5 @@
 import { prisma } from '@/lib/db'
 
-// Dynamic import — @napi-rs/canvas has native bindings that break Vercel Turbopack
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let createCanvas: any = null
-async function getCanvas() {
-  if (!createCanvas) {
-    const mod = await import('@napi-rs/canvas')
-    createCanvas = mod.createCanvas
-  }
-  return createCanvas
-}
-
 const W = 1080
 const H = 1080
 const BG = '#0A0A0B'
@@ -19,213 +8,128 @@ const TEAL = '#2A9D8F'
 const GRAY = '#9CA3AF'
 const MUTED = '#6B7280'
 const RED = '#EF4444'
+const AMBER = '#F59E0B'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Ctx = any
-
-function drawSlideBase(ctx: Ctx, slideNum: number, totalSlides: number) {
-  ctx.fillStyle = BG
-  ctx.fillRect(0, 0, W, H)
-
-  // Overcurrent wordmark bottom-left
-  ctx.fillStyle = TEAL
-  ctx.font = '700 16px "Inter", sans-serif'
-  ctx.fillText('OVERCURRENT', 40, H - 40)
-  ctx.fillRect(40, H - 32, 130, 2)
-
-  // Slide number bottom-right
-  ctx.fillStyle = MUTED
-  ctx.font = '400 14px "Inter", sans-serif'
-  ctx.fillText(`${slideNum}/${totalSlides}`, W - 60, H - 40)
+function escapeXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function wrapText(ctx: Ctx, text: string, maxWidth: number): string[] {
+function wrapSvgText(text: string, maxChars: number): string[] {
   const words = text.split(' ')
   const lines: string[] = []
-  let currentLine = ''
-
-  for (const word of words) {
-    const test = currentLine ? `${currentLine} ${word}` : word
-    const metrics = ctx.measureText(test)
-    if (metrics.width > maxWidth && currentLine) {
-      lines.push(currentLine)
-      currentLine = word
+  let current = ''
+  for (const w of words) {
+    if ((current + ' ' + w).trim().length > maxChars && current) {
+      lines.push(current.trim())
+      current = w
     } else {
-      currentLine = test
+      current = current ? current + ' ' + w : w
     }
   }
-  if (currentLine) lines.push(currentLine)
+  if (current) lines.push(current.trim())
   return lines
 }
 
-function drawSlide1(ctx: Ctx, headline: string) {
-  drawSlideBase(ctx, 1, 5)
-
-  // Teal accent line
-  ctx.fillStyle = TEAL
-  ctx.fillRect(W / 2 - 60, 380, 120, 3)
-
-  // Hook text
-  ctx.fillStyle = WHITE
-  ctx.font = '700 48px "Inter", sans-serif'
-  ctx.textAlign = 'center'
-
-  const hookText = headline.length > 70 ? headline.substring(0, 67) + '...' : headline
-  const lines = wrapText(ctx, hookText, W - 140)
-  const startY = 440
-  for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], W / 2, startY + i * 60)
-  }
-  ctx.textAlign = 'left'
-
-  // Accent line below
-  ctx.fillStyle = TEAL
-  ctx.fillRect(W / 2 - 60, startY + lines.length * 60 + 20, 120, 3)
+function slideBase(slideNum: number, inner: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  <rect width="${W}" height="${H}" fill="${BG}"/>
+  ${inner}
+  <text x="40" y="${H - 40}" fill="${TEAL}" font-family="Inter, Helvetica Neue, sans-serif" font-size="16" font-weight="700">OVERCURRENT</text>
+  <rect x="40" y="${H - 32}" width="130" height="2" fill="${TEAL}"/>
+  <text x="${W - 60}" y="${H - 40}" fill="${MUTED}" font-family="Inter, sans-serif" font-size="14">${slideNum}/5</text>
+</svg>`
 }
 
-function drawSlide2(ctx: Ctx, framings: Array<{ region: string; framing: string }>) {
-  drawSlideBase(ctx, 2, 5)
+function slide1(headline: string): string {
+  const hook = headline.length > 70 ? headline.substring(0, 67) + '...' : headline
+  const lines = wrapSvgText(hook, 30)
+  const startY = 440 - (lines.length * 30)
+  const textLines = lines.map((l, i) =>
+    `<text x="${W / 2}" y="${startY + i * 64}" fill="${WHITE}" font-family="Inter, sans-serif" font-size="48" font-weight="700" text-anchor="middle">${escapeXml(l)}</text>`
+  ).join('\n  ')
 
-  ctx.fillStyle = TEAL
-  ctx.font = '700 14px "Inter", sans-serif'
-  ctx.fillText('HOW EACH REGION FRAMED IT', 60, 80)
+  return slideBase(1, `
+  <rect x="${W / 2 - 60}" y="${startY - 40}" width="120" height="3" fill="${TEAL}"/>
+  ${textLines}
+  <rect x="${W / 2 - 60}" y="${startY + lines.length * 64 + 10}" width="120" height="3" fill="${TEAL}"/>
+  `)
+}
 
-  const maxRows = Math.min(framings.length, 5)
-  const rowH = Math.floor((H - 200) / Math.max(maxRows, 1))
-
-  for (let i = 0; i < maxRows; i++) {
-    const f = framings[i]
+function slide2(framings: Array<{ region: string; framing: string }>): string {
+  const rows = framings.slice(0, 5)
+  const rowH = 150
+  const items = rows.map((f, i) => {
     const y = 130 + i * rowH
+    const quote = f.framing.length > 55 ? f.framing.substring(0, 52) + '...' : f.framing
+    return `
+    <circle cx="72" cy="${y + 8}" r="5" fill="${TEAL}"/>
+    <text x="92" y="${y + 16}" fill="${WHITE}" font-family="Inter, sans-serif" font-size="26" font-weight="700">${escapeXml(f.region)}</text>
+    <text x="92" y="${y + 48}" fill="${GRAY}" font-family="Inter, sans-serif" font-size="20" font-style="italic">"${escapeXml(quote)}"</text>`
+  }).join('')
 
-    // Teal dot
-    ctx.fillStyle = TEAL
-    ctx.beginPath()
-    ctx.arc(72, y + 8, 5, 0, Math.PI * 2)
-    ctx.fill()
-
-    // Region name
-    ctx.fillStyle = WHITE
-    ctx.font = '700 26px "Inter", sans-serif'
-    ctx.fillText(f.region, 92, y + 16)
-
-    // Framing quote
-    ctx.fillStyle = GRAY
-    ctx.font = 'italic 20px "Inter", sans-serif'
-    const lines = wrapText(ctx, `"${f.framing}"`, W - 160)
-    for (let l = 0; l < Math.min(lines.length, 3); l++) {
-      ctx.fillText(lines[l], 92, y + 48 + l * 26)
-    }
-  }
+  return slideBase(2, `
+  <text x="60" y="80" fill="${TEAL}" font-family="Inter, sans-serif" font-size="14" font-weight="700" letter-spacing="2">HOW EACH REGION FRAMED IT</text>
+  ${items}
+  `)
 }
 
-function drawSlide3(ctx: Ctx, buried: Array<{ fact: string; reportedBy: string }>) {
-  drawSlideBase(ctx, 3, 5)
-
-  ctx.fillStyle = TEAL
-  ctx.font = '700 14px "Inter", sans-serif'
-  ctx.fillText('REPORTED BUT BURIED', 60, 80)
-
-  const maxItems = Math.min(buried.length, 3)
-  const itemH = Math.floor((H - 200) / Math.max(maxItems, 1))
-
-  for (let i = 0; i < maxItems; i++) {
-    const b = buried[i]
+function slide3(buried: Array<{ fact: string; reportedBy: string }>): string {
+  const items = buried.slice(0, 3)
+  const itemH = 250
+  const rows = items.map((b, i) => {
     const y = 130 + i * itemH
+    const fact = b.fact.length > 70 ? b.fact.substring(0, 67) + '...' : b.fact
+    const lines = wrapSvgText(fact, 45)
+    const textLines = lines.slice(0, 3).map((l, li) =>
+      `<text x="72" y="${y + 28 + li * 30}" fill="${WHITE}" font-family="Inter, sans-serif" font-size="22" font-weight="700">${escapeXml(l)}</text>`
+    ).join('')
+    const attrY = y + 28 + Math.min(lines.length, 3) * 30 + 20
+    const attr = b.reportedBy.length > 70 ? b.reportedBy.substring(0, 67) + '...' : b.reportedBy
+    return `
+    <rect x="50" y="${y}" width="3" height="${itemH - 40}" fill="${RED}"/>
+    ${textLines}
+    <text x="72" y="${attrY}" fill="${GRAY}" font-family="Inter, sans-serif" font-size="16">${escapeXml(attr)}</text>`
+  }).join('')
 
-    // Red vertical line
-    ctx.fillStyle = RED
-    ctx.fillRect(50, y, 3, itemH - 30)
-
-    // Fact
-    ctx.fillStyle = WHITE
-    ctx.font = '700 22px "Inter", sans-serif'
-    const factLines = wrapText(ctx, b.fact, W - 140)
-    for (let l = 0; l < Math.min(factLines.length, 4); l++) {
-      ctx.fillText(factLines[l], 72, y + 28 + l * 30)
-    }
-
-    // Attribution
-    ctx.fillStyle = GRAY
-    ctx.font = '400 16px "Inter", sans-serif'
-    ctx.fillText(b.reportedBy.substring(0, 80), 72, y + 28 + Math.min(factLines.length, 4) * 30 + 16)
-  }
+  return slideBase(3, `
+  <text x="60" y="80" fill="${TEAL}" font-family="Inter, sans-serif" font-size="14" font-weight="700" letter-spacing="2">REPORTED BUT BURIED</text>
+  ${rows}
+  `)
 }
 
-function drawSlide4(ctx: Ctx, disc: { issue: string; sideA: string; sideB: string; sourcesA: string; sourcesB: string }) {
-  drawSlideBase(ctx, 4, 5)
+function slide4(disc: { issue: string; sideA: string; sideB: string; sourcesA: string; sourcesB: string }): string {
+  const issueLines = wrapSvgText(disc.issue, 40)
+  const issueText = issueLines.slice(0, 2).map((l, i) =>
+    `<text x="60" y="${130 + i * 34}" fill="${WHITE}" font-family="Inter, sans-serif" font-size="26" font-weight="700">${escapeXml(l)}</text>`
+  ).join('')
 
-  ctx.fillStyle = TEAL
-  ctx.font = '700 14px "Inter", sans-serif'
-  ctx.fillText('KEY DISCREPANCY', 60, 80)
+  const colY = 240
+  const aLines = wrapSvgText(disc.sideA, 25).slice(0, 6)
+  const bLines = wrapSvgText(disc.sideB, 25).slice(0, 6)
+  const aText = aLines.map((l, i) => `<text x="60" y="${colY + 34 + i * 26}" fill="${WHITE}" font-family="Inter, sans-serif" font-size="20">${escapeXml(l)}</text>`).join('')
+  const bText = bLines.map((l, i) => `<text x="${W / 2 + 20}" y="${colY + 34 + i * 26}" fill="${WHITE}" font-family="Inter, sans-serif" font-size="20">${escapeXml(l)}</text>`).join('')
 
-  // Issue
-  ctx.fillStyle = WHITE
-  ctx.font = '700 26px "Inter", sans-serif'
-  const issueLines = wrapText(ctx, disc.issue, W - 120)
-  for (let l = 0; l < Math.min(issueLines.length, 2); l++) {
-    ctx.fillText(issueLines[l], 60, 130 + l * 34)
-  }
-
-  const colW = (W - 140) / 2
-  const colY = 230
-
-  // Side A
-  ctx.fillStyle = TEAL
-  ctx.font = '700 16px "Inter", sans-serif'
-  ctx.fillText('SIDE A', 60, colY)
-  ctx.fillStyle = WHITE
-  ctx.font = '400 20px "Inter", sans-serif'
-  const aLines = wrapText(ctx, disc.sideA, colW - 20)
-  for (let l = 0; l < Math.min(aLines.length, 8); l++) {
-    ctx.fillText(aLines[l], 60, colY + 30 + l * 26)
-  }
-  ctx.fillStyle = MUTED
-  ctx.font = '400 14px "Inter", sans-serif'
-  ctx.fillText(disc.sourcesA.substring(0, 45), 60, colY + 30 + Math.min(aLines.length, 8) * 26 + 16)
-
-  // Divider
-  ctx.fillStyle = MUTED
-  ctx.fillRect(W / 2, colY - 10, 1, 500)
-
-  // Side B
-  const rightX = W / 2 + 20
-  ctx.fillStyle = RED
-  ctx.font = '700 16px "Inter", sans-serif'
-  ctx.fillText('SIDE B', rightX, colY)
-  ctx.fillStyle = WHITE
-  ctx.font = '400 20px "Inter", sans-serif'
-  const bLines = wrapText(ctx, disc.sideB, colW - 20)
-  for (let l = 0; l < Math.min(bLines.length, 8); l++) {
-    ctx.fillText(bLines[l], rightX, colY + 30 + l * 26)
-  }
-  ctx.fillStyle = MUTED
-  ctx.font = '400 14px "Inter", sans-serif'
-  ctx.fillText(disc.sourcesB.substring(0, 45), rightX, colY + 30 + Math.min(bLines.length, 8) * 26 + 16)
+  return slideBase(4, `
+  <text x="60" y="80" fill="${TEAL}" font-family="Inter, sans-serif" font-size="14" font-weight="700" letter-spacing="2">KEY DISCREPANCY</text>
+  ${issueText}
+  <text x="60" y="${colY}" fill="${TEAL}" font-family="Inter, sans-serif" font-size="16" font-weight="700">SIDE A</text>
+  ${aText}
+  <text x="60" y="${colY + 34 + aLines.length * 26 + 20}" fill="${MUTED}" font-family="Inter, sans-serif" font-size="14">${escapeXml(disc.sourcesA.substring(0, 45))}</text>
+  <rect x="${W / 2}" y="${colY - 10}" width="1" height="400" fill="${MUTED}"/>
+  <text x="${W / 2 + 20}" y="${colY}" fill="${RED}" font-family="Inter, sans-serif" font-size="16" font-weight="700">SIDE B</text>
+  ${bText}
+  <text x="${W / 2 + 20}" y="${colY + 34 + bLines.length * 26 + 20}" fill="${MUTED}" font-family="Inter, sans-serif" font-size="14">${escapeXml(disc.sourcesB.substring(0, 45))}</text>
+  `)
 }
 
-function drawSlide5(ctx: Ctx, sourceCount: number, countryCount: number, regionCount: number) {
-  drawSlideBase(ctx, 5, 5)
-
-  ctx.textAlign = 'center'
-
-  ctx.fillStyle = WHITE
-  ctx.font = '700 36px "Inter", sans-serif'
-  ctx.fillText('Every outlet shows you', W / 2, 380)
-  ctx.fillText('their version.', W / 2, 426)
-
-  ctx.fillStyle = TEAL
-  ctx.font = '700 36px "Inter", sans-serif'
-  ctx.fillText('We show you everyone\'s.', W / 2, 500)
-
-  ctx.fillStyle = TEAL
-  ctx.font = '400 24px "Inter", sans-serif'
-  ctx.fillText('overcurrent.news', W / 2, 580)
-
-  ctx.fillStyle = GRAY
-  ctx.font = '400 18px "Inter", sans-serif'
-  ctx.fillText(`${sourceCount} sources \u00B7 ${countryCount} countries \u00B7 ${regionCount} regions`, W / 2, 640)
-
-  ctx.textAlign = 'left'
+function slide5(sourceCount: number, countryCount: number, regionCount: number): string {
+  return slideBase(5, `
+  <text x="${W / 2}" y="380" fill="${WHITE}" font-family="Inter, sans-serif" font-size="36" font-weight="700" text-anchor="middle">Every outlet shows you</text>
+  <text x="${W / 2}" y="426" fill="${WHITE}" font-family="Inter, sans-serif" font-size="36" font-weight="700" text-anchor="middle">their version.</text>
+  <text x="${W / 2}" y="500" fill="${TEAL}" font-family="Inter, sans-serif" font-size="36" font-weight="700" text-anchor="middle">We show you everyone's.</text>
+  <text x="${W / 2}" y="580" fill="${TEAL}" font-family="Inter, sans-serif" font-size="24" text-anchor="middle">overcurrent.news</text>
+  <text x="${W / 2}" y="640" fill="${GRAY}" font-family="Inter, sans-serif" font-size="18" text-anchor="middle">${sourceCount} sources · ${countryCount} countries · ${regionCount} regions</text>
+  `)
 }
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -244,7 +148,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return Response.json({ error: 'Story not found' }, { status: 404 })
   }
 
-  // Parse buried evidence
   let buriedEvidence: Array<{ fact: string; reportedBy: string; notPickedUpBy: string[] }> = []
   try {
     const parsed = JSON.parse(story.confidenceNote || '{}')
@@ -253,52 +156,29 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   const countries = new Set(story.sources.map(s => s.country))
   const regions = new Set(story.sources.map(s => s.region))
-  const makeCanvas = await getCanvas()
-  if (!makeCanvas) {
-    return Response.json({ error: '@napi-rs/canvas not available in this runtime' }, { status: 500 })
-  }
 
-  const slides: Buffer[] = []
-
-  // Slide 1: Hook
-  const c1 = makeCanvas(W, H)
-  drawSlide1(c1.getContext('2d'), story.headline)
-  slides.push(c1.toBuffer('image/png'))
-
-  // Slide 2: Framing
-  const c2 = makeCanvas(W, H)
-  drawSlide2(c2.getContext('2d'), story.framings.map(f => ({ region: f.region, framing: f.framing })))
-  slides.push(c2.toBuffer('image/png'))
-
-  // Slide 3: Buried evidence
-  const c3 = makeCanvas(W, H)
-  drawSlide3(c3.getContext('2d'), buriedEvidence.slice(0, 3).map(b => ({
-    fact: b.fact,
-    reportedBy: `Reported by: ${b.reportedBy} — not picked up by ${b.notPickedUpBy?.length ?? 0} other outlets`,
-  })))
-  slides.push(c3.toBuffer('image/png'))
-
-  // Slide 4: Discrepancy
-  const c4 = makeCanvas(W, H)
-  if (story.discrepancies[0]) {
-    const d = story.discrepancies[0]
-    drawSlide4(c4.getContext('2d'), { issue: d.issue, sideA: d.sideA, sideB: d.sideB, sourcesA: d.sourcesA, sourcesB: d.sourcesB })
-  } else {
-    drawSlideBase(c4.getContext('2d'), 4, 5)
-  }
-  slides.push(c4.toBuffer('image/png'))
-
-  // Slide 5: CTA
-  const c5 = makeCanvas(W, H)
-  drawSlide5(c5.getContext('2d'), story.sources.length, countries.size, regions.size)
-  slides.push(c5.toBuffer('image/png'))
+  // Generate 5 SVG slides
+  const svgs = [
+    slide1(story.headline),
+    slide2(story.framings.map(f => ({ region: f.region, framing: f.framing }))),
+    slide3(buriedEvidence.slice(0, 3).map(b => ({
+      fact: b.fact,
+      reportedBy: `Reported by: ${b.reportedBy} — not picked up by ${b.notPickedUpBy?.length ?? 0} others`,
+    }))),
+    story.discrepancies[0]
+      ? slide4({ issue: story.discrepancies[0].issue, sideA: story.discrepancies[0].sideA, sideB: story.discrepancies[0].sideB, sourcesA: story.discrepancies[0].sourcesA, sourcesB: story.discrepancies[0].sourcesB })
+      : slideBase(4, `<text x="${W / 2}" y="${H / 2}" fill="${GRAY}" font-family="Inter, sans-serif" font-size="24" text-anchor="middle">No discrepancies found</text>`),
+    slide5(story.sources.length, countries.size, regions.size),
+  ]
 
   return Response.json({
     success: true,
-    slides: slides.map((buf, i) => ({
+    slides: svgs.map((svg, i) => ({
       slide: i + 1,
-      filename: `slide-${i + 1}.png`,
-      dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
+      filename: `slide-${i + 1}.svg`,
+      // Return SVG as data URL for display + download
+      dataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
+      svg,
     })),
     headline: story.headline,
   })

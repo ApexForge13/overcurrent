@@ -15,6 +15,7 @@ import { generateSocialDrafts } from '@/agents/social-drafts'
 import { fetchRedditDiscourse } from '@/ingestion/reddit-discourse'
 import { fetchTwitterDiscourse } from '@/ingestion/twitter-discourse'
 import { analyzeDiscourse } from '@/agents/discourse'
+import { classifyMapRegions } from '@/agents/map-classifier'
 import type { TriagedSource } from '@/agents/triage'
 import type { SilenceAnalysis } from '@/agents/silence'
 
@@ -231,6 +232,62 @@ function buildFinalTimeline(
   })
 
   console.log(`[timeline] Built ${frames.length} frames. Regions per frame: ${frames.map(f => f.regions.length).join(', ')}`)
+  return frames
+}
+
+/** Build timeline from classification agent output — accurate border/fill statuses */
+function buildTimelineFromClassifications(
+  classifications: Array<{
+    region_id: string
+    outlet_count: number
+    outlets: string[]
+    border_status: string
+    fill_status: string
+    dominant_framing: string
+  }>,
+  buckets: TimelineBucket[],
+) {
+  const statusOrder: Record<string, number> = { original: 0, contradicted: 1, reframed: 2, wire_copy: 3 }
+  const sorted = [...classifications].sort((a, b) =>
+    (statusOrder[a.fill_status] ?? 3) - (statusOrder[b.fill_status] ?? 3)
+  )
+
+  const dateLabel = buckets[0]?.label || new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+
+  const frameLabels = ['Story breaks', 'Wire services pick up', 'Regional outlets respond', 'Global coverage spreads', 'Counter-narratives emerge', 'Full global picture']
+
+  const frames = []
+  for (let i = 0; i < 6; i++) {
+    const count = Math.max(1, Math.ceil(sorted.length * (i + 1) / 6))
+    const regionsInFrame = sorted.slice(0, count).map(c => ({
+      region_id: c.region_id,
+      status: c.fill_status,
+      border_status: c.border_status,
+      coverage_volume: Math.min(100, c.outlet_count * 12),
+      dominant_quote: c.dominant_framing,
+      outlet_count: c.outlet_count,
+      key_outlets: c.outlets.slice(0, 5),
+    }))
+
+    const originRegions = regionsInFrame.filter(r => r.border_status === 'original')
+    const flows: Array<{ from: string; to: string; type: string }> = []
+    for (const origin of originRegions) {
+      for (const r of regionsInFrame) {
+        if (r.region_id === origin.region_id) continue
+        flows.push({ from: origin.region_id, to: r.region_id, type: r.status })
+      }
+    }
+
+    frames.push({
+      hour: i * 4,
+      label: dateLabel,
+      description: frameLabels[i],
+      regions: regionsInFrame,
+      flows,
+    })
+  }
+
+  console.log(`[timeline] Built ${frames.length} frames from ${classifications.length} classifications`)
   return frames
 }
 
@@ -726,6 +783,53 @@ export async function runVerifyPipeline(
     }
   }
 
+  // ── MAP CLASSIFICATION ──────────────────────────────────────────────
+  // Sonnet reads the actual analysis data and classifies each region's
+  // border (how they received it) and fill (how they reported it).
+  let mapClassifications: Awaited<ReturnType<typeof classifyMapRegions>>['classifications'] = []
+  try {
+    const classResult = await classifyMapRegions({
+      headline: synthesisResult.headline,
+      synopsis: synthesisResult.synopsis,
+      sources: triageResult.sources.map(s => ({
+        outlet: s.outlet,
+        country: s.country,
+        region: s.region,
+        politicalLean: s.politicalLean,
+      })),
+      framings: synthesisResult.framings?.map(f => ({
+        region: f.region,
+        framing: f.framing,
+        contrastWith: f.contrastWith ?? null,
+      })) ?? [],
+      discrepancies: synthesisResult.discrepancies?.map(d => ({
+        issue: d.issue,
+        sideA: d.sideA,
+        sideB: d.sideB,
+        sourcesA: d.sourcesA,
+        sourcesB: d.sourcesB,
+        assessment: d.assessment ?? null,
+      })) ?? [],
+      claims: synthesisResult.claims?.map(c => ({
+        claim: c.claim,
+        confidence: c.confidence,
+        supportedBy: c.supportedBy,
+        contradictedBy: c.contradictedBy,
+      })) ?? [],
+    })
+    mapClassifications = classResult.classifications
+    totalCost += classResult.costUsd
+    onProgress('classification', {
+      phase: 'classification',
+      message: `Classified ${mapClassifications.length} regions for propagation map`,
+    })
+    for (const c of mapClassifications) {
+      console.log(`[map] ${c.region_id}: border=${c.border_status}, fill=${c.fill_status}, "${c.dominant_framing}"`)
+    }
+  } catch (err) {
+    console.error('Map classification failed:', err)
+  }
+
   // ── PHASE 6: SAVE ────────────────────────────────────────────────────
 
   const elapsedSeconds = Math.round((Date.now() - startTime) / 1000)
@@ -749,8 +853,11 @@ export async function runVerifyPipeline(
         confidenceNote: JSON.stringify({
           note: synthesisResult.confidenceNote,
           buriedEvidence: synthesisResult.buriedEvidence,
-          propagationTimeline: buildFinalTimeline(timelineBuckets, synthesisResult.propagationTimeline),
+          propagationTimeline: mapClassifications.length > 0
+            ? buildTimelineFromClassifications(mapClassifications, timelineBuckets)
+            : buildFinalTimeline(timelineBuckets, synthesisResult.propagationTimeline),
           factSurvival: synthesisResult.factSurvival,
+          mapClassifications,
         }),
         category: triageResult.suggestedCategory,
         primaryCategory: triageResult.suggestedCategory || null,

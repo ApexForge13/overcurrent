@@ -25,6 +25,7 @@ interface TimelineFrame {
   regions: Array<{
     region_id: string
     status: string
+    border_status?: string
     coverage_volume: number
     dominant_quote: string
     outlet_count: number
@@ -652,7 +653,8 @@ function GlobeMesh({ rotationRef }: { rotationRef: React.MutableRefObject<number
 /* ------------------------------------------------------------------ */
 
 interface RegionData {
-  status:          string
+  status:          string  // Fill color (how they reported it)
+  border_status?:  string  // Border color (how they received it) — falls back to status
   coverage_volume: number
   outlet_count:    number
   dominant_quote:  string
@@ -669,7 +671,7 @@ interface TacticalMarkerProps {
 
 function TacticalMarker({ regionId, lat, lng, data, activeCount, globeRotation }: TacticalMarkerProps) {
   const isActive     = !!data
-  const color        = isActive ? statusColor(data!.status) : '#333344'
+  const color        = isActive ? statusColor(data!.border_status ?? data!.status) : '#333344'
   const label        = REGION_LABELS[regionId] ?? regionId.toUpperCase()
   const showFullDetail = activeCount < 5
   const pos          = useMemo(

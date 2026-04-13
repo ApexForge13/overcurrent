@@ -1394,8 +1394,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
     const originCoords = REGION_COORDS[originRegion] ?? [39.8, -98.5]
     const originPos    = latLngToVector3(originCoords[0], originCoords[1], GLOBE_RADIUS)
     const dir          = originPos.clone().normalize()
-    // Offset globe left so the right sidebar doesn't cover it
-    return [dir.x * 5.5 - 1.2, dir.y * 5.5 + 1, dir.z * 5.5] as [number, number, number]
+    return [dir.x * 5.5, dir.y * 5.5 + 1, dir.z * 5.5] as [number, number, number]
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1518,8 +1517,8 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
         </div>
       )}
 
-      {/* Canvas */}
-      <div style={{ width: '100%', aspectRatio: '16/9', maxHeight: '500px' }}>
+      {/* Canvas — shifted left so sidebar doesn't cover the globe */}
+      <div style={{ width: '130%', marginLeft: '-15%', aspectRatio: '16/9', maxHeight: '500px' }}>
         <Canvas
           camera={{ position: cameraStart, fov: 45, near: 0.1, far: 200 }}
           style={{ background: '#0A0A0B' }}

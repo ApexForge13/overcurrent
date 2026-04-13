@@ -109,7 +109,7 @@ export async function triageSources(
   }
 
   const truncated: typeof deduped = []
-  const maxTotal = 200
+  const maxTotal = 120
   const regionCount = byRegion.size || 1
 
   if (regionCount <= 1) {
@@ -137,14 +137,32 @@ export async function triageSources(
 Raw sources (${truncated.length} of ${rawSources.length} total):
 ${JSON.stringify(truncated, null, 2)}`
 
-  const { text, costUsd } = await callClaude({
-    model: SONNET,
-    systemPrompt: SYSTEM_PROMPT,
-    userPrompt,
-    agentType: 'triage',
-    maxTokens: 8192,
-    storyId,
-  })
+  let text = ''
+  let costUsd = 0
+
+  // Try twice — if first attempt fails to parse, retry once
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await callClaude({
+      model: SONNET,
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt,
+      agentType: 'triage',
+      maxTokens: 8192,
+      storyId,
+    })
+    text = result.text
+    costUsd += result.costUsd
+
+    try {
+      parseJSON(text)
+      break // Parse succeeded
+    } catch {
+      if (attempt === 0) {
+        console.warn('[Triage] First attempt failed to parse JSON, retrying...')
+        continue
+      }
+    }
+  }
 
   const parsed = parseJSON<Omit<TriageResult, 'costUsd'>>(text)
 

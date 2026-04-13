@@ -1,5 +1,15 @@
 import { prisma } from '@/lib/db'
-import { createCanvas, type SKRSContext2D } from '@napi-rs/canvas'
+
+// Dynamic import — @napi-rs/canvas has native bindings that break Vercel Turbopack
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let createCanvas: any = null
+async function getCanvas() {
+  if (!createCanvas) {
+    const mod = await import('@napi-rs/canvas')
+    createCanvas = mod.createCanvas
+  }
+  return createCanvas
+}
 
 const W = 1080
 const H = 1080
@@ -10,7 +20,8 @@ const GRAY = '#9CA3AF'
 const MUTED = '#6B7280'
 const RED = '#EF4444'
 
-type Ctx = SKRSContext2D
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Ctx = any
 
 function drawSlideBase(ctx: Ctx, slideNum: number, totalSlides: number) {
   ctx.fillStyle = BG
@@ -242,20 +253,25 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
   const countries = new Set(story.sources.map(s => s.country))
   const regions = new Set(story.sources.map(s => s.region))
+  const makeCanvas = await getCanvas()
+  if (!makeCanvas) {
+    return Response.json({ error: '@napi-rs/canvas not available in this runtime' }, { status: 500 })
+  }
+
   const slides: Buffer[] = []
 
   // Slide 1: Hook
-  const c1 = createCanvas(W, H)
+  const c1 = makeCanvas(W, H)
   drawSlide1(c1.getContext('2d'), story.headline)
   slides.push(c1.toBuffer('image/png'))
 
   // Slide 2: Framing
-  const c2 = createCanvas(W, H)
+  const c2 = makeCanvas(W, H)
   drawSlide2(c2.getContext('2d'), story.framings.map(f => ({ region: f.region, framing: f.framing })))
   slides.push(c2.toBuffer('image/png'))
 
   // Slide 3: Buried evidence
-  const c3 = createCanvas(W, H)
+  const c3 = makeCanvas(W, H)
   drawSlide3(c3.getContext('2d'), buriedEvidence.slice(0, 3).map(b => ({
     fact: b.fact,
     reportedBy: `Reported by: ${b.reportedBy} — not picked up by ${b.notPickedUpBy?.length ?? 0} other outlets`,
@@ -263,7 +279,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   slides.push(c3.toBuffer('image/png'))
 
   // Slide 4: Discrepancy
-  const c4 = createCanvas(W, H)
+  const c4 = makeCanvas(W, H)
   if (story.discrepancies[0]) {
     const d = story.discrepancies[0]
     drawSlide4(c4.getContext('2d'), { issue: d.issue, sideA: d.sideA, sideB: d.sideB, sourcesA: d.sourcesA, sourcesB: d.sourcesB })
@@ -273,7 +289,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   slides.push(c4.toBuffer('image/png'))
 
   // Slide 5: CTA
-  const c5 = createCanvas(W, H)
+  const c5 = makeCanvas(W, H)
   drawSlide5(c5.getContext('2d'), story.sources.length, countries.size, regions.size)
   slides.push(c5.toBuffer('image/png'))
 

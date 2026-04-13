@@ -91,6 +91,24 @@ export default async function StoryPage({
 
   if (!story) notFound();
 
+  // Fetch other published stories for "More Analyses"
+  const moreStories = await prisma.story.findMany({
+    where: {
+      status: "published",
+      slug: { not: slug },
+    },
+    select: {
+      slug: true,
+      headline: true,
+      primaryCategory: true,
+      sourceCount: true,
+      countryCount: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 4,
+  });
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
@@ -105,6 +123,68 @@ export default async function StoryPage({
       <StoryPaywallWrapper slug={slug}>
         <StoryDetail story={story} />
       </StoryPaywallWrapper>
+
+      {/* More Analyses */}
+      {moreStories.length > 0 && (
+        <div style={{ marginTop: "64px", borderTop: "1px solid var(--border-primary)", paddingTop: "32px" }}>
+          <h2 style={{
+            fontFamily: "var(--font-display)",
+            fontSize: "24px",
+            fontWeight: 700,
+            color: "var(--text-primary)",
+            marginBottom: "24px",
+          }}>
+            More Analyses
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {moreStories.map((s) => (
+              <a
+                key={s.slug}
+                href={`/story/${s.slug}`}
+                style={{
+                  display: "block",
+                  padding: "20px",
+                  border: "1px solid var(--border-primary)",
+                  textDecoration: "none",
+                  transition: "border-color 0.2s",
+                }}
+                className="hover:border-[var(--text-tertiary)]"
+              >
+                {s.primaryCategory && (
+                  <span style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "9px",
+                    fontWeight: 600,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    color: "var(--accent-green)",
+                  }}>
+                    {s.primaryCategory.replace(/_/g, " ")}
+                  </span>
+                )}
+                <h3 style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: "16px",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  lineHeight: 1.3,
+                  marginTop: s.primaryCategory ? "6px" : "0",
+                }}>
+                  {s.headline}
+                </h3>
+                <p style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "11px",
+                  color: "var(--text-tertiary)",
+                  marginTop: "8px",
+                }}>
+                  {s.sourceCount} sources · {s.countryCount} countries
+                </p>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

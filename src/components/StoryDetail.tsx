@@ -25,6 +25,8 @@ interface StoryDetailProps {
     totalCost: number;
     analysisSeconds: number;
     createdAt: string | Date;
+    publishedAt?: string | Date | null;
+    primaryCategory?: string | null;
     // New format fields (may not exist on old stories)
     thePattern?: string;
     framingSplit?: Array<{
@@ -248,8 +250,16 @@ export function StoryDetail({ story }: StoryDetailProps) {
   const confidenceColor = getConfidenceColor(story.confidenceLevel);
   const modelCount = countModels(story.debateRounds);
 
-  // Group sources by region
-  const groupedSources = story.sources.reduce<Record<string, typeof story.sources>>(
+  // Deduplicate sources by outlet name within each region, then group by region
+  const seenOutlets = new Map<string, typeof story.sources[0]>();
+  for (const source of story.sources) {
+    const key = `${source.outlet}|${source.region}`;
+    if (!seenOutlets.has(key)) {
+      seenOutlets.set(key, source);
+    }
+  }
+  const dedupedSources = [...seenOutlets.values()];
+  const groupedSources = dedupedSources.reduce<Record<string, typeof story.sources>>(
     (acc, source) => {
       const region = source.region || "Unknown";
       if (!acc[region]) acc[region] = [];
@@ -380,6 +390,24 @@ export function StoryDetail({ story }: StoryDetailProps) {
           </span>
         </div>
 
+        {/* Category tag */}
+        {story.primaryCategory && (
+          <div style={{ marginTop: "20px" }}>
+            <span style={{
+              ...mono,
+              fontSize: "10px",
+              fontWeight: 600,
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              color: "var(--accent-green)",
+              border: "1px solid var(--accent-green)",
+              padding: "2px 8px",
+            }}>
+              {story.primaryCategory.replace(/_/g, " ")}
+            </span>
+          </div>
+        )}
+
         {/* Large serif headline */}
         <h1
           style={{
@@ -389,7 +417,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
             lineHeight: 1.15,
             letterSpacing: "-0.02em",
             color: "var(--text-primary)",
-            marginTop: "20px",
+            marginTop: story.primaryCategory ? "12px" : "20px",
           }}
         >
           {story.headline}
@@ -452,6 +480,17 @@ export function StoryDetail({ story }: StoryDetailProps) {
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span style={{ color: "#D47474" }}>{"\u25CF"} Grok</span>
         </div>
+        {/* Publication timestamp */}
+        <div
+          style={{
+            marginTop: "12px",
+            ...mono,
+            fontSize: "11px",
+            color: "var(--text-tertiary)",
+          }}
+        >
+          Published {new Date(story.publishedAt || story.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        </div>
       </div>
 
       {/* ────────────────────────────────────────────────
@@ -495,12 +534,20 @@ export function StoryDetail({ story }: StoryDetailProps) {
             const supporters = parseList(claim.supportedBy);
             const contradictors = parseList(claim.contradictedBy);
 
-            // Estimate consensus if consensusPct is 0 but we have supporting outlets
+            // Estimate consensus factoring in source count — not just agreement ratio
             const supportCount = supporters.length;
             const contradictCount = contradictors.length;
             const total = supportCount + contradictCount;
-            const estimatedPct = total > 0 ? Math.round((supportCount / total) * 100) : 0;
-            const displayPct = claim.consensusPct > 0 ? claim.consensusPct : estimatedPct;
+            const rawPct = total > 0 ? Math.round((supportCount / total) * 100) : 0;
+
+            // Cap confidence by source count — 1 source ≠ 100% confidence
+            let maxPct = 100;
+            if (supportCount <= 1) maxPct = 40;
+            else if (supportCount <= 3) maxPct = 70;
+            else if (supportCount <= 9) maxPct = 90;
+
+            const cappedPct = Math.min(rawPct, maxPct);
+            const displayPct = claim.consensusPct > 0 ? Math.min(claim.consensusPct, maxPct) : cappedPct;
 
             return (
               <div

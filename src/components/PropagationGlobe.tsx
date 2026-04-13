@@ -673,7 +673,8 @@ function TacticalMarker({ regionId, lat, lng, data, activeCount, globeRotation }
   const isActive     = !!data
   const color        = isActive ? statusColor(data!.border_status ?? data!.status) : '#333344'
   const label        = REGION_LABELS[regionId] ?? regionId.toUpperCase()
-  const showFullDetail = activeCount < 5
+  const isMobile     = typeof window !== 'undefined' && window.innerWidth < 640
+  const showFullDetail = activeCount < 5 && !isMobile
   const pos          = useMemo(
     () => latLngToVector3(lat, lng, GLOBE_RADIUS + 0.12),
     [lat, lng]
@@ -702,7 +703,7 @@ function TacticalMarker({ regionId, lat, lng, data, activeCount, globeRotation }
       position={pos}
       center
       style={{ pointerEvents: 'none' }}
-      distanceFactor={6}
+      distanceFactor={isMobile ? 8 : 6}
     >
       <div
         ref={containerRef}
@@ -740,7 +741,7 @@ function TacticalMarker({ regionId, lat, lng, data, activeCount, globeRotation }
 
         {/* Region label */}
         <div style={{
-          fontSize:      '8px',
+          fontSize:      isMobile ? '6px' : '8px',
           color:         color,
           letterSpacing: '0.12em',
           textTransform: 'uppercase',

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
-import { AuthNav } from "@/components/AuthNav";
+import { MobileNav } from "@/components/MobileNav";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import "./globals.css";
 
@@ -25,15 +25,11 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-col">
         {/* Navigation */}
         <header className="sticky top-0 z-50 border-b" style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-primary)' }}>
-          <nav className="max-w-[1200px] mx-auto px-4 sm:px-6 min-h-[56px] py-2 flex items-center justify-between flex-wrap gap-2">
+          <nav className="max-w-[1200px] mx-auto px-4 sm:px-6 min-h-[56px] py-2 flex items-center justify-between" style={{ position: 'relative' }}>
             <a href="/" className="flex items-center">
               <img src="/logo.svg" alt="OVERCURRENT" style={{ height: '28px' }} />
             </a>
-            <div className="flex items-center gap-3 sm:gap-6">
-              <a href="/methodology" className="text-xs sm:text-sm hover:opacity-80 transition-opacity" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>methodology</a>
-              <a href="/outlets" className="text-xs sm:text-sm hover:opacity-80 transition-opacity" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)' }}>outlets</a>
-              <AuthNav />
-            </div>
+            <MobileNav />
           </nav>
         </header>
 

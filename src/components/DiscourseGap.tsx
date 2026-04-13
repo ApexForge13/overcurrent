@@ -54,6 +54,10 @@ function getFramingColor(frame: string): string {
   return FRAMING_COLORS[key] || "var(--text-tertiary)"
 }
 
+function toTitleCase(str: string): string {
+  return str.split(/[_\s]+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ")
+}
+
 function getDirectionColor(direction: string): string {
   const d = direction.toLowerCase()
   if (d === "aligned") return "var(--accent-green)"
@@ -117,7 +121,7 @@ export function DiscourseGap({ gap, posts }: DiscourseGapProps) {
         </span>
         <span style={{ ...mono, fontSize: "14px", color: "var(--text-tertiary)" }}>/ 100</span>
         <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: directionColor, marginLeft: "auto" }}>
-          {gap.gapDirection.replace(/_/g, " ")}
+          {toTitleCase(gap.gapDirection)}
         </span>
       </div>
 
@@ -129,8 +133,8 @@ export function DiscourseGap({ gap, posts }: DiscourseGapProps) {
             MEDIA FRAMING
           </p>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ ...mono, fontSize: "12px", color: mediaColor, textTransform: "capitalize", minWidth: "80px" }}>
-              {gap.mediaDominantFrame}
+            <span style={{ ...mono, fontSize: "12px", color: mediaColor, minWidth: "80px" }}>
+              {toTitleCase(gap.mediaDominantFrame)}
             </span>
             <div style={{ flex: 1, height: "6px", background: "var(--border-primary)" }}>
               <div style={{ width: `${Math.max(0, Math.min(100, gap.mediaFramePct))}%`, height: "100%", background: mediaColor }} />
@@ -145,8 +149,8 @@ export function DiscourseGap({ gap, posts }: DiscourseGapProps) {
             PUBLIC DISCOURSE
           </p>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ ...mono, fontSize: "12px", color: publicColor, textTransform: "capitalize", minWidth: "80px" }}>
-              {gap.publicDominantFrame}
+            <span style={{ ...mono, fontSize: "12px", color: publicColor, minWidth: "80px" }}>
+              {toTitleCase(gap.publicDominantFrame)}
             </span>
             <div style={{ flex: 1, height: "6px", background: "var(--border-primary)" }}>
               <div style={{ width: `${Math.max(0, Math.min(100, gap.publicFramePct))}%`, height: "100%", background: publicColor }} />
@@ -160,6 +164,18 @@ export function DiscourseGap({ gap, posts }: DiscourseGapProps) {
       <p style={{ ...body, fontSize: "14px", fontStyle: "italic", lineHeight: 1.7, color: "var(--text-secondary)", marginTop: "16px", paddingBottom: "16px", borderBottom: "1px solid var(--border-primary)" }}>
         {gap.gapSummary}
       </p>
+
+      {/* ── Arrow legend ── */}
+      {(surfacedFirst.length > 0 || mediaIgnored.length > 0) && (
+        <div style={{ display: "flex", gap: "16px", marginTop: "12px", marginBottom: "4px" }}>
+          <span style={{ ...mono, fontSize: "10px", color: "var(--text-tertiary)" }}>
+            <span style={{ color: "var(--accent-green)", marginRight: "4px" }}>{"\u25B2"}</span> Social found first
+          </span>
+          <span style={{ ...mono, fontSize: "10px", color: "var(--text-tertiary)" }}>
+            <span style={{ color: "var(--accent-red)", marginRight: "4px" }}>{"\u25BC"}</span> Media reported, social ignored
+          </span>
+        </div>
+      )}
 
       {/* ── 4. WHAT SOCIAL FOUND FIRST ── */}
       {surfacedFirst.length > 0 && (
@@ -319,7 +335,7 @@ function PostCard({ post }: {
         {/* Framing type tag */}
         {post.framingType && (
           <span style={{ ...mono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: framingColor, marginLeft: "auto" }}>
-            {"\u25A0"} {post.framingType.replace(/_/g, " ")}
+            {"\u25A0"} {toTitleCase(post.framingType)}
           </span>
         )}
       </div>

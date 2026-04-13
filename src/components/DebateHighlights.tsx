@@ -408,7 +408,7 @@ function RegionDebatePanel({ data, playing }: { data: RegionData; playing: boole
   const mod = data.moderator;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* ── Phase 1: Model Avatars + Findings ── */}
       <div>
         <h4
@@ -417,9 +417,16 @@ function RegionDebatePanel({ data, playing }: { data: RegionData; playing: boole
         >
           Round 1 &mdash; Independent Analysis
         </h4>
-        <div className="grid gap-6" style={{ gridTemplateColumns: `repeat(${Math.min(data.r1.length, 4)}, 1fr)` }}>
+        <div
+          className="flex gap-6 overflow-x-auto pb-2 sm:grid sm:overflow-visible"
+          style={{ gridTemplateColumns: `repeat(${Math.min(data.r1.length, 4)}, 1fr)` }}
+        >
           {data.r1.map((model, mi) => (
-            <div key={model.modelName} className="flex flex-col items-center gap-3">
+            <div
+              key={model.modelName}
+              className="flex flex-col items-center gap-3 flex-shrink-0 sm:flex-shrink"
+              style={{ minWidth: '200px' }}
+            >
               <ModelAvatar
                 name={model.modelName}
                 delay={mi * 200}

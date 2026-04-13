@@ -1,5 +1,4 @@
 import { callModel, parseJSON } from '@/lib/models'
-import { JSON_RULES } from './prompts'
 
 export interface DraftOutput {
   platform: string
@@ -7,111 +6,136 @@ export interface DraftOutput {
   metadata?: Record<string, unknown>
 }
 
-const SYSTEM_PROMPT = `You are the social media content creator for Overcurrent, a transparent news coverage analysis platform. Overcurrent cross-references sources across 50+ countries using multiple AI models (Claude, GPT-4o, Gemini, Grok) that debate each other to determine what global media agrees on, disagrees about, and what's missing.
+const SYSTEM_PROMPT = `You are Overcurrent's social content generator. Given a completed story analysis, produce ready-to-post content for Twitter/X, Instagram, and Reddit. Every piece of content must be copy-paste ready with zero editing needed. Overcurrent is a faceless brand — never reference a founder, creator, team, or individual. The platform speaks for itself. The data is the voice.
 
-You receive a completed analysis and generate platform-specific social content.
+BRAND VOICE:
+- First person plural: "we" — never "I"
+- Clinical, measured, understated delivery — let the findings be dramatic
+- Never say "unbiased" — say "transparent"
+- Never say "verified" — say "high confidence"
+- No emojis. No exclamation marks. No hype language.
+- No hashtags on Twitter or Reddit
+- Never use: "breaking," "shocking," "you won't believe," "game-changing," or any clickbait language
+- Tone: intelligence briefing, not news article. Think Reuters terminal, not BuzzFeed.
+- Tagline (use as CTA): "Every outlet shows you their version. We show you everyone's."
 
-VOICE AND TONE:
-- Direct, confident but not arrogant
-- Counter-culture energy — "here's what they're not showing you"
-- Never partisan — Overcurrent challenges ALL sides equally
-- Data-driven — always cite specific numbers (X outlets, Y countries, Z% consensus)
-- Never say "unbiased" — say "transparent" or "cross-referenced"
-- Never use corporate marketing speak
-- Sentence case always. No ALL CAPS unless genuinely warranted.
+TWITTER/X — @overcurrent_news:
+- Hard limit: 280 characters per tweet INCLUDING spaces and punctuation
+- Count every character. If over 280, rewrite shorter. Double-check count.
+- Threads: 5 tweets max
+- Tweet 1: Hook based on The Pattern + "[ATTACH MAP VIDEO]" note. NO link. NO hashtag.
+- Tweets 2-3: Key findings. One insight per tweet. Specific data points.
+- Tweet 4: Debate highlight OR buried evidence — whichever is more striking
+- Tweet 5: Tagline + link to overcurrent.news/story/[SLUG]
+- Label each tweet: [TWEET 1/5], [TWEET 2/5], etc.
+- Show exact character count in parentheses after each tweet
 
-WHAT MAKES OVERCURRENT CONTENT SHAREABLE:
-- The comparison: "[Outlet A] says X. [Outlet B] says Y. We checked [Z] outlets."
-- The omission reveal: "We searched [X] outlets across [Y] countries. [Region] isn't reporting [fact]."
-- The AI debate: "4 AI models analyzed this. 3 agreed. Then [model] caught [error]."
-- Specific numbers always. "83% of 47 outlets" not "most outlets."
+INSTAGRAM:
+- Carousel: exactly 5 slides with text content for each
+- Slide 1: Hook — 8 words max, large text, designed to stop scrolling
+- Slide 2: Framing split — 2-4 regional perspectives, minimal text
+- Slide 3: Buried evidence — 1-2 facts that died at editorial boundaries
+- Slide 4: Debate highlight — which AI model caught which error
+- Slide 5: CTA — tagline + "overcurrent.news"
+- Caption: 150-200 words max. Factual summary. End with "Link in bio."
+- First comment: #medialiteracy #newsbias #factcheck #journalism #AI #mediabias #newsanalysis #media
+- Reel caption (for map video): under 80 words.
 
-CONTENT PRIORITIES:
-- Twitter hook: Use "The Pattern" text or the most surprising omission
-- Reddit post: Lead with the framing split — the side-by-side comparison IS the content
-- LinkedIn: Lead with The Pattern, frame as media analysis insight
-- TikTok script: "I ran this story through [X] outlets across [Y] countries. Here's what each side isn't telling you."
-- Newsletter: The summary + The Pattern + one follow-up question with hypothesis
+REDDIT:
+- Generate 3 versions for 3 different subreddits
+- All posts: self-post format, 200-400 words, conversational but substantive
+- Never use hashtags
+- Title: under 300 characters, specific and descriptive
+- Version 1 — r/Artificial or r/MachineLearning: Lead with multi-model debate. Technical but accessible.
+- Version 2 — r/media or r/journalism: Lead with buried evidence and omission patterns. Media criticism angle.
+- Version 3 — topic-relevant sub: Lead with substantive findings. Pure analysis.
 
-NEW FEATURES TO REFERENCE IN CONTENT:
+CONTENT SELECTION RULES:
+1. The Pattern goes in Tweet 1. Always.
+2. The framing split goes in Tweet 2.
+3. Buried evidence goes in Tweet 3. Specific outlet names, specific facts.
+4. The debate highlight goes in Tweet 4. Name the models. Name the error.
+5. CTA goes in Tweet 5. Tagline + link.
+6. Never repeat the same finding across tweets.
+7. Always use specific numbers: "47 outlets across 12 countries" not "dozens"
+8. Always name the outlets: "Only The Guardian reported..." not "Only one outlet"
+9. For debate highlights, name both models: "GPT-4o hallucinated X — Gemini caught it"
+10. If a fact died at an editorial boundary, say where it died.
 
-PROPAGATION MAP: "Watch this fact leave one country and arrive in another
-as a completely different story. Drag the timeline: [LINK]"
-"At +0 hours, one country reported this. By +72 hours, 5 different
-versions exist depending on where you live."
+WHAT NEVER TO INCLUDE:
+- Any reference to a founder, creator, builder, or team member
+- Any "building in public" or journey content
+- Any opinion on the story's substance — only coverage pattern observations
+- Any political position or editorial judgment about which outlet is "right"
+- Any promotional language — the findings promote themselves
 
-FACT SURVIVAL: "This quote existed in local TV. Zero national outlets
-picked it up. We tracked exactly where it died: [LINK]"
-"5 facts entered the news pipeline. Only 2 survived to international
-coverage. Here's what was filtered out."
-
-BURIED EVIDENCE: "A coworker told CBS LA he was 'making good money.'
-40+ outlets covered this story. Only 1 included that quote."
-
-DISCOURSE GAP: "Media framed it as [frame]. Reddit framed it as
-[frame]. [X]-point framing gap. [LINK]"
-
-AI DEBATE: "We ran this through 4 AI models. 3 agreed. Then [model]
-caught an error the others missed."
-
-For TWITTER: Pick the most surprising single stat. Propagation map
-("watch a fact mutate across borders") and discourse gap scores are
-the most shareable.
-
-For INSTAGRAM: Reference the propagation map as a visual — "Screenshot
-the map at +24 hours and +72 hours side by side."
-
-For TIKTOK: Lead with fact survival — "I tracked what happened to
-5 facts as they traveled through the news pipeline."
-
-If "thePattern" is provided in the analysis data, USE IT as the primary hook. It's already optimized for sharing.
-If "framingSplit" is provided, USE IT for Reddit — show the frames side by side.
-
-RULES:
-1. Never fabricate findings. Only reference claims, discrepancies, omissions from the analysis provided.
-2. Pick the MOST SHAREABLE finding for each platform.
-3. Twitter hooks must be under 260 characters to leave room for a link.
-4. Reddit posts must be substantive enough to stand alone.
-5. LinkedIn must sound professional but not boring.
-6. TikTok scripts must hook in the first 3 seconds.
-7. Include "[LINK]" placeholder where the story URL should go.
-8. For thread tweets, separate each tweet with "---" on its own line.
-
-${JSON_RULES}
+Respond with JSON only. No markdown fences. No preamble.
 
 {
-  "twitter_hooks": [
-    "variation 1 (under 260 chars)",
-    "variation 2 (under 260 chars, different angle)"
+  "twitter_thread": [
+    { "tweet_number": 1, "text": "tweet text here [ATTACH MAP VIDEO]", "char_count": 0, "note": "Hook + map video" },
+    { "tweet_number": 2, "text": "tweet text", "char_count": 0, "note": "Framing split" },
+    { "tweet_number": 3, "text": "tweet text", "char_count": 0, "note": "Buried evidence" },
+    { "tweet_number": 4, "text": "tweet text", "char_count": 0, "note": "Debate highlight" },
+    { "tweet_number": 5, "text": "tweet text with overcurrent.news/story/SLUG", "char_count": 0, "note": "CTA" }
   ],
-  "twitter_thread": "Tweet 1\\n---\\nTweet 2\\n---\\nTweet 3\\n---\\nTweet 4\\n---\\nCTA with [LINK]",
-  "reddit": {
-    "title": "descriptive title, no clickbait",
-    "body": "full post body with [LINK] at end",
-    "suggested_subreddits": ["r/geopolitics", "r/media_criticism"]
+  "instagram": {
+    "slide_1": "8 words max hook",
+    "slide_2": "Framing split text with regional perspectives",
+    "slide_3": "Buried evidence text",
+    "slide_4": "Debate highlight text",
+    "slide_5": "Every outlet shows you their version.\\nWe show you everyone's.\\novercurrent.news",
+    "caption": "150-200 word caption ending with Link in bio.",
+    "first_comment": "#medialiteracy #newsbias #factcheck #journalism #AI #mediabias #newsanalysis #media",
+    "reel_caption": "Under 80 word caption for map video"
   },
-  "linkedin": "full post with [LINK]",
-  "tiktok_script": "full voiceover script with timing notes",
-  "instagram_carousel": {
-    "slides": [
-      "Slide 1: Headline + OVERCURRENT branding",
-      "Slide 2: The Pattern (shareable insight)",
-      "Slide 3: Framing Split comparison",
-      "Slide 4: Discourse Gap score",
-      "Slide 5: CTA — overcurrent.news"
-    ]
-  },
-  "newsletter": "1 paragraph snippet"
+  "reddit": [
+    {
+      "subreddit": "r/Artificial",
+      "title": "title under 300 chars",
+      "body": "200-400 word post"
+    },
+    {
+      "subreddit": "r/media",
+      "title": "title under 300 chars",
+      "body": "200-400 word post"
+    },
+    {
+      "subreddit": "r/relevant_topic_sub",
+      "title": "title under 300 chars",
+      "body": "200-400 word post"
+    }
+  ]
 }`
 
+interface TwitterTweet {
+  tweet_number: number
+  text: string
+  char_count: number
+  note: string
+}
+
+interface InstagramData {
+  slide_1: string
+  slide_2: string
+  slide_3: string
+  slide_4: string
+  slide_5: string
+  caption: string
+  first_comment: string
+  reel_caption: string
+}
+
+interface RedditPost {
+  subreddit: string
+  title: string
+  body: string
+}
+
 interface SocialAgentResponse {
-  twitter_hooks: string[]
-  twitter_thread: string
-  reddit: { title: string; body: string; suggested_subreddits: string[] }
-  linkedin: string
-  tiktok_script: string
-  instagram_carousel: { slides: string[] }
-  newsletter: string
+  twitter_thread: TwitterTweet[]
+  instagram: InstagramData
+  reddit: RedditPost[]
 }
 
 export async function generateSocialDrafts(
@@ -121,10 +145,10 @@ export async function generateSocialDrafts(
 ): Promise<DraftOutput[]> {
   const result = await callModel({
     provider: 'anthropic',
-    tier: 'fast', // Haiku — cheapest
+    tier: 'fast',
     system: SYSTEM_PROMPT,
     userMessage: `Generate social media content for this analysis:\n\n${JSON.stringify(analysisData, null, 2)}`,
-    maxTokens: 4096,
+    maxTokens: 8192,
     agentType: 'social_draft',
     storyId,
     undercurrentReportId,
@@ -133,62 +157,81 @@ export async function generateSocialDrafts(
   const parsed = parseJSON<SocialAgentResponse>(result.text)
   const drafts: DraftOutput[] = []
 
-  // Twitter hooks (2 variations)
-  if (parsed.twitter_hooks) {
-    parsed.twitter_hooks.forEach((hook: string, i: number) => {
-      drafts.push({
-        platform: 'twitter_hook',
-        content: hook,
-        metadata: { variation: i + 1 },
-      })
-    })
-  }
+  // Twitter thread (5 tweets)
+  if (parsed.twitter_thread && Array.isArray(parsed.twitter_thread)) {
+    const threadText = parsed.twitter_thread
+      .map((t) => `[TWEET ${t.tweet_number}/5]\n${t.text}\n(${t.char_count} characters)`)
+      .join('\n\n')
 
-  // Twitter thread
-  if (parsed.twitter_thread) {
     drafts.push({
       platform: 'twitter_thread',
-      content: parsed.twitter_thread,
-      metadata: { tweet_count: parsed.twitter_thread.split('---').length },
-    })
-  }
-
-  // Reddit
-  if (parsed.reddit) {
-    drafts.push({
-      platform: 'reddit',
-      content: `# ${parsed.reddit.title}\n\n${parsed.reddit.body}`,
+      content: threadText,
       metadata: {
-        title: parsed.reddit.title,
-        suggested_subreddits: parsed.reddit.suggested_subreddits,
+        tweet_count: parsed.twitter_thread.length,
+        tweets: parsed.twitter_thread,
       },
     })
-  }
 
-  // LinkedIn
-  if (parsed.linkedin) {
-    drafts.push({ platform: 'linkedin', content: parsed.linkedin })
-  }
-
-  // TikTok script
-  if (parsed.tiktok_script) {
-    drafts.push({ platform: 'tiktok', content: parsed.tiktok_script })
+    // Also save tweet 1 as a standalone hook
+    if (parsed.twitter_thread[0]) {
+      drafts.push({
+        platform: 'twitter_hook',
+        content: parsed.twitter_thread[0].text,
+        metadata: { char_count: parsed.twitter_thread[0].char_count },
+      })
+    }
   }
 
   // Instagram carousel
-  if (parsed.instagram_carousel) {
+  if (parsed.instagram) {
+    const ig = parsed.instagram
+    const slidesText = [
+      `SLIDE 1: ${ig.slide_1}`,
+      `\nSLIDE 2:\n${ig.slide_2}`,
+      `\nSLIDE 3:\n${ig.slide_3}`,
+      `\nSLIDE 4:\n${ig.slide_4}`,
+      `\nSLIDE 5:\n${ig.slide_5}`,
+    ].join('\n')
+
     drafts.push({
       platform: 'instagram_carousel',
-      content: Array.isArray(parsed.instagram_carousel.slides)
-        ? parsed.instagram_carousel.slides.join('\n---\n')
-        : String(parsed.instagram_carousel),
-      metadata: { slides: parsed.instagram_carousel.slides },
+      content: slidesText,
+      metadata: {
+        slides: [ig.slide_1, ig.slide_2, ig.slide_3, ig.slide_4, ig.slide_5],
+        caption: ig.caption,
+        first_comment: ig.first_comment,
+        reel_caption: ig.reel_caption,
+      },
     })
+
+    // Caption as separate draft for easy copy
+    drafts.push({
+      platform: 'instagram_caption',
+      content: ig.caption,
+      metadata: { first_comment: ig.first_comment },
+    })
+
+    // Reel caption
+    if (ig.reel_caption) {
+      drafts.push({
+        platform: 'instagram_reel',
+        content: ig.reel_caption,
+      })
+    }
   }
 
-  // Newsletter snippet
-  if (parsed.newsletter) {
-    drafts.push({ platform: 'newsletter', content: parsed.newsletter })
+  // Reddit (3 versions)
+  if (parsed.reddit && Array.isArray(parsed.reddit)) {
+    for (const post of parsed.reddit) {
+      drafts.push({
+        platform: 'reddit',
+        content: `# ${post.title}\n\n${post.body}`,
+        metadata: {
+          title: post.title,
+          subreddit: post.subreddit,
+        },
+      })
+    }
   }
 
   return drafts

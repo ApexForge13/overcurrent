@@ -470,6 +470,20 @@ export function StoryDetail({ story }: StoryDetailProps) {
           4. COLLAPSIBLE SECTIONS
           ──────────────────────────────────────────────── */}
 
+      {/* ── HOW THIS STORY TRAVELED (visual hook — first thing readers see) ── */}
+      {propagationTimeline && propagationTimeline.length >= 3 && (
+        <CollapsibleSection
+          title="HOW THIS STORY TRAVELED"
+          preview={`Tracked across ${new Set(propagationTimeline.flatMap((f: { regions: Array<{ region_id: string }> }) => f.regions.map((r: { region_id: string }) => r.region_id))).size} regions`}
+          defaultOpen
+        >
+          <PropagationGlobeClient
+            timeline={propagationTimeline}
+            storyHeadline={story.headline}
+          />
+        </CollapsibleSection>
+      )}
+
       {/* ── KEY CLAIMS ── */}
       {sortedClaims.length > 0 && (
         <CollapsibleSection
@@ -755,6 +769,67 @@ export function StoryDetail({ story }: StoryDetailProps) {
         </CollapsibleSection>
       ) : null}
 
+      {/* ── DISCREPANCIES (moved up — where outlets disagree) ── */}
+      {story.discrepancies.length > 0 && (
+        <CollapsibleSection
+          title="DISCREPANCIES"
+          preview={`${story.discrepancies.length} factual conflicts found`}
+        >
+          {story.discrepancies.map((d, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "20px 0",
+                borderBottom: "1px solid var(--border-primary)",
+              }}
+            >
+              <p
+                style={{
+                  ...body,
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  marginBottom: "12px",
+                }}
+              >
+                {d.issue}
+              </p>
+              <div
+                className="discrepancy-columns"
+                style={{ display: "flex", gap: "0", fontSize: "13px" }}
+              >
+                <div style={{ flex: 1, paddingRight: "16px" }}>
+                  <span style={{ ...mono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)", display: "block", marginBottom: "4px" }}>SIDE A</span>
+                  <p style={{ ...body, color: "var(--text-secondary, #a3a3a3)", lineHeight: 1.5 }}>{d.sideA}</p>
+                  <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>{d.sourcesA}</p>
+                </div>
+                <div className="discrepancy-divider" style={{ width: "1px", background: "var(--border-primary)", flexShrink: 0 }} />
+                <div style={{ flex: 1, paddingLeft: "16px" }}>
+                  <span style={{ ...mono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)", display: "block", marginBottom: "4px" }}>SIDE B</span>
+                  <p style={{ ...body, color: "var(--text-secondary, #a3a3a3)", lineHeight: 1.5 }}>{d.sideB}</p>
+                  <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>{d.sourcesB}</p>
+                </div>
+              </div>
+              {d.assessment && (
+                <p style={{ ...body, fontSize: "13px", color: "var(--text-tertiary)", fontStyle: "italic", marginTop: "12px", paddingTop: "8px", borderTop: "1px solid var(--border-primary)" }}>
+                  {d.assessment}
+                </p>
+              )}
+            </div>
+          ))}
+        </CollapsibleSection>
+      )}
+
+      {/* ── REPORTED BUT BURIED (moved up — exclusive finds) ── */}
+      {buriedEvidenceItems && buriedEvidenceItems.length > 0 && (
+        <CollapsibleSection
+          title="REPORTED BUT BURIED"
+          preview={`${buriedEvidenceItems.length} fact(s) reported by credible outlets but not picked up by national coverage`}
+        >
+          <BuriedEvidence items={buriedEvidenceItems} />
+        </CollapsibleSection>
+      )}
+
       {/* ── WHAT'S MISSING ── */}
       {story.omissions.length > 0 && (
         <CollapsibleSection
@@ -824,15 +899,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
         </CollapsibleSection>
       )}
 
-      {/* ── REPORTED BUT BURIED ── */}
-      {buriedEvidenceItems && buriedEvidenceItems.length > 0 && (
-        <CollapsibleSection
-          title="REPORTED BUT BURIED"
-          preview={`${buriedEvidenceItems.length} fact(s) reported by credible outlets but not picked up by national coverage`}
-        >
-          <BuriedEvidence items={buriedEvidenceItems} />
-        </CollapsibleSection>
-      )}
+      {/* (DISCREPANCIES, REPORTED BUT BURIED moved up above WHAT'S MISSING) */}
 
       {/* ── FACT SURVIVAL ── */}
       {factSurvivalItems && factSurvivalItems.length > 0 && (
@@ -844,172 +911,13 @@ export function StoryDetail({ story }: StoryDetailProps) {
         </CollapsibleSection>
       )}
 
-      {/* ── DISCREPANCIES ── */}
-      {story.discrepancies.length > 0 && (
-        <CollapsibleSection
-          title="DISCREPANCIES"
-          preview={`${story.discrepancies.length} factual conflicts found`}
-        >
-          {story.discrepancies.map((d, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "20px 0",
-                borderBottom: "1px solid var(--border-primary)",
-              }}
-            >
-              <p
-                style={{
-                  ...body,
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                  marginBottom: "12px",
-                }}
-              >
-                {d.issue}
-              </p>
-              {/* Two-column side-by-side */}
-              <div
-                className="discrepancy-columns"
-                style={{
-                  display: "flex",
-                  gap: "0",
-                  fontSize: "13px",
-                }}
-              >
-                <div style={{ flex: 1, paddingRight: "16px" }}>
-                  <span
-                    style={{
-                      ...mono,
-                      fontSize: "10px",
-                      fontWeight: 600,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "var(--text-tertiary)",
-                      display: "block",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    SIDE A
-                  </span>
-                  <p
-                    style={{
-                      ...body,
-                      color: "var(--text-secondary, #a3a3a3)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {d.sideA}
-                  </p>
-                  <p
-                    style={{
-                      ...mono,
-                      fontSize: "11px",
-                      color: "var(--text-tertiary)",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {d.sourcesA}
-                  </p>
-                </div>
-                <div
-                  className="discrepancy-divider"
-                  style={{
-                    width: "1px",
-                    background: "var(--border-primary)",
-                    flexShrink: 0,
-                  }}
-                />
-                <div style={{ flex: 1, paddingLeft: "16px" }}>
-                  <span
-                    style={{
-                      ...mono,
-                      fontSize: "10px",
-                      fontWeight: 600,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "var(--text-tertiary)",
-                      display: "block",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    SIDE B
-                  </span>
-                  <p
-                    style={{
-                      ...body,
-                      color: "var(--text-secondary, #a3a3a3)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {d.sideB}
-                  </p>
-                  <p
-                    style={{
-                      ...mono,
-                      fontSize: "11px",
-                      color: "var(--text-tertiary)",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {d.sourcesB}
-                  </p>
-                </div>
-              </div>
-              {d.assessment && (
-                <p
-                  style={{
-                    ...body,
-                    fontSize: "13px",
-                    color: "var(--text-tertiary)",
-                    fontStyle: "italic",
-                    marginTop: "12px",
-                    paddingTop: "8px",
-                    borderTop: "1px solid var(--border-primary)",
-                  }}
-                >
-                  {d.assessment}
-                </p>
-              )}
-            </div>
-          ))}
-        </CollapsibleSection>
-      )}
-
-      {/* ── MODEL DEBATE ── */}
+      {/* ── MODEL DEBATE (moved down — methodology proof, not hook) ── */}
       {story.debateRounds && story.debateRounds.length > 0 && (
         <CollapsibleSection
           title="MODEL DEBATE"
           preview={`${new Set(story.debateRounds.filter((r) => r.round === 1).map((r) => r.modelName)).size} models debated across ${new Set(story.debateRounds.map((r) => r.region)).size} regions`}
         >
           <DebateHighlights debateRounds={story.debateRounds} />
-        </CollapsibleSection>
-      )}
-
-      {/* ── HOW THIS STORY TRAVELED ── */}
-      {propagationTimeline && propagationTimeline.length >= 3 && (
-        <CollapsibleSection
-          title="HOW THIS STORY TRAVELED"
-          preview={`Tracked across ${new Set(propagationTimeline.flatMap((f: { regions: Array<{ region_id: string }> }) => f.regions.map((r: { region_id: string }) => r.region_id))).size} regions over ${propagationTimeline[propagationTimeline.length - 1]?.label || '72 hrs'}`}
-        >
-          <PropagationGlobeClient
-            timeline={propagationTimeline}
-            storyHeadline={story.headline}
-          />
-        </CollapsibleSection>
-      )}
-
-      {/* ── REGIONAL COVERAGE ── */}
-      {regionalCoverageData && regionalCoverageData.length > 0 && (
-        <CollapsibleSection
-          title="REGIONAL COVERAGE"
-          preview={`${regionalCoverageData.length} regions analyzed`}
-        >
-          <RegionalCoverageMap
-            regions={regionalCoverageData}
-            silenceExplanation={story.silenceExplanation}
-          />
         </CollapsibleSection>
       )}
 

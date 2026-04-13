@@ -48,7 +48,8 @@ export async function fetchTwitterDiscourse(
 
     const params = new URLSearchParams({
       query: fullQuery,
-      max_results: '100',   // Pull up to 100, then filter down
+      max_results: '100',
+      sort_order: 'relevancy', // Surface engaged tweets, not just chronological
       'tweet.fields': 'public_metrics,author_id,created_at',
       expansions: 'author_id',
       'user.fields': 'verified,public_metrics,username',

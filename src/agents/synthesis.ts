@@ -345,12 +345,39 @@ ${JSON.stringify(
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     agentType: 'synthesis',
-    maxTokens: 16384,
+    maxTokens: 32768,
     storyId,
   })
 
+  // Try to parse JSON — if truncated, attempt repair by closing brackets
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const parsed = parseJSON<any>(text)
+  let parsed: any
+  try {
+    parsed = parseJSON<any>(text)
+  } catch (firstErr) {
+    console.warn('[Synthesis] JSON parse failed, attempting repair...')
+    // Common issue: output truncated mid-JSON. Try closing open brackets.
+    let repaired = text.trim()
+    // Strip any trailing partial string
+    const lastCompleteField = repaired.lastIndexOf('",')
+    if (lastCompleteField > repaired.length * 0.7) {
+      repaired = repaired.substring(0, lastCompleteField + 1)
+    }
+    // Count open/close brackets and close any unclosed ones
+    const opens = (repaired.match(/\[/g) || []).length
+    const closes = (repaired.match(/\]/g) || []).length
+    const openBraces = (repaired.match(/\{/g) || []).length
+    const closeBraces = (repaired.match(/\}/g) || []).length
+    repaired += ']'.repeat(Math.max(0, opens - closes))
+    repaired += '}'.repeat(Math.max(0, openBraces - closeBraces))
+    try {
+      parsed = parseJSON<any>(repaired)
+      console.log('[Synthesis] JSON repair succeeded')
+    } catch {
+      console.error('[Synthesis] JSON repair failed. Raw text length:', text.length)
+      throw firstErr
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Map snake_case AI output → camelCase, with safe defaults & backward compat

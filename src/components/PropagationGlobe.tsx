@@ -1521,7 +1521,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
       )}
 
       {/* Canvas — shifted left so sidebar doesn't cover the globe */}
-      <div style={{ width: '130%', marginLeft: '-15%', aspectRatio: '16/9', maxHeight: '500px' }}>
+      <div style={{ width: '130%', marginLeft: '-15%', aspectRatio: '16/10', maxHeight: '650px' }}>
         <Canvas
           camera={{ position: cameraStart, fov: 45, near: 0.1, far: 200 }}
           style={{ background: '#0A0A0B' }}
@@ -1573,13 +1573,8 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
             </span>
           </div>
         ))}
-        <div style={{ marginTop: '8px', borderTop: '1px solid #2A2A2E', paddingTop: '6px' }}>
-          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.4, maxWidth: '140px' }}>
-            <span style={{ color: '#6A6A7E' }}>Border</span> = how they received the story
-          </div>
-          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.4, maxWidth: '140px' }}>
-            <span style={{ color: '#6A6A7E' }}>Fill</span> = how they reported it
-          </div>
+        <div style={{ display: 'none' }}>
+          {/* Border/fill explanation hidden per design */}
         </div>
       </div>
 

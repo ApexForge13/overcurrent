@@ -9,6 +9,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <nav className="flex gap-4 text-sm font-mono">
           <a href="/admin" className="text-text-secondary hover:text-accent-green">Dashboard</a>
           <a href="/admin/social" className="text-text-secondary hover:text-accent-purple">Social</a>
+          <a href="/admin/archive" className="text-text-secondary hover:text-accent-amber">Archive</a>
           <a href="/admin/costs" className="text-text-secondary hover:text-text-muted">Costs</a>
           <a href="/admin/tiktok" className="text-text-secondary hover:text-accent-purple">TikTok</a>
           <a href="/api/admin/newsletter" className="text-text-secondary hover:text-accent-amber">Newsletter</a>

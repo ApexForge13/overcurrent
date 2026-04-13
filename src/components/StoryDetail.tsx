@@ -982,19 +982,6 @@ export function StoryDetail({ story }: StoryDetailProps) {
         </CollapsibleSection>
       )}
 
-      {/* ── DISCOURSE GAP ── */}
-      {story.discourseGap && (
-        <CollapsibleSection
-          title="DISCOURSE GAP"
-          preview={`Media says ${story.discourseGap.mediaDominantFrame}. Public says ${story.discourseGap.publicDominantFrame}. ${story.discourseGap.gapScore}-point gap.`}
-        >
-          <DiscourseGap
-            gap={story.discourseGap}
-            posts={story.discourseSnapshots?.[0]?.posts}
-          />
-        </CollapsibleSection>
-      )}
-
       {/* ── HOW THIS STORY TRAVELED ── */}
       {propagationTimeline && propagationTimeline.length >= 3 && (
         <CollapsibleSection
@@ -1156,6 +1143,65 @@ export function StoryDetail({ story }: StoryDetailProps) {
             ))}
           </div>
         </CollapsibleSection>
+      )}
+
+      {/* ────────────────────────────────────────────────
+          STREAM 2: SOCIAL DISCOURSE
+          Two streams never cross. Above = news outlets only.
+          Below = social media only (Reddit, Twitter/X).
+          ──────────────────────────────────────────────── */}
+      {story.discourseGap && (
+        <>
+          {/* Hard visual divider */}
+          <div style={{ marginTop: '48px', marginBottom: '24px' }}>
+            <div style={{ height: '2px', background: 'linear-gradient(to right, transparent, var(--accent-purple), transparent)' }} />
+            <div style={{ textAlign: 'center', marginTop: '16px', marginBottom: '4px' }}>
+              <span style={{
+                ...mono,
+                fontSize: '13px',
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                color: 'var(--accent-purple)',
+              }}>
+                DISCOURSE GAP — Media vs. Public
+              </span>
+            </div>
+            <p style={{
+              ...mono,
+              fontSize: '11px',
+              color: 'var(--text-tertiary)',
+              textAlign: 'center',
+              lineHeight: 1.4,
+            }}>
+              How news coverage compares to public discussion on Reddit and Twitter/X
+            </p>
+            <div style={{ height: '2px', background: 'linear-gradient(to right, transparent, var(--accent-purple), transparent)', marginTop: '16px' }} />
+          </div>
+
+          <div style={{
+            padding: '10px 16px',
+            marginBottom: '20px',
+            border: '1px solid var(--border-primary)',
+            background: 'var(--bg-secondary)',
+          }}>
+            <p style={{
+              ...mono,
+              fontSize: '11px',
+              color: 'var(--text-tertiary)',
+              lineHeight: 1.6,
+            }}>
+              The analysis above is based exclusively on published news outlets.
+              This section draws from a separate data stream — public social media (Reddit, X/Twitter).
+              The two streams are analyzed independently and never cross-contaminate.
+            </p>
+          </div>
+
+          <DiscourseGap
+            gap={story.discourseGap}
+            posts={story.discourseSnapshots?.[0]?.posts}
+          />
+        </>
       )}
 
       {/* ────────────────────────────────────────────────

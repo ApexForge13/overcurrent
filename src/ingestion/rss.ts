@@ -26,7 +26,7 @@ function matchesKeywords(text: string, keywords: string[]): boolean {
  * Extract keywords from a query string for matching.
  * Also generates broader variants for international matching.
  */
-function queryToKeywords(query: string): string[] {
+export function queryToKeywords(query: string): string[] {
   const words = query
     .toLowerCase()
     .split(/\s+/)
@@ -56,7 +56,10 @@ async function fetchFeed(
 
   try {
     const response = await fetchWithTimeout(outlet.rssUrl, RSS_TIMEOUT)
-    if (!response.ok) return []
+    if (!response.ok) {
+      console.warn(`[rss] ${outlet.name} (${outlet.country}/${outlet.region}): HTTP ${response.status}`)
+      return []
+    }
 
     const xml = await response.text()
     const feed = await parser.parseString(xml)
@@ -106,7 +109,8 @@ async function fetchFeed(
     }
 
     return matched
-  } catch {
+  } catch (err) {
+    console.warn(`[rss] ${outlet.name} (${outlet.country}/${outlet.region}): ${err instanceof Error ? err.message : 'fetch failed'}`)
     return []
   }
 }

@@ -12,32 +12,42 @@ export interface RedditDiscoursePost {
   topComments: Array<{ text: string; upvotes: number }>
 }
 
-const REDDIT_SUBS_BY_CATEGORY: Record<string, string[]> = {
-  conflict:  ['worldnews', 'geopolitics', 'CredibleDefense'],
-  politics:  ['politics', 'PoliticalDiscussion', 'NeutralPolitics', 'Conservative'],
-  economy:   ['economics', 'finance', 'wallstreetbets', 'stocks'],
-  tech:      ['technology', 'artificial', 'MachineLearning'],
-  labor:     ['antiwork', 'WorkReform', 'lostgeneration', 'povertyfinance'],
-  climate:   ['climate', 'environment', 'energy'],
-  health:    ['health', 'science', 'medicine'],
-  society:   ['TrueReddit', 'FoodForThought', 'changemyview', 'OutOfTheLoop'],
-  trade:     ['economics', 'geopolitics'],
-  general:   ['news', 'worldnews', 'OutOfTheLoop'],
+// ── Subreddit allowlists ───────────────────────────────────────────────
+// Always searched for every story:
+const ALWAYS_SUBS = ['worldnews', 'politics', 'news', 'geopolitics']
+
+// Added based on story category:
+const CATEGORY_SUBS: Record<string, string[]> = {
+  conflict: ['CredibleDefense', 'foreignpolicy'],
+  politics: ['PoliticalDiscussion', 'NeutralPolitics', 'Conservative'],
+  economy:  ['economics', 'wallstreetbets'],
+  tech:     ['technology', 'artificial', 'MachineLearning'],
+  labor:    ['antiwork', 'WorkReform'],
+  climate:  ['climate', 'environment'],
+  health:   ['health', 'science'],
+  society:  ['TrueReddit', 'changemyview', 'OutOfTheLoop'],
+  trade:    ['economics', 'geopolitics'],
 }
 
 export async function fetchRedditDiscourse(
   keywords: string[],
   category?: string,
-  maxPosts: number = 15,
+  maxPosts: number = 10,
   minUpvotes: number = 50,
 ): Promise<RedditDiscoursePost[]> {
-  const subs = category && REDDIT_SUBS_BY_CATEGORY[category]
-    ? REDDIT_SUBS_BY_CATEGORY[category]
-    : REDDIT_SUBS_BY_CATEGORY.general
+  // Build subreddit list: always subs + category-specific
+  const categorySubs = category && CATEGORY_SUBS[category]
+    ? CATEGORY_SUBS[category]
+    : []
+  const subs = [...new Set([...ALWAYS_SUBS, ...categorySubs])]
 
   const allPosts: RedditDiscoursePost[] = []
   const seenUrls = new Set<string>()
-  const query = keywords.join(' ')
+  // Crosspost dedup: track external URLs (articles linked) to keep highest-upvoted
+  const seenExternalUrls = new Map<string, number>() // externalUrl → index in allPosts
+
+  // Build query with OR operators for better Reddit search relevance
+  const query = keywords.slice(0, 8).join(' OR ')
 
   for (const sub of subs) {
     try {
@@ -45,9 +55,10 @@ export async function fetchRedditDiscourse(
 
       const params = new URLSearchParams({
         q: query,
-        sort: 'top',
-        t: 'week',
-        limit: '10',
+        sort: 'relevance',    // Relevance first, not top
+        t: 'week',            // 72h window (Reddit API: "day" = 24h, "week" = 7d — closest to 72h)
+        limit: '20',          // 20 results per subreddit
+        restrict_sr: 'true',  // Only search within this subreddit
       })
 
       const response = await fetch(
@@ -69,12 +80,26 @@ export async function fetchRedditDiscourse(
         if (seenUrls.has(url)) continue
         seenUrls.add(url)
 
-        // Fetch top comments
+        // Crosspost/repost dedup: if same external URL, keep highest-upvoted
+        const externalUrl = post.url && !post.url.includes('reddit.com') ? post.url : null
+        if (externalUrl) {
+          const existingIdx = seenExternalUrls.get(externalUrl)
+          if (existingIdx !== undefined) {
+            // Keep the one with more upvotes
+            if (allPosts[existingIdx] && post.ups > allPosts[existingIdx].upvotes) {
+              allPosts.splice(existingIdx, 1) // Remove lower-upvoted dupe
+            } else {
+              continue // Existing has more upvotes, skip this one
+            }
+          }
+        }
+
+        // Fetch top 5 comments (public sentiment lives here)
         let topComments: Array<{ text: string; upvotes: number }> = []
         try {
           await sleep(2000)
           const commentsResp = await fetch(
-            `https://www.reddit.com${permalink}.json?sort=top&limit=5`,
+            `https://www.reddit.com${permalink}.json?sort=top&limit=7`,
             { headers: { 'User-Agent': 'Overcurrent/1.0' } },
           )
           if (commentsResp.ok) {
@@ -83,7 +108,7 @@ export async function fetchRedditDiscourse(
             if (Array.isArray(commentChildren)) {
               topComments = commentChildren
                 .filter((c: { kind: string; data?: { body?: string; ups?: number } }) => c.kind === 't1' && c.data?.body)
-                .slice(0, 3)
+                .slice(0, 5)
                 .map((c: { data: { body: string; ups: number } }) => ({
                   text: c.data.body.substring(0, 500),
                   upvotes: c.data.ups || 0,
@@ -94,7 +119,7 @@ export async function fetchRedditDiscourse(
           // Skip comment fetching errors
         }
 
-        allPosts.push({
+        const postObj: RedditDiscoursePost = {
           platform: 'reddit',
           url,
           author: String(post.author ?? ''),
@@ -104,14 +129,37 @@ export async function fetchRedditDiscourse(
           comments: post.num_comments || 0,
           createdUtc: post.created_utc || 0,
           topComments,
-        })
+        }
+
+        const postIdx = allPosts.push(postObj) - 1
+        if (externalUrl) {
+          seenExternalUrls.set(externalUrl, postIdx)
+        }
       }
     } catch {
       // Skip subreddit errors
     }
   }
 
-  return allPosts
+  // ── KEYWORD RELEVANCE FILTER ─────────────────────────────────────────
+  // A post must match AT LEAST 2 of the story keywords in title+body.
+  // This eliminates irrelevant viral posts (MLM stories, unrelated content).
+  const lowerKeywords = keywords.map(k => k.toLowerCase())
+  const relevantPosts = allPosts.filter(post => {
+    const text = post.content.toLowerCase()
+    const matchCount = lowerKeywords.filter(kw => text.includes(kw)).length
+    return matchCount >= 2
+  })
+
+  // Fall back to 1-keyword match if 2-keyword filter is too strict
+  const finalPosts = relevantPosts.length >= 3
+    ? relevantPosts
+    : allPosts.filter(post => {
+        const text = post.content.toLowerCase()
+        return lowerKeywords.some(kw => text.includes(kw))
+      })
+
+  return finalPosts
     .sort((a, b) => b.upvotes - a.upvotes)
     .slice(0, maxPosts)
 }

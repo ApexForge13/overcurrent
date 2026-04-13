@@ -18,6 +18,7 @@ export interface TriagedSource {
   isWireCopy: boolean
   originalSource: string | null
   citesSource: string | null
+  publishedAt?: string // Merged from RSS/GDELT after triage — not AI-generated
 }
 
 export interface TriageResult {

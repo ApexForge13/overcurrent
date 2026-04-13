@@ -19,6 +19,7 @@ const topoFeature = (topojsonClient as unknown as { feature: TopoFeatureFn }).fe
 
 interface TimelineFrame {
   hour: number
+  timestamp?: string
   label: string
   description: string
   regions: Array<{
@@ -919,11 +920,12 @@ function computeSecondaryStatuses(
 /* ------------------------------------------------------------------ */
 
 function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] {
-  const regions = frame.regions.filter((r) => r.status !== 'silent' && r.coverage_volume > 0)
+  // Include ALL regions with any coverage, even if status is missing or silent
+  const regions = frame.regions.filter((r) => r.coverage_volume > 0 || r.outlet_count > 0 || (r.status && r.status !== 'silent'))
   if (regions.length < 2) return frame.flows || []
 
-  const origin = regions.find((r) => r.status === 'original')
-  if (!origin) return frame.flows || []
+  // Use origin if available, otherwise use the first region (highest coverage) as hub
+  const origin = regions.find((r) => r.status === 'original') || regions[0]
 
   const flows: TimelineFrame['flows'] = [...(frame.flows || [])]
   const existingFlowKeys = new Set(flows.map((f) => `${f.from}-${f.to}`))
@@ -1507,10 +1509,10 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
               lineHeight: 1,
             }}
           >
-            +{frame.hour}h
+            {frame.label || `+${frame.hour}h`}
           </div>
           <div style={{ fontSize: '10px', color: '#5C5A56', marginTop: '2px' }}>
-            {frame.label}
+            {frame.description?.substring(0, 40) || frame.label}
           </div>
         </div>
       )}
@@ -1736,7 +1738,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
               textAlign:  'right',
             }}
           >
-            +{frame?.hour ?? 0}h
+            {frame?.label || `+${frame?.hour ?? 0}h`}
           </span>
 
           {/* Speed selector */}
@@ -1776,7 +1778,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
           {timeline.map((f, i) => (
             <div
               key={i}
-              title={`+${f.hour}h`}
+              title={f.label || `+${f.hour}h`}
               onClick={() => {
                 setPlaying(false)
                 lastTimeRef.current = null

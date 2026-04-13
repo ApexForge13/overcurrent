@@ -64,6 +64,7 @@ model Source {
   politicalLean   String   @default("unknown")
   reliability     String   @default("unknown")
   summary         String?
+  publishedAt     DateTime?
   fetchedAt       DateTime @default(now())
 
   @@index([storyId])

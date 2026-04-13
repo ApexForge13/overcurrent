@@ -63,6 +63,7 @@ export interface SynthesisResult {
   }>
   propagationTimeline: Array<{
     hour: number
+    timestamp?: string
     label: string
     description: string
     regions: Array<{
@@ -173,26 +174,20 @@ If a fact survived all layers, still include it with died_at: "survived_all" —
 
 PROPAGATION TIMELINE:
 
-After completing the main analysis, generate a propagation_timeline showing how this story traveled across regions over time. Analyze:
-1. Which region/outlet published first (check source timestamps)
-2. Which outlets are wire copies vs. original reporting
-3. How the narrative changed as it crossed borders (check framing data per region)
-4. Which regions amplified reframed or contradictory versions
-5. Which regions remained silent throughout
+You MAY receive a pre-computed propagation timeline based on real article publication timestamps. If provided, your job is to ENRICH each time bucket with:
+- status per region (original | wire_copy | reframed | contradicted | silent)
+- coverage_volume (0-100)
+- dominant_quote (~10 words of how they frame it at this point)
+- description of what's happening at this point in the story's propagation
+- flows between regions (wire_copy | reframed | contradicted)
 
-Structure the timeline in 5-8 time steps:
-- Step 0: Story breaks (origin region only)
-- Step 1: First 2 hours (wire services push)
-- Step 2: 6 hours (most major outlets covered)
-- Step 3: 12-24 hours (counter-narratives emerge)
-- Step 4: 24-48 hours (narrative fully diverges)
-- Step 5+: 48-72 hours (final settled version)
+CRITICAL: Do NOT change the timestamps, labels, or hoursSinceFirst values — they are computed from real publication data.
+Use the provided region_ids and outlet information as your foundation.
+If a region appears in a later bucket but not an earlier one, mark it as "silent" in earlier buckets.
+Copy the "label" field directly from the pre-computed data.
+Set "hour" to the hoursSinceFirst value from each bucket.
 
-For each step, list active regions with status (original | wire_copy | reframed | contradicted | silent), coverage_volume (0-100), dominant_quote (~10 words of how they frame it), outlet_count, and key_outlets.
-
-If you cannot determine publication order from available data, note timestamps are approximate.
-
-Use these region IDs: us, ca, mx, la, uk, eu, ru, tr, me, ir, il, af, in, cn, jp, kr, sea, au, pk
+If NO pre-computed timeline is provided, create a best-estimate timeline with 5-8 steps spanning the story's likely duration. Use these region IDs: us, ca, mx, la, uk, eu, ru, tr, me, ir, il, af, in, cn, jp, kr, sea, au, pk
 
 Response shape:
 {
@@ -302,8 +297,18 @@ export async function synthesize(
   sourceCount: number,
   countryCount: number,
   regionCount: number,
+  preComputedTimeline?: Array<{
+    timestamp: string
+    label: string
+    hoursSinceFirst: number
+    regions: Array<{ region_id: string; outlet_count: number; key_outlets: string[]; country: string }>
+  }>,
   storyId?: string,
 ): Promise<SynthesisResult> {
+  const timelineSection = preComputedTimeline && preComputedTimeline.length > 0
+    ? `\n\nPre-computed propagation timeline (based on real publication timestamps — use these exact time buckets, do NOT invent new ones):\n${JSON.stringify(preComputedTimeline, null, 2)}`
+    : ''
+
   const userPrompt = `Topic: ${query}
 
 Coverage scope: ${sourceCount} sources, ${countryCount} countries, ${regionCount} regions
@@ -330,7 +335,7 @@ ${JSON.stringify(
   })),
   null,
   2,
-)}`
+)}${timelineSection}`
 
   const { text, costUsd } = await callClaude({
     model: OPUS,
@@ -476,7 +481,8 @@ ${JSON.stringify(
   // --- propagation_timeline ---
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const propagationTimeline = (parsed.propagation_timeline ?? parsed.propagationTimeline ?? []).map((frame: any) => ({
-    hour: Number(frame.hour ?? 0),
+    hour: Number(frame.hour ?? frame.hoursSinceFirst ?? 0),
+    timestamp: frame.timestamp ? String(frame.timestamp) : undefined,
     label: String(frame.label ?? ''),
     description: String(frame.description ?? ''),
     regions: (frame.regions ?? []).map((r: any) => ({

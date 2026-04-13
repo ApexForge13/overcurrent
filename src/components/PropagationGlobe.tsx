@@ -1537,17 +1537,14 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
         </Canvas>
       </div>
 
-      {/* Legend */}
+      {/* Legend — below timeline controls */}
       <div
         style={{
-          position:      'absolute',
-          bottom:        '100px',
-          left:          '16px',
-          zIndex:        10,
+          padding:       '12px 16px',
           display:       'flex',
-          flexDirection: 'column',
-          gap:           '5px',
-          pointerEvents: 'none',
+          flexWrap:      'wrap',
+          gap:           '12px',
+          alignItems:    'center',
         }}
       >
         {Object.entries(STATUS_LABELS).map(([key, label]) => (
@@ -1574,11 +1571,11 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
             </span>
           </div>
         ))}
-        <div style={{ marginTop: '8px', borderTop: '1px solid #2A2A2E', paddingTop: '6px' }}>
-          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.4, maxWidth: '140px' }}>
+        <div style={{ borderLeft: '1px solid #2A2A2E', paddingLeft: '12px', display: 'flex', gap: '12px' }}>
+          <div style={{ fontSize: '9px', color: '#4A4A56', lineHeight: 1.4 }}>
             <span style={{ color: '#6A6A7E' }}>Border</span> = how they received the story
           </div>
-          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.4, maxWidth: '140px' }}>
+          <div style={{ fontSize: '9px', color: '#4A4A56', lineHeight: 1.4 }}>
             <span style={{ color: '#6A6A7E' }}>Fill</span> = how they reported it
           </div>
         </div>

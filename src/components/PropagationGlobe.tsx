@@ -1394,7 +1394,8 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
     const originCoords = REGION_COORDS[originRegion] ?? [39.8, -98.5]
     const originPos    = latLngToVector3(originCoords[0], originCoords[1], GLOBE_RADIUS)
     const dir          = originPos.clone().normalize()
-    return [dir.x * 5.5, dir.y * 5.5 + 1, dir.z * 5.5] as [number, number, number]
+    // Offset globe left so the right sidebar doesn't cover it
+    return [dir.x * 5.5 - 1.2, dir.y * 5.5 + 1, dir.z * 5.5] as [number, number, number]
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

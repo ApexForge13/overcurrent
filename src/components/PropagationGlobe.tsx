@@ -1449,10 +1449,11 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
       style={{
         position:   'relative',
         width:      '100%',
+        minHeight:  '700px',
         background: '#0A0A0B',
         border:     '1px solid #1e1e1e',
         borderRadius: '10px',
-        overflow:   'hidden',
+        overflow:   'visible',
         fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
       }}
     >
@@ -1540,7 +1541,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
       <div
         style={{
           position:      'absolute',
-          bottom:        '76px',
+          bottom:        '100px',
           left:          '16px',
           zIndex:        10,
           display:       'flex',

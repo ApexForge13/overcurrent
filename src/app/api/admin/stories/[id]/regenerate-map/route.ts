@@ -162,6 +162,24 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     }
   }
 
+  // Inherit framing quotes: country-level IDs inherit from parent macro-region
+  const regionInheritance: Record<string, string> = {
+    ca: 'us', mx: 'us',          // North America children inherit from us
+    uk: 'eu',                      // UK inherits from Europe
+    ru: 'eu',                      // Russia inherits from Europe (if no own framing)
+    jp: 'sea', kr: 'sea', au: 'sea', // Asia-Pacific children
+    pk: 'in',                      // Pakistan inherits from South Asia
+    ir: 'me', il: 'me', tr: 'me', af: 'me', // Middle East children
+    la: 'la',                      // Latin America
+  }
+  for (const [child, parent] of Object.entries(regionInheritance)) {
+    if (!framingQuotes.has(child) && framingQuotes.has(parent)) {
+      framingQuotes.set(child, framingQuotes.get(parent)!)
+    }
+  }
+
+  console.log(`[regen-map] Framing quotes mapped: ${[...framingQuotes.entries()].map(([k, v]) => `${k}="${v.substring(0, 30)}"`).join(', ')}`)
+
   // ── BUILD 6 PROGRESSIVE FRAMES ────────────────────────────────────────
   // Date = story.createdAt (report generation date). Frames show coverage
   // building up: origin → wire services → regional → global → counter-narratives → full.

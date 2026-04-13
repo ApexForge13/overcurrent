@@ -1385,7 +1385,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
 
   const frame         = timeline[Math.min(frameIdx, timeline.length - 1)]
   const activeRegions = frame
-    ? frame.regions.filter((r) => r.status !== 'silent').slice(0, 8)
+    ? frame.regions.filter((r) => r.status !== 'silent')
     : []
 
   // Compute initial camera position looking at the origin region, zoomed out

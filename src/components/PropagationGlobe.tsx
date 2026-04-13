@@ -1573,8 +1573,13 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
             </span>
           </div>
         ))}
-        <div style={{ display: 'none' }}>
-          {/* Border/fill explanation hidden per design */}
+        <div style={{ marginTop: '8px', borderTop: '1px solid #2A2A2E', paddingTop: '6px' }}>
+          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.4, maxWidth: '140px' }}>
+            <span style={{ color: '#6A6A7E' }}>Border</span> = how they received the story
+          </div>
+          <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.4, maxWidth: '140px' }}>
+            <span style={{ color: '#6A6A7E' }}>Fill</span> = how they reported it
+          </div>
         </div>
       </div>
 

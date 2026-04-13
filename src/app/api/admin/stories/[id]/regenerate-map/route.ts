@@ -26,7 +26,7 @@ const STATE_MEDIA_REGIONS = new Set(['ru', 'cn', 'ir', 'tr'])
 /** Determine status for a region based on its sources and story context */
 function determineRegionStatus(
   regionId: string,
-  sources: Array<{ politicalLean: string; reliability: string; country: string }>,
+  sources: Array<{ outlet: string; politicalLean: string; reliability: string; country: string }>,
   isFirst: boolean,
   contradictedRegions: Set<string>,
   reframedRegions: Set<string>,

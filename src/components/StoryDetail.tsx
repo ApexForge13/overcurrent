@@ -159,10 +159,15 @@ interface StoryDetailProps {
       posts: Array<{
         platform: string;
         url: string | null;
+        author: string | null;
         subreddit: string | null;
         content: string;
         upvotes: number;
         comments: number;
+        shares: number | null;
+        views: number | null;
+        authorFollowers: number | null;
+        isVerified: boolean;
         framingType: string | null;
         sentiment: string | null;
       }>;

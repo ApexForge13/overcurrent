@@ -15,11 +15,12 @@ export interface TwitterDiscoursePost {
 
 // Known news outlet handles — these belong in Stream 1, not social discourse
 const NEWS_OUTLET_HANDLES = new Set([
-  'nytimes', 'washingtonpost', 'baborea', 'reuters', 'ap', 'afp',
-  'baborea', 'caborea', 'bbcworld', 'bbcnews', 'caborea',
+  'nytimes', 'washingtonpost', 'reuters', 'ap', 'afp',
+  'bbcworld', 'bbcnews', 'bbcbreaking',
   'cnn', 'foxnews', 'msnbc', 'abcnews', 'cbsnews', 'nbcnews',
   'guardian', 'telegraph', 'ft', 'economist', 'wsj',
-  'alaborea', 'scaborea', 'nhk_world', 'xinhua',
+  'aljazeera', 'aaborea', 'nhk_world', 'xinaborea',
+  'axios', 'thehill', 'politico', 'npr',
 ])
 
 export async function fetchTwitterDiscourse(
@@ -66,6 +67,8 @@ export async function fetchTwitterDiscourse(
       ),
     )
 
+    console.log(`[Twitter] API returned ${tweets.length} tweets, ${users.size} users`)
+
     const processed: TwitterDiscoursePost[] = tweets
       .map((t: {
         id: string
@@ -108,15 +111,16 @@ export async function fetchTwitterDiscourse(
           _engagement: likes + retweets, // internal sorting field
         }
       })
-      // Filter: minimum 100 likes
-      .filter((t: { likes: number }) => t.likes >= minLikes)
+      // Filter: minimum likes (use minLikes param, default 100)
+      .filter((t: { likes: number }) => {
+        return t.likes >= minLikes
+      })
       // Filter: reject news outlet official accounts
       .filter((t: { author: string }) => !NEWS_OUTLET_HANDLES.has(t.author.toLowerCase()))
-      // Filter: reject tweets that are just a link with no commentary
+      // Filter: reject tweets that are just a link with no commentary (>20 chars)
       .filter((t: { content: string }) => {
-        // Remove URLs from text, check if meaningful content remains
         const textWithoutUrls = t.content.replace(/https?:\/\/\S+/g, '').trim()
-        return textWithoutUrls.length >= 30
+        return textWithoutUrls.length >= 20
       })
       // Sort by total engagement descending
       .sort((a: { _engagement: number }, b: { _engagement: number }) => b._engagement - a._engagement)
@@ -127,6 +131,34 @@ export async function fetchTwitterDiscourse(
         const { _engagement: _, ...post } = t
         return post
       })
+
+    console.log(`[Twitter] After filters: ${processed.length} tweets (from ${tweets.length} raw)`)
+
+    // If all tweets got filtered, return top 5 by engagement regardless of threshold
+    if (processed.length === 0 && tweets.length > 0) {
+      console.log(`[Twitter] All tweets filtered — returning top 5 by engagement as fallback`)
+      const fallback = tweets
+        .map((t: { id: string; text: string; author_id: string; created_at: string; public_metrics: { like_count: number; retweet_count: number; reply_count: number; impression_count: number } }) => {
+          const user = users.get(t.author_id) as { username: string; verified?: boolean; public_metrics?: { followers_count: number } } | undefined
+          return {
+            platform: 'twitter' as const,
+            url: `https://x.com/${user?.username || 'i'}/status/${t.id}`,
+            author: user?.username || '',
+            authorFollowers: user?.public_metrics?.followers_count || 0,
+            isVerified: user?.verified || false,
+            content: t.text,
+            hashtags: (t.text.match(/#\w+/g) || []),
+            likes: t.public_metrics?.like_count || 0,
+            retweets: t.public_metrics?.retweet_count || 0,
+            replies: t.public_metrics?.reply_count || 0,
+            views: t.public_metrics?.impression_count || 0,
+            createdAt: t.created_at || '',
+          }
+        })
+        .sort((a: { likes: number; retweets: number }, b: { likes: number; retweets: number }) => (b.likes + b.retweets) - (a.likes + a.retweets))
+        .slice(0, 5)
+      return fallback
+    }
 
     return processed
   } catch (err) {

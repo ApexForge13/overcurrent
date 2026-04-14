@@ -165,25 +165,25 @@ export function moderatorToRegionalAnalysis(
 ): RegionalAnalysis {
   // Build claims from consensus findings + resolved disputes + unique insights
   const claims = [
-    ...mod.consensus_findings.map(f => ({
+    ...(mod.consensus_findings || []).map(f => ({
       claim: f.fact,
       confidence: f.confidence as 'HIGH' | 'MEDIUM' | 'LOW' | 'DEVELOPING',
-      supportedBy: f.models_agreeing,
+      supportedBy: f.models_agreeing || [],
       contradictedBy: [] as string[],
       fullTextVerified: false,
       sourcingType: f.evidence_quality,
-      notes: `Consensus: ${f.models_agreeing.join(', ')} agreed. Original source: ${f.original_source}`,
+      notes: `Consensus: ${(f.models_agreeing || []).join(', ')} agreed. Original source: ${f.original_source}`,
     })),
-    ...mod.resolved_disputes.map(d => ({
+    ...(mod.resolved_disputes || []).map(d => ({
       claim: d.claim,
       confidence: d.final_confidence as 'HIGH' | 'MEDIUM' | 'LOW' | 'DEVELOPING',
-      supportedBy: d.initial_split.supporting,
-      contradictedBy: d.initial_split.opposing,
+      supportedBy: d.initial_split?.supporting || [],
+      contradictedBy: d.initial_split?.opposing || [],
       fullTextVerified: false,
       sourcingType: null as string | null,
       notes: `Dispute resolved: ${d.resolution}`,
     })),
-    ...mod.unique_insights.map(u => ({
+    ...(mod.unique_insights || []).map(u => ({
       claim: u.finding,
       confidence: u.confidence as 'HIGH' | 'MEDIUM' | 'LOW' | 'DEVELOPING',
       supportedBy: [u.found_by],
@@ -195,17 +195,17 @@ export function moderatorToRegionalAnalysis(
   ]
 
   // Build discrepancies from unresolved disputes
-  const discrepancies = mod.unresolved_disputes.map(d => ({
+  const discrepancies = (mod.unresolved_disputes || []).map(d => ({
     issue: d.claim,
-    sideA: d.side_a.position,
-    sideB: d.side_b.position,
-    sourcesA: d.side_a.models,
-    sourcesB: d.side_b.models,
+    sideA: d.side_a?.position || '',
+    sideB: d.side_b?.position || '',
+    sourcesA: d.side_a?.models || [],
+    sourcesB: d.side_b?.models || [],
     assessment: d.moderator_note,
   }))
 
   // Build omissions
-  const omissions = mod.omissions.map(o => ({
+  const omissions = (mod.omissions || []).map(o => ({
     missing: o,
     presentIn: 'other regions',
     significance: 'Detected by debate moderator',
@@ -216,8 +216,8 @@ export function moderatorToRegionalAnalysis(
     claims,
     discrepancies,
     framingAnalysis: {
-      framing: mod.dominant_framing,
-      notableAngles: mod.caught_errors.map(e => `Error caught: ${e.explanation}`),
+      framing: mod.dominant_framing || '',
+      notableAngles: (mod.caught_errors || []).map(e => `Error caught: ${e.explanation}`),
     },
     omissions,
     sourceSummaries: [],

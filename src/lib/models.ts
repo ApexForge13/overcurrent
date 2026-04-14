@@ -134,9 +134,14 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
 
   } else if (options.provider === 'openai' || options.provider === 'xai') {
     const client = options.provider === 'xai' ? getXAI() : getOpenAI()
+    // GPT-5.x uses max_completion_tokens instead of max_tokens
+    const tokenParam = model.startsWith('gpt-5')
+      ? { max_completion_tokens: maxTokens }
+      : { max_tokens: maxTokens }
+
     const response = await withRetry(() => client.chat.completions.create({
       model,
-      max_tokens: maxTokens,
+      ...tokenParam,
       messages: [
         { role: 'system', content: options.system },
         { role: 'user', content: options.userMessage },

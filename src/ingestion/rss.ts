@@ -68,12 +68,15 @@ const ANCHOR_WORDS = new Set([
   'korea', 'india', 'pakistan', 'afghanistan', 'honduras', 'mexico', 'brazil', 'venezuela',
   'colombia', 'cuba', 'argentina', 'chile', 'peru', 'nigeria', 'kenya', 'sudan', 'libya',
   'somalia', 'ethiopia', 'congo', 'myanmar', 'philippines', 'indonesia', 'vietnam',
+  'hungary', 'hungarian', 'poland', 'germany', 'france', 'spain', 'italy', 'greece',
+  'romania', 'serbia', 'croatia', 'austria', 'sweden', 'finland', 'norway', 'denmark',
   // Cities / regions
   'tehran', 'islamabad', 'jerusalem', 'kyiv', 'moscow', 'beijing', 'taipei', 'kabul',
   'baghdad', 'damascus', 'beirut', 'riyadh', 'doha', 'cairo', 'ankara', 'nairobi',
   // Key figures
   'trump', 'biden', 'putin', 'zelensky', 'netanyahu', 'khamenei', 'modi', 'erdogan',
   'vance', 'witkoff', 'kushner', 'araghchi', 'pezeshkian', 'sharif', 'jinping',
+  'orban', 'orbán', 'tisza', 'fidesz', 'magyar', 'macron', 'scholz', 'starmer',
   // Organizations
   'nato', 'hamas', 'hezbollah', 'houthi', 'iaea', 'opec',
 ])

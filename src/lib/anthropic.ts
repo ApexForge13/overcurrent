@@ -55,9 +55,9 @@ export async function getTotalCost(): Promise<number> {
 // Retry helper — handles overloaded_error, rate limits, 529
 // ---------------------------------------------------------------------------
 
-const MAX_RETRIES = 3
-const BASE_DELAY_MS = 5_000 // 5s, 10s, 20s
-const SYNTHESIS_DELAY_MS = 10_000 // 10s, 20s, 40s — longer for big prompts
+const MAX_RETRIES = 5
+const BASE_DELAY_MS = 5_000 // 5s, 10s, 20s, 40s, 80s
+const SYNTHESIS_DELAY_MS = 10_000 // 10s, 20s, 40s, 80s, 160s — longer for big prompts
 
 function isRetryable(err: unknown): boolean {
   if (err && typeof err === 'object') {
@@ -147,15 +147,27 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
   const baseDelay = agentType === 'synthesis' ? SYNTHESIS_DELAY_MS : undefined
 
   if (useStreaming) {
-    const finalMessage = await withRetry(async () => {
-      const stream = await client.messages.stream({
+    let finalMessage: Anthropic.Message | undefined
+    try {
+      finalMessage = await withRetry(async () => {
+        const stream = await client.messages.stream({
+          model,
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        })
+        return stream.finalMessage()
+      }, retryLabel, baseDelay)
+    } catch (streamErr) {
+      // Streaming failed after all retries — fall back to non-streaming as last resort
+      console.warn(`[callClaude] Streaming failed after ${MAX_RETRIES} retries for ${agentType}. Falling back to non-streaming...`)
+      finalMessage = await client.messages.create({
         model,
         max_tokens: maxTokens,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       })
-      return stream.finalMessage()
-    }, retryLabel, baseDelay)
+    }
 
     text = finalMessage.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')

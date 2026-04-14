@@ -24,6 +24,36 @@ export interface DebateResult {
   modelsUsed: string[]
 }
 
+// ── Consecutive failure tracking — skip models that are having a bad day ──
+const SKIP_AFTER_FAILURES = 3
+const modelConsecutiveFailures = new Map<string, number>()
+
+/** Reset failure counters at the start of each pipeline run. */
+export function resetModelFailureTracking(): void {
+  modelConsecutiveFailures.clear()
+}
+
+function recordModelFailure(provider: string, region: string, round: string, error: unknown): boolean {
+  const count = (modelConsecutiveFailures.get(provider) ?? 0) + 1
+  modelConsecutiveFailures.set(provider, count)
+  const errMsg = error instanceof Error ? error.message.substring(0, 120) : String(error).substring(0, 120)
+  console.warn(`[debate] ${provider} failure #${count} (${region} ${round}): ${errMsg}`)
+
+  if (count >= SKIP_AFTER_FAILURES) {
+    console.warn(`[debate] ⚠ ${provider} has failed ${count} consecutive times — SKIPPING for remaining regions`)
+    return true // signal: should skip this model going forward
+  }
+  return false
+}
+
+function recordModelSuccess(provider: string): void {
+  modelConsecutiveFailures.delete(provider) // reset on success
+}
+
+function shouldSkipModel(provider: string): boolean {
+  return (modelConsecutiveFailures.get(provider) ?? 0) >= SKIP_AFTER_FAILURES
+}
+
 export async function runRegionalDebate(
   region: string,
   sources: Array<{ url: string; title: string; outlet: string; content?: string }>,
@@ -69,8 +99,17 @@ export async function runRegionalDebate(
   }
 
   // === ROUND 1: Independent Analysis (all models in parallel) ===
+  // Filter out models that have hit the consecutive failure threshold
+  const activeAnalysts = analysts.filter(a => {
+    if (shouldSkipModel(a.provider)) {
+      console.log(`[Debate R1] Skipping ${a.name} for ${region} — too many consecutive failures`)
+      return false
+    }
+    return true
+  })
+
   const r1Results = await Promise.all(
-    analysts.map(async (model) => {
+    activeAnalysts.map(async (model) => {
       try {
         const result = await runRound1(model, region, sources, query, storyId)
         debateRounds.push({
@@ -78,8 +117,10 @@ export async function runRegionalDebate(
           content: result.analysis, inputTokens: result.inputTokens, outputTokens: result.outputTokens, costUsd: result.costUsd,
         })
         totalCost += result.costUsd
+        recordModelSuccess(model.provider)
         return { modelName: result.modelName, analysis: result.analysis, provider: result.provider }
       } catch (err) {
+        recordModelFailure(model.provider, region, 'R1', err)
         console.error(`[Debate R1] ${model.name} failed for ${region}:`, err)
         return null
       }
@@ -87,9 +128,14 @@ export async function runRegionalDebate(
   )
   const validR1 = r1Results.filter((r): r is NonNullable<typeof r> => r !== null)
 
-  const failedModels = analysts
-    .filter(a => !validR1.some(r => r.modelName === a.name))
-    .map(a => ({ model: a.name, reason: 'R1 failed or timed out', round: 'R1' }))
+  const skippedModels = analysts.filter(a => shouldSkipModel(a.provider))
+  const failedModels = [
+    ...analysts
+      .filter(a => !validR1.some(r => r.modelName === a.name) && !shouldSkipModel(a.provider))
+      .map(a => ({ model: a.name, reason: 'R1 failed or timed out', round: 'R1' })),
+    ...skippedModels
+      .map(a => ({ model: a.name, reason: `Skipped — ${modelConsecutiveFailures.get(a.provider) ?? 0} consecutive failures`, round: 'R1' })),
+  ]
 
   if (failedModels.length > 0) {
     console.log(`[Debate] ${region}: ${failedModels.length} model(s) failed R1: ${failedModels.map(f => f.model).join(', ')}`)
@@ -124,6 +170,11 @@ export async function runRegionalDebate(
     validR1.map(async (own) => {
       const analyst = analysts.find(a => a.name === own.modelName)
       if (!analyst) return null
+      // Skip models that crossed the failure threshold during R1
+      if (shouldSkipModel(analyst.provider)) {
+        console.log(`[Debate R2] Skipping ${analyst.name} for ${region} — too many consecutive failures`)
+        return null
+      }
       const others = validR1.filter(r => r.modelName !== own.modelName)
       try {
         const result = await runRound2(analyst, region, own.analysis, others, sources, query, storyId)
@@ -132,8 +183,10 @@ export async function runRegionalDebate(
           content: result.analysis, inputTokens: result.inputTokens, outputTokens: result.outputTokens, costUsd: result.costUsd,
         })
         totalCost += result.costUsd
+        recordModelSuccess(analyst.provider)
         return { modelName: result.modelName, analysis: result.analysis }
       } catch (err) {
+        recordModelFailure(analyst.provider, region, 'R2', err)
         console.error(`[Debate R2] ${own.modelName} failed for ${region}:`, err)
         return null
       }

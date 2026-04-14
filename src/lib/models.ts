@@ -83,7 +83,17 @@ export interface ModelCallResult {
   model: string
 }
 
+/** Strip control characters that break JSON serialization in API request bodies.
+ *  Preserves newlines, carriage returns, and tabs (valid in JSON strings). */
+function sanitizeForApi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+}
+
 export async function callModel(options: ModelCallOptions): Promise<ModelCallResult> {
+  // Sanitize inputs to prevent JSON parse failures from control characters in scraped content
+  const system = sanitizeForApi(options.system)
+  const userMessage = sanitizeForApi(options.userMessage)
 
   const model = MODEL_MAP[options.provider]?.[options.tier]
   if (!model) throw new Error(`Unknown provider/tier: ${options.provider}/${options.tier}`)
@@ -105,8 +115,8 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
         const stream = await client.messages.stream({
           model,
           max_tokens: maxTokens,
-          system: options.system,
-          messages: [{ role: 'user', content: options.userMessage }],
+          system,
+          messages: [{ role: 'user', content: userMessage }],
         })
         return stream.finalMessage()
       }, retryLabel, retryDelay)
@@ -121,8 +131,8 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
       const response = await withRetry(() => client.messages.create({
         model,
         max_tokens: maxTokens,
-        system: options.system,
-        messages: [{ role: 'user', content: options.userMessage }],
+        system,
+        messages: [{ role: 'user', content: userMessage }],
       }), retryLabel, retryDelay)
 
       text = response.content
@@ -144,8 +154,8 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
       model,
       ...tokenParam,
       messages: [
-        { role: 'system', content: options.system },
-        { role: 'user', content: options.userMessage },
+        { role: 'system', content: system },
+        { role: 'user', content: userMessage },
       ],
     }), retryLabel, retryDelay)
 
@@ -155,8 +165,8 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
 
   } else if (options.provider === 'google') {
     const client = getGoogle()
-    const genModel = client.getGenerativeModel({ model, systemInstruction: options.system })
-    const response = await withRetry(() => genModel.generateContent(options.userMessage), retryLabel, retryDelay)
+    const genModel = client.getGenerativeModel({ model, systemInstruction: system })
+    const response = await withRetry(() => genModel.generateContent(userMessage), retryLabel, retryDelay)
 
     text = response.response.text()
     inputTokens = response.response.usageMetadata?.promptTokenCount ?? 0

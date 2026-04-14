@@ -9,7 +9,7 @@ import { fetchArticle } from '@/ingestion/article-fetcher'
 import { triageSources } from '@/agents/triage'
 import { analyzeSilence } from '@/agents/silence'
 import { synthesize } from '@/agents/synthesis'
-import { runRegionalDebate, moderatorToRegionalAnalysis } from '@/lib/debate'
+import { runRegionalDebate, moderatorToRegionalAnalysis, resetModelFailureTracking } from '@/lib/debate'
 import type { DebateRoundData } from '@/lib/debate'
 // Social draft generation removed from pipeline — drafts written manually
 // import { generateSocialDrafts } from '@/agents/social-drafts'
@@ -303,6 +303,9 @@ export async function runVerifyPipeline(
 ): Promise<string> {
   const startTime = Date.now()
   let totalCost = 0
+
+  // Reset cross-region model failure tracking for this run
+  resetModelFailureTracking()
 
   // ── PHASE 1: SEARCH ──────────────────────────────────────────────────
 
@@ -1146,10 +1149,11 @@ export async function runVerifyPipeline(
   // Gap section. News outlets never enter this stream.
   try {
     // Use the same rich keyword set as RSS search (includes international variants)
-    const discourseKeywords = queryToKeywords(query).all
+    const discourseSplit = queryToKeywords(query)
+    const discourseKeywords = discourseSplit.all
 
     const [redditPosts, twitterPosts] = await Promise.all([
-      fetchRedditDiscourse(discourseKeywords, triageResult.suggestedCategory, 10, 50, new Date()),
+      fetchRedditDiscourse(discourseKeywords, triageResult.suggestedCategory, 10, 50, new Date(), discourseSplit.anchors),
       fetchTwitterDiscourse(discourseKeywords, 10, 10), // 10 likes minimum
     ])
 

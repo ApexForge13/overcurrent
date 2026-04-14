@@ -12,12 +12,21 @@ export function CollapsibleSection({ title, preview, defaultOpen = false, childr
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const contentRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | undefined>(defaultOpen ? undefined : 0);
+  // After opening animation completes, switch to auto so nested content can resize freely
+  const [settled, setSettled] = useState(defaultOpen);
 
   useEffect(() => {
     if (isOpen) {
+      setSettled(false);
       const el = contentRef.current;
-      if (el) setHeight(el.scrollHeight);
+      if (el) {
+        setHeight(el.scrollHeight);
+        // After the CSS transition ends (~200ms), switch to auto height
+        const timer = setTimeout(() => setSettled(true), 220);
+        return () => clearTimeout(timer);
+      }
     } else {
+      setSettled(false);
       setHeight(0);
     }
   }, [isOpen]);
@@ -71,12 +80,14 @@ export function CollapsibleSection({ title, preview, defaultOpen = false, childr
         </p>
       )}
 
-      {/* Collapsible content */}
+      {/* Collapsible content — uses 'auto' after animation settles so nested sections can resize */}
       <div
         style={{
-          height: isOpen ? (height !== undefined ? `${height}px` : 'auto') : '0px',
-          overflow: 'hidden',
-          transition: 'height 200ms ease',
+          height: isOpen
+            ? (settled ? 'auto' : (height !== undefined ? `${height}px` : 'auto'))
+            : '0px',
+          overflow: settled ? 'visible' : 'hidden',
+          transition: settled ? 'none' : 'height 200ms ease',
         }}
       >
         <div ref={contentRef}>

@@ -1,11 +1,13 @@
 export function slugify(text: string): string {
   return text
+    .normalize('NFD')                    // decompose á → a + combining accent
+    .replace(/[\u0300-\u036f]/g, '')     // strip combining marks (diacritics)
     .toLowerCase()
-    .replace(/[\u2013\u2014]/g, '-')   // en-dash/em-dash → hyphen
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/[\s]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
+    .replace(/[\u2013\u2014]/g, '-')     // en-dash/em-dash → hyphen
+    .replace(/[^a-z0-9\s-]/g, '')        // remove remaining non-alphanumeric
+    .replace(/[\s]+/g, '-')              // spaces → hyphens
+    .replace(/-+/g, '-')                 // collapse consecutive hyphens
+    .replace(/^-|-$/g, '')               // trim leading/trailing hyphens
 }
 
 export function truncate(text: string, maxLen: number): string {

@@ -10,13 +10,15 @@ import { getOutletsWithRss, outlets, findOutletByDomain } from '@/data/outlets'
 // ---------------------------------------------------------------------------
 
 describe('slugify', () => {
-  it('lowercases and hyphenates basic strings', () => {
-    expect(slugify('Hungary Votes Out Orbán')).toBe('hungary-votes-out-orbn')
+  it('lowercases, strips diacritics, and hyphenates', () => {
+    expect(slugify('Hungary Votes Out Orbán')).toBe('hungary-votes-out-orban')
   })
 
-  it('strips diacritics when pre-processed with stripDiacritics', () => {
-    const clean = stripDiacritics('Hungary Votes Out Orbán After 16 Years')
-    expect(slugify(clean)).toBe('hungary-votes-out-orban-after-16-years')
+  it('produces same result with or without stripDiacritics preprocessing', () => {
+    const raw = slugify('Hungary Votes Out Orbán After 16 Years')
+    const preProcessed = slugify(stripDiacritics('Hungary Votes Out Orbán After 16 Years'))
+    expect(raw).toBe('hungary-votes-out-orban-after-16-years')
+    expect(raw).toBe(preProcessed)
   })
 
   it('handles apostrophes and quotes', () => {
@@ -51,8 +53,8 @@ describe('slugify', () => {
   it('handles real-world headlines from pipeline', () => {
     const cases = [
       ['U.S. Naval Blockade of Iranian Ports Begins After Islamabad Peace Talks Collapse, Oil Surges Past $100 Before Easing', 'us-naval-blockade-of-iranian-ports-begins-after-islamabad-peace-talks-collapse-oil-surges-past-100-before-easing'],
-      ['Erdoğan–Assad Meeting Signals Regional Shift', 'erdoan-assad-meeting-signals-regional-shift'],
-      ['São Paulo Workers\' Strike Enters 3rd Week', 'so-paulo-workers-strike-enters-3rd-week'],
+      ['Erdoğan–Assad Meeting Signals Regional Shift', 'erdogan-assad-meeting-signals-regional-shift'],
+      ['São Paulo Workers\' Strike Enters 3rd Week', 'sao-paulo-workers-strike-enters-3rd-week'],
     ] as const
     for (const [input, expected] of cases) {
       expect(slugify(input)).toBe(expected)
@@ -312,15 +314,53 @@ describe('filterByKeywordRelevance', () => {
     const result = filterByKeywordRelevance([], ['Hungary', 'election'])
     expect(result).toHaveLength(0)
   })
+
+  // ── ANCHOR-AWARE TESTS ──
+  it('requires anchor match when anchors provided — filters generic political posts', () => {
+    const posts = [
+      makePost('Hungary election results show Orban lost power'),  // anchor: "hungary", "orban"
+      makePost('Trump party wins big in latest election results'),  // NO anchor match
+      makePost('Election season brings voter turnout debate'),       // NO anchor match
+    ]
+    const keywords = ['hungary', 'election', 'orban', 'party', 'results']
+    const anchors = ['hungary', 'orban']
+    const result = filterByKeywordRelevance(posts, keywords, anchors)
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toContain('Hungary')
+  })
+
+  it('fallback still requires anchor when anchors provided', () => {
+    const posts = [
+      makePost('Orban spoke at Hungary conference'),   // 1 anchor + 1 keyword
+      makePost('Election party wins debate'),            // 0 anchors, 2+ keywords
+    ]
+    const keywords = ['hungary', 'election', 'orban', 'party']
+    const anchors = ['hungary', 'orban']
+    // Only 1 post passes strict (< 3), fallback still requires anchor
+    const result = filterByKeywordRelevance(posts, keywords, anchors)
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toContain('Orban')
+  })
+
+  it('backwards compatible — works without anchors (old behavior)', () => {
+    const posts = [
+      makePost('Hungary election results show Orban lost power'),
+      makePost('Random post about cooking recipes'),
+    ]
+    // No anchors arg — same as before
+    const result = filterByKeywordRelevance(posts, ['Hungary', 'election', 'Orban'])
+    expect(result).toHaveLength(1)
+  })
 })
 
 // ---------------------------------------------------------------------------
 // 5. SLUGIFY + STRIP DIACRITICS INTEGRATION — the full pipeline path
 // ---------------------------------------------------------------------------
 
-describe('slug generation pipeline (stripDiacritics → slugify → slice)', () => {
+describe('slug generation pipeline (slugify handles diacritics natively)', () => {
   function pipelineSlug(headline: string): string {
-    return slugify(stripDiacritics(headline)).slice(0, 80)
+    // This is what pipeline.ts actually does: slugify(headline).slice(0, 80)
+    return slugify(headline).slice(0, 80)
   }
 
   it('produces correct slugs for real headlines with diacritics', () => {

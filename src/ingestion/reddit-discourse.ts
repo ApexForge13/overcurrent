@@ -14,26 +14,51 @@ export interface RedditDiscoursePost {
 
 /**
  * Filter Reddit posts by keyword relevance.
- * Strict: post must match 2+ keywords. Falls back to 1-keyword if <3 posts pass strict.
+ * Strict: post must match 2+ keywords AND at least 1 anchor (when anchors provided).
+ * Falls back to 1-keyword + 1-anchor if <3 posts pass strict.
+ * Anchors are entity words (countries, names, orgs) that distinguish topic-specific posts
+ * from generic political chatter.
  */
 export function filterByKeywordRelevance(
   posts: RedditDiscoursePost[],
   keywords: string[],
+  anchors?: string[],
 ): RedditDiscoursePost[] {
+  if (keywords.length === 0) return []
+
   const lowerKeywords = keywords.map(k => k.toLowerCase())
-  const relevantPosts = posts.filter(post => {
+  const lowerAnchors = (anchors || []).map(a => a.toLowerCase())
+  const hasAnchors = lowerAnchors.length > 0
+
+  function scorePost(post: RedditDiscoursePost): { total: number; anchorHits: number } {
     const text = post.content.toLowerCase()
-    const matchCount = lowerKeywords.filter(kw => text.includes(kw)).length
-    return matchCount >= 2
+    const total = lowerKeywords.filter(kw => text.includes(kw)).length
+    const anchorHits = hasAnchors ? lowerAnchors.filter(a => text.includes(a)).length : total
+    return { total, anchorHits }
+  }
+
+  // Strict pass: 2+ total keyword matches AND at least 1 anchor
+  const strictPosts = posts.filter(post => {
+    const { total, anchorHits } = scorePost(post)
+    const pass = total >= 2 && anchorHits >= 1
+    if (!pass && total >= 1) {
+      console.log(`[Reddit] FILTERED OUT (strict): "${post.content.substring(0, 80)}..." — ${total} keywords, ${anchorHits} anchors`)
+    }
+    return pass
   })
 
-  // Fall back to 1-keyword match if 2-keyword filter is too strict
-  return relevantPosts.length >= 3
-    ? relevantPosts
-    : posts.filter(post => {
-        const text = post.content.toLowerCase()
-        return lowerKeywords.some(kw => text.includes(kw))
-      })
+  if (strictPosts.length >= 3) return strictPosts
+
+  // Fallback: 1+ keyword match, but STILL require at least 1 anchor if anchors exist
+  const fallbackPosts = posts.filter(post => {
+    const { total, anchorHits } = scorePost(post)
+    const pass = hasAnchors ? (total >= 1 && anchorHits >= 1) : total >= 1
+    if (!pass) {
+      console.log(`[Reddit] FILTERED OUT (fallback): "${post.content.substring(0, 80)}..." — ${total} keywords, ${anchorHits} anchors`)
+    }
+    return pass
+  })
+  return fallbackPosts
 }
 
 // ── Subreddit allowlists ───────────────────────────────────────────────
@@ -59,6 +84,7 @@ export async function fetchRedditDiscourse(
   maxPosts: number = 10,
   minUpvotes: number = 25,
   storyDate?: Date,
+  anchors?: string[],
 ): Promise<RedditDiscoursePost[]> {
   // Build subreddit list: always subs + category-specific
   const categorySubs = category && CATEGORY_SUBS[category]
@@ -167,7 +193,7 @@ export async function fetchRedditDiscourse(
   }
 
   // ── KEYWORD RELEVANCE FILTER ─────────────────────────────────────────
-  const filteredByKeyword = filterByKeywordRelevance(allPosts, keywords)
+  const filteredByKeyword = filterByKeywordRelevance(allPosts, keywords, anchors)
 
   // ── TEMPORAL RELEVANCE FILTER ──────────────────────────────────────
   // Only include posts within 72hr of the story (24hr before, 48hr after).

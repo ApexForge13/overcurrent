@@ -230,7 +230,9 @@ async function fetchFeed(
 
         const searchText = `${title} ${snippet}`
 
-        if (matchesKeywordsStrict(searchText, keywords)) {
+        // RSS is the discovery layer — cast a wide net, let triage filter.
+        // Match if ANY keyword (4+ chars) appears in title or snippet.
+        if (matchesKeywordsLenient(searchText, keywords)) {
           matched.push({
             url: articleUrl,
             title,
@@ -240,25 +242,6 @@ async function fetchFeed(
             region: outlet.region,
             country: outlet.country,
           })
-        } else if (!isEnglishOutlet && matchesKeywordsLenient(searchText, keywords)) {
-          // For non-English outlets, use lenient matching (any keyword)
-          // but still require at least one keyword hit + recency
-          const pubDate = item.isoDate || item.pubDate
-          if (pubDate) {
-            const age = Date.now() - new Date(pubDate).getTime()
-            const hoursOld = age / (1000 * 60 * 60)
-            if (hoursOld < 72) {
-              matched.push({
-                url: articleUrl,
-                title,
-                outlet: outlet.name,
-                publishedAt: pubDate,
-                snippet: snippet ? snippet.slice(0, 3000) : undefined,
-                region: outlet.region,
-                country: outlet.country,
-              })
-            }
-          }
         }
       } catch {
         // Skip malformed item, continue with rest

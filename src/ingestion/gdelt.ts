@@ -34,16 +34,14 @@ const QUERY_SYNONYMS: Record<string, string[]> = {
 }
 
 /**
- * Build a multi-strategy GDELT query from a natural-language topic.
+ * Build a GDELT query from a natural-language topic.
  *
- * Strategy (run as a single OR'd query to GDELT, which returns the union):
- *   1. Full quoted phrase — exact match for the whole query
- *   2. Quoted bigrams — adjacent-word pairs for partial phrase matching
- *   3. AND-joined words — all significant words must appear (GDELT default)
- *   4. Synonym variations — anchor word + synonym, AND-joined
+ * Strategy: 2-word bigrams (from 4+ char words) as primary search,
+ * plus AND-joined key terms as a broad catch. No full-phrase quoting
+ * for queries over 3 words — GDELT returns near-zero for long exact phrases.
  *
- * This replaces the old OR-per-word approach which matched any single word
- * (e.g. "Honduras OR migrant OR crisis" matched articles about Dublin fuel crisis).
+ * "Iran Strait of Hormuz blockade" →
+ *   "Iran Strait" OR "Strait Hormuz" OR "Hormuz blockade" OR (blockade Hormuz Iran)
  */
 function buildGdeltQuery(query: string): string {
   const words = query
@@ -60,38 +58,31 @@ function buildGdeltQuery(query: string): string {
     return ''
   }
 
-  const clauses: string[] = []
-
-  // 1. Full quoted phrase (highest precision)
-  clauses.push(`"${words.join(' ')}"`)
-
-  // 2. Quoted bigrams for partial matches
-  if (words.length >= 3) {
-    for (let i = 0; i < words.length - 1; i++) {
-      const bigram = `"${words[i]} ${words[i + 1]}"`
-      if (!clauses.includes(bigram)) clauses.push(bigram)
-    }
+  // For short queries (2 words), just AND them
+  if (words.length <= 2) {
+    const result = words.join(' ')
+    console.log('[GDELT] Query:', result)
+    return result
   }
 
-  // 3. AND-joined (all words present — GDELT defaults to AND when no operator)
-  //    Wrap in parens so it's one clause
-  clauses.push(`(${words.join(' ')})`)
-
-  // 4. Synonym variations: anchor word (first significant word, usually a proper noun)
-  //    paired with synonyms for context words
-  const anchor = words[0] // e.g. "Honduras"
-  const contextWords = words.slice(1).map(w => w.toLowerCase().replace(/"/g, ''))
-
-  for (const ctx of contextWords) {
-    const syns = QUERY_SYNONYMS[ctx]
-    if (syns) {
-      for (const syn of syns.slice(0, 2)) { // Cap at 2 synonyms per word
-        clauses.push(`(${anchor} ${syn})`)
-      }
-    }
+  // Build 2-word bigrams from significant words (4+ chars)
+  const significantWords = words.filter(w => w.replace(/"/g, '').length >= 4)
+  const bigrams: string[] = []
+  for (let i = 0; i < significantWords.length - 1; i++) {
+    bigrams.push(`"${significantWords[i]} ${significantWords[i + 1]}"`)
   }
 
-  const result = clauses.join(' OR ')
+  // Pick the 2-3 most specific words (longest, most unique) for AND clause
+  const keyTerms = significantWords
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 3)
+
+  // Combine: bigrams OR (key terms AND-joined)
+  const parts: string[] = []
+  if (bigrams.length > 0) parts.push(bigrams.join(' OR '))
+  if (keyTerms.length >= 2) parts.push(`(${keyTerms.join(' ')})`)
+
+  const result = parts.join(' OR ')
   console.log('[GDELT] Query:', result)
   return result
 }

@@ -471,21 +471,24 @@ export async function runVerifyPipeline(
       }
     }
 
-    const fallbackSources = fallbackSampled.slice(0, 50).map((rs) => ({
-      url: rs.url,
-      title: rs.title,
-      outlet: rs.domain.replace(/^www\./, ''),
-      outletType: 'digital' as const,
-      country: rs.sourcecountry ? rs.sourcecountry.substring(0, 2).toUpperCase() : 'US',
-      region: rs.knownRegion || 'North America',
-      language: 'en',
-      politicalLean: 'unknown',
-      reliability: 'unknown',
-      isWireCopy: false,
-      originalSource: null,
-      citesSource: null,
-      publishedAt: rs.publishedAt || undefined,
-    }))
+    const fallbackSources = fallbackSampled.slice(0, 50).map((rs) => {
+      const known = findOutletByDomain(rs.domain)
+      return {
+        url: rs.url,
+        title: rs.title,
+        outlet: known?.name || rs.domain.replace(/^www\./, ''),
+        outletType: (known?.type || 'digital') as 'wire' | 'newspaper' | 'broadcaster' | 'digital' | 'state',
+        country: rs.sourcecountry ? rs.sourcecountry.substring(0, 2).toUpperCase() : 'US',
+        region: rs.knownRegion || 'North America',
+        language: 'en',
+        politicalLean: known?.politicalLean || 'unknown',
+        reliability: known?.reliability || 'unknown',
+        isWireCopy: false,
+        originalSource: null,
+        citesSource: null,
+        publishedAt: rs.publishedAt || undefined,
+      }
+    })
     triageResult.sources = fallbackSources
     const fallbackRegions = new Set(fallbackSources.map(s => s.region))
     const fallbackCountries = new Set(fallbackSources.map(s => s.country))
@@ -512,6 +515,19 @@ export async function runVerifyPipeline(
     const known = knownRegionMap.get(source.url)
     if (known && regionList.includes(known as typeof regionList[number])) {
       source.region = known
+    }
+  }
+
+  // Override unknown politicalLean/reliability with outlet registry data
+  for (const source of triageResult.sources) {
+    if (source.politicalLean === 'unknown' || source.reliability === 'unknown') {
+      const domain = new URL(source.url).hostname.replace(/^www\./, '')
+      const outlet = findOutletByDomain(domain)
+      if (outlet) {
+        if (source.politicalLean === 'unknown') source.politicalLean = outlet.politicalLean
+        if (source.reliability === 'unknown') source.reliability = outlet.reliability
+        if (!source.outlet || source.outlet === domain) source.outlet = outlet.name
+      }
     }
   }
 
@@ -593,21 +609,24 @@ export async function runVerifyPipeline(
 
       const backfill = relevant
         .slice(0, min - current.length)
-        .map(rs => ({
-          url: rs.url,
-          title: rs.title,
-          outlet: rs.domain.replace(/^www\./, ''),
-          outletType: 'digital' as const,
-          country: rs.sourcecountry ? rs.sourcecountry.substring(0, 2).toUpperCase() : 'US',
-          region,
-          language: 'en',
-          politicalLean: 'unknown',
-          reliability: 'unknown',
-          isWireCopy: false,
-          originalSource: null,
-          citesSource: null,
-          publishedAt: publishedAtMap.get(rs.url) || undefined,
-        }))
+        .map(rs => {
+          const known = findOutletByDomain(rs.domain)
+          return {
+            url: rs.url,
+            title: rs.title,
+            outlet: known?.name || rs.domain.replace(/^www\./, ''),
+            outletType: (known?.type || 'digital') as 'wire' | 'newspaper' | 'broadcaster' | 'digital' | 'state',
+            country: rs.sourcecountry ? rs.sourcecountry.substring(0, 2).toUpperCase() : 'US',
+            region,
+            language: 'en',
+            politicalLean: known?.politicalLean || 'unknown',
+            reliability: known?.reliability || 'unknown',
+            isWireCopy: false,
+            originalSource: null,
+            citesSource: null,
+            publishedAt: publishedAtMap.get(rs.url) || undefined,
+          }
+        })
       for (const s of backfill) {
         triageResult.sources.push(s)
         usedUrls.add(s.url)
@@ -952,6 +971,7 @@ export async function runVerifyPipeline(
         confidenceLevel: synthesisResult.confidenceLevel,
         confidenceNote: JSON.stringify({
           note: synthesisResult.confidenceNote,
+          confidenceCaveat: synthesisResult.confidenceCaveat,
           buriedEvidence: synthesisResult.buriedEvidence,
           propagationTimeline: mapClassifications.length > 0
             ? buildTimelineFromClassifications(mapClassifications, timelineBuckets)

@@ -146,6 +146,7 @@ export async function triageSources(
   let suggestedCategory = 'society'
   let searchQueryRefinement = query
   let suggestedSecondary: string[] = []
+  const MINIMUM_SOURCES = 40
 
   interface TriageBatch {
     region: string
@@ -255,6 +256,66 @@ export async function triageSources(
     }
   }
 
+  // ── EXPANDED RELEVANCE RE-TRIAGE ─────────────────────────────────────
+  // If initial triage was too aggressive, re-run rejected batches with a
+  // more inclusive prompt. Common for non-crisis stories (elections,
+  // policy, economy) where coverage uses diverse angles.
+  if (allTriagedSources.length < MINIMUM_SOURCES) {
+    console.log(`[Triage] Only ${allTriagedSources.length} sources passed (minimum: ${MINIMUM_SOURCES}). Running expanded relevance pass.`)
+
+    const EXPANDED_PROMPT = SYSTEM_PROMPT + `\n\nSECOND PASS — EXPANDED RELEVANCE: The initial triage was too strict and returned fewer than ${MINIMUM_SOURCES} sources. For this pass:
+- Include sources that cover CONSEQUENCES or IMPLICATIONS of the topic, not just the event itself
+- Include sources that mention key entities (people, parties, countries) even if the primary focus differs
+- Include sources providing historical CONTEXT, analogous events, or expert analysis
+- Non-English articles covering the same entities are RELEVANT — include them
+- Be MORE inclusive. A tangentially relevant source is better than a missing perspective.
+- You MUST return at least 5 sources from this batch if any are even partially relevant.`
+
+    // Re-run ALL original batches with expanded prompt
+    const expandedBatches = batches.filter((_, idx) => {
+      // Find batches that produced few or no results
+      return true // re-run all since we can't track per-batch output easily
+    }).slice(0, 15) // Cap at 15 batches to limit cost
+
+    for (let bIdx = 0; bIdx < expandedBatches.length; bIdx++) {
+      const { region, sources: batch } = expandedBatches[bIdx]
+      const slimBatch = batch.map(s => ({
+        url: s.url,
+        title: s.title.substring(0, 120),
+        domain: s.domain,
+        country: s.sourcecountry,
+        region: s.knownRegion || '',
+      }))
+
+      // Skip if all URLs already triaged
+      const untriaged = slimBatch.filter(s => !allTriagedSources.some(t => String(t.url) === s.url))
+      if (untriaged.length === 0) continue
+
+      const batchPrompt = `Query: ${query}\n\nRaw sources (EXPANDED PASS batch ${bIdx + 1}/${expandedBatches.length}, region: ${region}, ${untriaged.length} sources):\n${JSON.stringify(untriaged)}\n\nRespond with JSON only. No explanations.`
+
+      try {
+        const result = await callClaude({
+          model: HAIKU,
+          systemPrompt: EXPANDED_PROMPT,
+          userPrompt: batchPrompt,
+          agentType: 'triage',
+          maxTokens: 8192,
+          storyId,
+        })
+        costUsd += result.costUsd
+        const parsed = parseJSON<Record<string, unknown>>(result.text)
+        if (parsed.sources && Array.isArray(parsed.sources)) {
+          console.log(`[Triage] Expanded batch ${bIdx + 1} (${region}): ${(parsed.sources as unknown[]).length} additional sources`)
+          allTriagedSources.push(...(parsed.sources as Record<string, unknown>[]))
+        }
+      } catch (err) {
+        console.warn(`[Triage] Expanded batch ${bIdx + 1} (${region}) failed:`, err instanceof Error ? err.message : err)
+      }
+    }
+
+    console.log(`[Triage] After expanded pass: ${allTriagedSources.length} total sources`)
+  }
+
   // Deduplicate merged results by URL
   const seenTriaged = new Set<string>()
   const dedupedSources = allTriagedSources.filter(s => {
@@ -285,7 +346,14 @@ export async function triageSources(
       isWireCopy: Boolean(s.isWireCopy ?? false),
       originalSource: s.originalSource ? String(s.originalSource) : null,
       citesSource: s.citesSource ? String(s.citesSource) : null,
-    })),
+    })).filter(s => {
+      // Filter out snippet-only sources that don't mention core query entities
+      if (s.reliability === 'unknown' && s.politicalLean === 'unknown') {
+        // If triage couldn't identify the outlet at all, keep it but log
+        console.log(`[Triage] Unknown outlet passed: ${s.outlet} (${s.url})`)
+      }
+      return true // Keep all for now — the expanded triage handles quality
+    }),
     suggestedCategory: parsed.suggestedCategory ?? 'other',
     suggestedSecondary: Array.isArray(parsed.suggestedSecondary) ? parsed.suggestedSecondary : [],
     searchQueryRefinement: parsed.searchQueryRefinement ?? query,

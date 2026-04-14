@@ -1,5 +1,19 @@
 import { fetchWithTimeout } from '@/lib/utils'
 
+/** Strip diacritics/accents for GDELT API compatibility */
+function stripDiacritics(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her', 'was', 'one',
+  'our', 'out', 'has', 'had', 'how', 'its', 'may', 'new', 'now', 'old', 'see', 'way',
+  'who', 'did', 'got', 'let', 'say', 'she', 'too', 'use', 'after', 'years', 'over',
+  'under', 'from', 'with', 'when', 'where', 'what', 'why', 'into', 'than', 'been',
+  'have', 'will', 'more', 'some', 'very', 'just', 'about', 'before', 'between', 'through',
+  'during', 'without', 'again', 'votes', 'says',
+])
+
 export interface GdeltResult {
   url: string
   title: string
@@ -44,6 +58,8 @@ const QUERY_SYNONYMS: Record<string, string[]> = {
  *   "Iran Strait" OR "Strait Hormuz" OR "Hormuz blockade" OR (blockade Hormuz Iran)
  */
 function buildGdeltQuery(query: string): string {
+  query = stripDiacritics(query)
+
   const words = query
     .split(/\s+/)
     .filter((w) => w.length >= 3)
@@ -65,24 +81,28 @@ function buildGdeltQuery(query: string): string {
     return result
   }
 
-  // Build 2-word bigrams from significant words (4+ chars)
-  const significantWords = words.filter(w => w.replace(/"/g, '').length >= 4)
+  // Filter to significant words: 4+ chars, not stop words
+  const significantWords = words.filter(w => {
+    const clean = w.replace(/"/g, '')
+    if (clean.length < 4) return false
+    if (STOP_WORDS.has(clean.toLowerCase())) return false
+    return true
+  })
+
+  // Build bigrams from significant words, max 3
   const bigrams: string[] = []
-  for (let i = 0; i < significantWords.length - 1; i++) {
+  for (let i = 0; i < significantWords.length - 1 && bigrams.length < 3; i++) {
     bigrams.push(`"${significantWords[i]} ${significantWords[i + 1]}"`)
   }
 
-  // Pick the 2-3 most specific words (longest, most unique) for AND clause
-  const keyTerms = significantWords
-    .sort((a, b) => b.length - a.length)
-    .slice(0, 3)
+  // If no bigrams possible, just AND the significant words
+  if (bigrams.length === 0) {
+    const result = significantWords.slice(0, 3).join(' ')
+    console.log('[GDELT] Query:', result)
+    return result
+  }
 
-  // Combine: bigrams OR (key terms AND-joined)
-  const parts: string[] = []
-  if (bigrams.length > 0) parts.push(bigrams.join(' OR '))
-  if (keyTerms.length >= 2) parts.push(`(${keyTerms.join(' ')})`)
-
-  const result = parts.join(' OR ')
+  const result = bigrams.join(' OR ')
   console.log('[GDELT] Query:', result)
   return result
 }
@@ -106,36 +126,68 @@ function buildUrl(query: string, maxrecords: number = 250): string {
  * Fetch articles from GDELT for a single query string.
  */
 async function fetchGdeltQuery(query: string, maxrecords: number = 250): Promise<GdeltResult[]> {
-  try {
-    const url = buildUrl(query, maxrecords)
-    const response = await fetchWithTimeout(url, 15_000)
-    if (!response.ok) return []
+  const url = buildUrl(query, maxrecords)
+  const delays = [0, 2000, 5000]
 
-    const text = await response.text()
-
-    // GDELT returns plain text errors for rate limits, bad queries, etc.
-    if (!text.trimStart().startsWith('{') && !text.trimStart().startsWith('[')) {
-      console.warn('[GDELT] Non-JSON response:', text.substring(0, 100))
-      return []
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (delays[attempt] > 0) {
+      console.log(`[GDELT] Retry ${attempt} after ${delays[attempt]}ms...`)
+      await new Promise(r => setTimeout(r, delays[attempt]))
     }
 
-    const data = JSON.parse(text)
-    const articles = data?.articles
-    if (!Array.isArray(articles)) return []
+    try {
+      const response = await fetchWithTimeout(url, 20_000)
 
-    return articles.map((a: Record<string, unknown>) => ({
-      url: String(a.url ?? ''),
-      title: String(a.title ?? ''),
-      seendate: String(a.seendate ?? ''),
-      socialimage: a.socialimage ? String(a.socialimage) : undefined,
-      domain: String(a.domain ?? ''),
-      language: String(a.language ?? ''),
-      sourcecountry: String(a.sourcecountry ?? ''),
-    }))
-  } catch (err) {
-    console.warn('[GDELT] Fetch error:', err instanceof Error ? err.message : err)
-    return []
+      if (response.status >= 400 && response.status < 500) {
+        console.warn(`[GDELT] Client error ${response.status} — not retrying. Query: ${query}`)
+        return []
+      }
+
+      if (!response.ok) {
+        console.warn(`[GDELT] HTTP ${response.status} on attempt ${attempt + 1}`)
+        continue  // retry on 5xx
+      }
+
+      const text = await response.text()
+
+      // GDELT sometimes returns HTML error pages
+      if (text.trimStart().startsWith('<')) {
+        console.warn(`[GDELT] Received HTML instead of JSON on attempt ${attempt + 1}. Query may be malformed.`)
+        if (attempt < 2) continue
+        return []
+      }
+
+      if (!text.trimStart().startsWith('{') && !text.trimStart().startsWith('[')) {
+        console.warn('[GDELT] Non-JSON response:', text.substring(0, 200))
+        return []
+      }
+
+      const data = JSON.parse(text)
+      const articles = data?.articles
+      if (!Array.isArray(articles)) return []
+
+      console.log(`[GDELT] Got ${articles.length} articles on attempt ${attempt + 1}`)
+
+      return articles.map((a: Record<string, unknown>) => ({
+        url: String(a.url ?? ''),
+        title: String(a.title ?? ''),
+        seendate: String(a.seendate ?? ''),
+        socialimage: a.socialimage ? String(a.socialimage) : undefined,
+        domain: String(a.domain ?? ''),
+        language: String(a.language ?? ''),
+        sourcecountry: String(a.sourcecountry ?? ''),
+      }))
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const errCause = err instanceof Error && err.cause ? ` (cause: ${err.cause})` : ''
+      console.warn(`[GDELT] Fetch error on attempt ${attempt + 1}: ${errMsg}${errCause}`)
+      if (attempt === 2) {
+        console.error(`[GDELT] All 3 attempts failed for query: ${query}`)
+      }
+    }
   }
+
+  return []
 }
 
 /**
@@ -199,5 +251,23 @@ export async function searchGdelt(
 export async function searchGdeltGlobal(query: string): Promise<GdeltResult[]> {
   const safeQuery = buildGdeltQuery(query)
   if (!safeQuery) return []
-  return fetchGdeltQuery(safeQuery, 250)
+
+  const results = await fetchGdeltQuery(safeQuery, 250)
+
+  // If primary query failed, try simplified fallback
+  if (results.length === 0) {
+    const stripped = stripDiacritics(query)
+    const fallbackWords = stripped
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !STOP_WORDS.has(w.toLowerCase()))
+      .slice(0, 3)
+
+    if (fallbackWords.length >= 2) {
+      const fallback = fallbackWords.join(' ')
+      console.log(`[GDELT] Primary query returned 0 results. Trying fallback: ${fallback}`)
+      return fetchGdeltQuery(fallback, 250)
+    }
+  }
+
+  return results
 }

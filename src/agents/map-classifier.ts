@@ -39,6 +39,13 @@ IMPORTANT DISTINCTIONS:
 
 dominant_framing should be a SHORT quote (under 15 words) summarizing how this country's outlets framed the story. Use the actual framing from the analysis, not generic descriptions.
 
+CLASSIFICATION RULES:
+- Each entry must have a UNIQUE region_id. Do NOT create multiple entries for the same region_id with different framings.
+- If a region has multiple outlets with different framings, pick the DOMINANT framing (from the highest-reliability outlet or the majority framing).
+- For European countries: use the specific country region_id when the country has its own ID in the mapping (uk, ru, tr). Other European countries map to "eu" — create ONE "eu" entry with the dominant European framing.
+- "eu" covers: France, Germany, Italy, Spain, Netherlands, Sweden, Norway, Belgium, Switzerland, Czech Republic, Denmark, Finland, Greece, Hungary, Poland, Portugal, Ukraine.
+- DO NOT create 6 separate "eu" entries. One entry for "eu" with the combined outlet count and dominant framing.
+
 ${JSON_RULES}
 
 Output format:

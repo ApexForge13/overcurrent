@@ -326,12 +326,13 @@ export function StoryDetail({ story }: StoryDetailProps) {
       const parsed = JSON.parse(story.confidenceNote || '{}')
       return {
         note: parsed.note || story.confidenceNote,
+        confidenceCaveat: parsed.confidenceCaveat as string | undefined,
         buriedEvidence: parsed.buriedEvidence || [],
         propagationTimeline: parsed.propagationTimeline || [],
         factSurvival: parsed.factSurvival || [],
       }
     } catch {
-      return { note: story.confidenceNote, buriedEvidence: [], propagationTimeline: [], factSurvival: [] }
+      return { note: story.confidenceNote, confidenceCaveat: undefined, buriedEvidence: [], propagationTimeline: [], factSurvival: [] }
     }
   })()
 
@@ -432,6 +433,13 @@ export function StoryDetail({ story }: StoryDetailProps) {
             {story.consensusScore}% of {story.sourceCount} sources
           </span>
         </div>
+
+        {/* Source depth caveat */}
+        {parsedNote.confidenceCaveat && (
+          <p className="text-xs font-mono mt-1" style={{ color: '#F4A261' }}>
+            {parsedNote.confidenceCaveat}
+          </p>
+        )}
 
         {/* Category tag */}
         {story.primaryCategory && (

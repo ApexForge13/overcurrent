@@ -99,6 +99,7 @@ export interface SynthesisResult {
     significance: string
     sortOrder: number
   }>
+  confidenceCaveat?: string
   costUsd: number
 }
 
@@ -388,6 +389,19 @@ ${JSON.stringify(
     parsed.confidence_level ?? parsed.confidenceLevel ?? 'DEVELOPING'
   const consensusScore: number =
     parsed.consensus_score ?? parsed.consensusScore ?? 0
+
+  // Source depth confidence adjustment — thin source sets shouldn't show 90%+ confidence
+  let adjustedConfidence = consensusScore
+  let confidenceCaveat: string | undefined
+
+  if (sourceCount < 30) {
+    adjustedConfidence = Math.min(adjustedConfidence, 75)
+    confidenceCaveat = `Limited source set (${sourceCount} sources) — confidence reflects agreement among available coverage, not comprehensive global analysis`
+  } else if (sourceCount < 50) {
+    adjustedConfidence = Math.min(adjustedConfidence, 85)
+    confidenceCaveat = `Based on ${sourceCount} sources — thinner coverage than typical global stories`
+  }
+
   const synopsis: string =
     parsed.summary ?? parsed.synopsis ?? ''
   const thePattern: string =
@@ -534,10 +548,11 @@ ${JSON.stringify(
   return {
     headline,
     confidenceLevel,
-    consensusScore,
+    consensusScore: adjustedConfidence,
     synopsis,
     thePattern,
     confidenceNote,
+    confidenceCaveat,
     claims,
     framingSplit,
     omissions,

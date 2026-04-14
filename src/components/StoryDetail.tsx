@@ -26,10 +26,12 @@ interface StoryDetailProps {
     analysisSeconds: number;
     createdAt: string | Date;
     publishedAt?: string | Date | null;
+    sourcesFrom?: string | Date | null;
+    sourcesTo?: string | Date | null;
     primaryCategory?: string | null;
     // New format fields (may not exist on old stories)
-    thePattern?: string;
-    framingSplit?: Array<{
+    thePattern?: string | null;
+    framingSplit?: string | null | Array<{
       frameName: string;
       outletCount: number;
       outletTypes: string;
@@ -238,6 +240,30 @@ function countModels(debateRounds?: StoryDetailProps["story"]["debateRounds"]): 
   return unique.size || 4;
 }
 
+function normalizeOutlet(name: string): string {
+  const aliases: Record<string, string> = {
+    'repubblica': 'La Repubblica',
+    'yonhapnews agency': 'Yonhap News Agency',
+  }
+  const lower = name.toLowerCase().trim()
+  return aliases[lower] || name
+}
+
+function getCategoryColor(category: string): string {
+  const colors: Record<string, string> = {
+    conflict: 'var(--accent-red, #E24B4A)',
+    economy: 'var(--accent-amber, #F4A261)',
+    politics: 'var(--accent-blue, #378ADD)',
+    tech: 'var(--accent-purple, #a855f7)',
+    labor: 'var(--accent-green, #00F5A0)',
+    climate: 'var(--accent-green, #00F5A0)',
+    health: 'var(--accent-teal, #2A9D8F)',
+    society: 'var(--accent-teal, #2A9D8F)',
+    trade: 'var(--accent-amber, #F4A261)',
+  }
+  return colors[category.toLowerCase()] || 'var(--accent-teal, #2A9D8F)'
+}
+
 /* ── Shared inline style constants ── */
 
 const mono: React.CSSProperties = { fontFamily: "var(--font-mono)" };
@@ -246,6 +272,22 @@ const body: React.CSSProperties = { fontFamily: "var(--font-body)" };
 /* ── Main Component ── */
 
 export function StoryDetail({ story }: StoryDetailProps) {
+  // Parse framingSplit from DB JSON string if needed
+  const framingSplitData: Array<{
+    frameName: string;
+    outletCount: number;
+    outletTypes: string;
+    ledWith: string;
+    omitted: string;
+    outlets: string;
+  }> = (() => {
+    if (Array.isArray(story.framingSplit)) return story.framingSplit;
+    if (typeof story.framingSplit === 'string') {
+      try { return JSON.parse(story.framingSplit); } catch { return []; }
+    }
+    return [];
+  })();
+
   const sortedClaims = [...story.claims].sort((a, b) => a.sortOrder - b.sortOrder);
   const confidenceColor = getConfidenceColor(story.confidenceLevel);
   const modelCount = countModels(story.debateRounds);
@@ -253,9 +295,10 @@ export function StoryDetail({ story }: StoryDetailProps) {
   // Deduplicate sources by outlet name within each region, then group by region
   const seenOutlets = new Map<string, typeof story.sources[0]>();
   for (const source of story.sources) {
-    const key = `${source.outlet}|${source.region}`;
+    const normalized = normalizeOutlet(source.outlet);
+    const key = `${normalized}|${source.region}`;
     if (!seenOutlets.has(key)) {
-      seenOutlets.set(key, source);
+      seenOutlets.set(key, { ...source, outlet: normalized });
     }
   }
   const dedupedSources = [...seenOutlets.values()];
@@ -399,8 +442,8 @@ export function StoryDetail({ story }: StoryDetailProps) {
               fontWeight: 600,
               letterSpacing: "0.08em",
               textTransform: "uppercase",
-              color: "var(--accent-teal, #2A9D8F)",
-              border: "1px solid var(--accent-teal, #2A9D8F)",
+              color: getCategoryColor(story.primaryCategory),
+              border: `1px solid ${getCategoryColor(story.primaryCategory)}`,
               padding: "3px 10px",
             }}>
               {story.primaryCategory.replace(/_/g, " ")}
@@ -500,6 +543,23 @@ export function StoryDetail({ story }: StoryDetailProps) {
             <span> · Last updated {new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
           )}
         </div>
+        {(story.sourcesFrom || story.sourcesTo) && (
+          <div style={{
+            ...mono,
+            fontSize: "11px",
+            color: "var(--text-tertiary)",
+            marginTop: "4px",
+          }}>
+            Sources collected: {story.sourcesFrom
+              ? new Date(story.sourcesFrom).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              : '?'
+            }
+            {story.sourcesTo && story.sourcesFrom && new Date(story.sourcesTo).getTime() !== new Date(story.sourcesFrom).getTime()
+              ? `–${new Date(story.sourcesTo).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+              : story.sourcesFrom ? `, ${new Date(story.sourcesFrom).getFullYear()}` : ''
+            }
+          </div>
+        )}
       </div>
 
       {/* ────────────────────────────────────────────────
@@ -665,7 +725,16 @@ export function StoryDetail({ story }: StoryDetailProps) {
                         marginTop: "4px",
                       }}
                     >
-                      Supported by {supportCount} outlet{supportCount !== 1 ? 's' : ''}{weightedLabel}: {supporters.join(", ")}
+                      Supported by {supportCount} outlet{supportCount !== 1 ? 's' : ''}{weightedLabel}
+                      {weightedLabel && (
+                        <span
+                          title="Weighted score accounts for outlet independence, reliability rating, and whether the source provided full article text or only a headline. Wire copy syndications are counted once, not per-outlet."
+                          style={{ cursor: 'help', marginLeft: '4px', opacity: 0.6 }}
+                        >
+                          &#9432;
+                        </span>
+                      )}
+                      : {supporters.join(", ")}
                     </p>
                   )}
                   {contradictors.length > 0 && (
@@ -701,13 +770,13 @@ export function StoryDetail({ story }: StoryDetailProps) {
       )}
 
       {/* ── FRAMING SPLIT ── */}
-      {(story.framingSplit && story.framingSplit.length > 0) ? (
+      {(framingSplitData && framingSplitData.length > 0) ? (
         <CollapsibleSection
           title="FRAMING SPLIT"
-          preview={`${story.framingSplit.length} distinct frames identified`}
+          preview={`${framingSplitData.length} distinct frames identified`}
           defaultOpen
         >
-          {story.framingSplit.map((frame, i) => (
+          {framingSplitData.map((frame, i) => (
             <div
               key={i}
               style={{

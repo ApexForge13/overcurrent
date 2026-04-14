@@ -74,7 +74,7 @@ function isRetryable(err: unknown): boolean {
   return false
 }
 
-export async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, label: string, baseDelay?: number): Promise<T> {
   let lastErr: unknown
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -82,7 +82,7 @@ export async function withRetry<T>(fn: () => Promise<T>, label: string): Promise
     } catch (err) {
       lastErr = err
       if (attempt < MAX_RETRIES && isRetryable(err)) {
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt)
+        const delay = (baseDelay ?? BASE_DELAY_MS) * Math.pow(2, attempt)
         console.warn(`[retry] ${label} attempt ${attempt + 1}/${MAX_RETRIES} failed (retryable). Waiting ${delay / 1000}s...`)
         await new Promise(r => setTimeout(r, delay))
       } else {

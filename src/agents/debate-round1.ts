@@ -102,7 +102,14 @@ export async function runRound1(
   storyId?: string,
 ): Promise<Round1Result> {
   const sourceText = sources
-    .map((s, i) => `[${i + 1}] ${s.outlet}: "${s.title}"\nURL: ${s.url}${s.content ? `\nContent: ${s.content.substring(0, 2000)}` : ''}`)
+    .map((s, i) => {
+      const contentLen = s.content?.length || 0
+      const quality = contentLen >= 200 ? 'FULL' : contentLen >= 50 ? 'PARTIAL' : contentLen > 0 ? 'SNIPPET' : 'NO_CONTENT'
+      const qualityNote = quality === 'SNIPPET' ? ` (${contentLen} chars — headline only, treat with caution)` :
+        quality === 'NO_CONTENT' ? ' (no article text available — headline only)' :
+        quality === 'PARTIAL' ? ` (${contentLen} chars — partial text)` : ''
+      return `[${i + 1}] ${s.outlet}: "${s.title}"\nFetch quality: ${quality}${qualityNote}\nURL: ${s.url}${s.content ? `\nContent: ${s.content.substring(0, 2000)}` : ''}`
+    })
     .join('\n\n')
 
   const userPrompt = `Analyze these ${sources.length} sources from ${region}:\n\n${sourceText}`

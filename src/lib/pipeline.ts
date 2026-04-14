@@ -422,17 +422,30 @@ export async function runVerifyPipeline(
     return true
   })
 
+  // Filter out stale articles (>7 days old)
+  const pipelineDate = new Date()
+  const sevenDaysAgo = new Date(pipelineDate.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const freshSources = dedupedSources.filter(s => {
+    if (!s.publishedAt) return true // keep sources with unknown dates
+    const d = new Date(s.publishedAt)
+    if (isNaN(d.getTime())) return true // keep unparseable dates
+    return d >= sevenDaysAgo
+  })
+  if (freshSources.length < dedupedSources.length) {
+    console.log(`[Pipeline] Filtered ${dedupedSources.length - freshSources.length} stale articles (>7 days old), ${freshSources.length} remain`)
+  }
+
   onProgress('search', {
     phase: 'search',
-    message: `Found ${rawSources.length} raw → ${dedupedSources.length} after per-outlet dedup, across ${countriesFound.size} countries in ${regionsFound.size} regions`,
-    sourceCount: dedupedSources.length,
+    message: `Found ${rawSources.length} raw → ${dedupedSources.length} after per-outlet dedup → ${freshSources.length} after freshness filter, across ${countriesFound.size} countries in ${regionsFound.size} regions`,
+    sourceCount: freshSources.length,
     countryCount: countriesFound.size,
     regionCount: regionsFound.size,
   })
 
   // ── PHASE 2: TRIAGE ──────────────────────────────────────────────────
 
-  const triageResult = await triageSources(dedupedSources, query)
+  const triageResult = await triageSources(freshSources, query)
   totalCost += triageResult.costUsd
 
   // Fallback: if triage returned 0 sources, use deduplicated sources with regional diversity
@@ -916,6 +929,19 @@ export async function runVerifyPipeline(
     uniqueSlug = `${slug}-${Date.now().toString(36)}`
   }
 
+  // Compute source collection date range
+  let sourcesFrom: Date | null = null
+  let sourcesTo: Date | null = null
+  for (const s of triageResult.sources) {
+    if (s.publishedAt) {
+      const d = new Date(s.publishedAt)
+      if (!isNaN(d.getTime())) {
+        if (!sourcesFrom || d < sourcesFrom) sourcesFrom = d
+        if (!sourcesTo || d > sourcesTo) sourcesTo = d
+      }
+    }
+  }
+
   const story = await prisma.$transaction(async (tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>) => {
     const story = await tx.story.create({
       data: {
@@ -943,6 +969,10 @@ export async function runVerifyPipeline(
         consensusScore: synthesisResult.consensusScore,
         totalCost,
         analysisSeconds: elapsedSeconds,
+        thePattern: synthesisResult.thePattern || null,
+        framingSplit: synthesisResult.framingSplit?.length ? JSON.stringify(synthesisResult.framingSplit) : null,
+        sourcesFrom: sourcesFrom,
+        sourcesTo: sourcesTo,
       },
     })
 
@@ -1100,7 +1130,7 @@ export async function runVerifyPipeline(
 
     const [redditPosts, twitterPosts] = await Promise.all([
       fetchRedditDiscourse(discourseKeywords, triageResult.suggestedCategory, 10, 50, new Date()),
-      fetchTwitterDiscourse(discourseKeywords, 10, 25), // 25 likes minimum — lower for breaking international news
+      fetchTwitterDiscourse(discourseKeywords, 10, 10), // 10 likes minimum
     ])
 
     console.log(`[discourse] Fetched ${redditPosts.length} Reddit + ${twitterPosts.length} Twitter/X posts`)

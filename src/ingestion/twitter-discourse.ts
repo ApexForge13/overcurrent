@@ -26,7 +26,7 @@ const NEWS_OUTLET_HANDLES = new Set([
 export async function fetchTwitterDiscourse(
   keywords: string[],
   maxPosts: number = 10,
-  minLikes: number = 50,
+  minLikes: number = 10,
 ): Promise<TwitterDiscoursePost[]> {
   const token = process.env.TWITTER_BEARER_TOKEN
   if (!token) {

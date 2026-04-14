@@ -91,6 +91,21 @@ If zero sources are relevant, return exactly: {"sources": []}
 Any text outside the JSON object will cause a system failure.`
 
 // ---------------------------------------------------------------------------
+// Outlet name normalization
+// ---------------------------------------------------------------------------
+
+const OUTLET_ALIASES: Record<string, string> = {
+  'repubblica': 'La Repubblica',
+  'yonhapnews agency': 'Yonhap News Agency',
+  'yonhapnews': 'Yonhap News Agency',
+}
+
+function normalizeOutletName(name: string): string {
+  const lower = name.toLowerCase().trim()
+  return OUTLET_ALIASES[lower] || name
+}
+
+// ---------------------------------------------------------------------------
 // Agent function
 // ---------------------------------------------------------------------------
 
@@ -260,7 +275,7 @@ export async function triageSources(
     sources: ((parsed.sources ?? []) as unknown as Record<string, unknown>[]).map((s) => ({
       url: String(s.url ?? ''),
       title: String(s.title ?? ''),
-      outlet: String(s.outlet ?? ''),
+      outlet: normalizeOutletName(String(s.outlet ?? '')),
       outletType: String(s.outletType ?? 'digital'),
       country: String(s.country ?? ''),
       region: String(s.region ?? ''),

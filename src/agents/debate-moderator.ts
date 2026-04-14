@@ -116,6 +116,7 @@ export async function runModerator(
   sources: Array<{ url: string; title: string; outlet: string; content?: string }>,
   query: string,
   storyId?: string,
+  failedModels?: Array<{ model: string; reason: string; round: string }>,
 ): Promise<ModeratorResult> {
   const r1Text = r1Results
     .map((r) => `=== ${r.modelName}'s Round 1 Analysis ===\n${JSON.stringify(r.analysis, null, 2)}`)
@@ -138,7 +139,7 @@ ${r1Text}
 ${r2Text}
 
 --- ORIGINAL SOURCES ---
-${sourceText}`
+${sourceText}${failedModels && failedModels.length > 0 ? `\n\n--- MODELS THAT FAILED ---\n${failedModels.map(f => `${f.model}: ${f.reason} (${f.round})`).join('\n')}\nNote: These models did not participate. Do not assume their agreement with consensus.` : ''}`
 
   const result = await callModel({
     provider: 'anthropic',

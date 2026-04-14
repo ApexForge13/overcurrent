@@ -33,7 +33,7 @@ export async function fetchRedditDiscourse(
   keywords: string[],
   category?: string,
   maxPosts: number = 10,
-  minUpvotes: number = 50,
+  minUpvotes: number = 25,
   storyDate?: Date,
 ): Promise<RedditDiscoursePost[]> {
   // Build subreddit list: always subs + category-specific

@@ -408,8 +408,23 @@ function RegionDebatePanel({ data, playing }: { data: RegionData; playing: boole
 
   const mod = data.moderator;
 
+  const r1Models = new Set(data.r1.map(r => r.modelName));
+
   return (
     <div className="space-y-6">
+      {r1Models.size < 4 && (
+        <div style={{
+          padding: '8px 12px',
+          marginBottom: '12px',
+          borderLeft: '2px solid var(--accent-amber, #F4A261)',
+          background: 'rgba(244, 162, 97, 0.05)',
+          fontSize: '12px',
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--text-tertiary)',
+        }}>
+          ⚠ {r1Models.size} of 4 models participated in this region&apos;s debate.
+        </div>
+      )}
       {/* ── Phase 1: Model Avatars + Findings ── */}
       <div>
         <h4

@@ -94,6 +94,7 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
   let outputTokens = 0
 
   const retryLabel = `callModel(${options.provider}/${model}, ${options.agentType})`
+  const retryDelay = options.provider === 'google' ? 10_000 : undefined
 
   if (options.provider === 'anthropic') {
     const client = getAnthropic()
@@ -108,7 +109,7 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
           messages: [{ role: 'user', content: options.userMessage }],
         })
         return stream.finalMessage()
-      }, retryLabel)
+      }, retryLabel, retryDelay)
 
       text = finalMessage.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -122,7 +123,7 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
         max_tokens: maxTokens,
         system: options.system,
         messages: [{ role: 'user', content: options.userMessage }],
-      }), retryLabel)
+      }), retryLabel, retryDelay)
 
       text = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -146,7 +147,7 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
         { role: 'system', content: options.system },
         { role: 'user', content: options.userMessage },
       ],
-    }), retryLabel)
+    }), retryLabel, retryDelay)
 
     text = response.choices[0]?.message?.content ?? ''
     inputTokens = response.usage?.prompt_tokens ?? 0
@@ -155,7 +156,7 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
   } else if (options.provider === 'google') {
     const client = getGoogle()
     const genModel = client.getGenerativeModel({ model, systemInstruction: options.system })
-    const response = await withRetry(() => genModel.generateContent(options.userMessage), retryLabel)
+    const response = await withRetry(() => genModel.generateContent(options.userMessage), retryLabel, retryDelay)
 
     text = response.response.text()
     inputTokens = response.response.usageMetadata?.promptTokenCount ?? 0

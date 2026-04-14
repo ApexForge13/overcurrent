@@ -404,7 +404,7 @@ function createCountryFillMesh(ring: number[][], status: string | null): THREE.M
 
 interface CountryBordersProps {
   globeRotation:    React.MutableRefObject<number>
-  activeRegions?:   Map<string, { status: string }>
+  activeRegions?:   Map<string, { status: string; border_status?: string }>
   secondaryStatuses?: Map<string, string>
 }
 
@@ -478,17 +478,19 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
     countryLines.forEach(({ line, regionId }) => {
       const mat           = line.material as THREE.LineBasicMaterial
       const regionData    = activeRegions?.get(regionId)
-      const primaryStatus = regionData?.status
+      // Border lines use border_status (how the country RECEIVED the story)
+      // NOT fill_status (how they REPORTED it) — these are different concepts
+      const borderStatus  = regionData?.border_status ?? regionData?.status
       const secondaryStatus = secondaryStatuses?.get(regionId)
 
-      if (primaryStatus) {
-        const hasDual = !!secondaryStatus && secondaryStatus !== primaryStatus
+      if (borderStatus) {
+        const hasDual = !!secondaryStatus && secondaryStatus !== borderStatus
         if (hasDual) {
-          // BORDER stays PRIMARY status color (e.g., green for original)
-          mat.color.set(STATUS_COLORS[primaryStatus] || '#8A8A9E')
+          // BORDER uses border_status color (how the story arrived)
+          mat.color.set(STATUS_COLORS[borderStatus] || '#8A8A9E')
           mat.opacity = 0.85
         } else {
-          const sc = STATUS_COLORS[primaryStatus]
+          const sc = STATUS_COLORS[borderStatus]
           mat.color.set(sc && sc !== STATUS_COLORS.silent ? sc : '#8A8A9E')
           mat.opacity = 0.85
         }

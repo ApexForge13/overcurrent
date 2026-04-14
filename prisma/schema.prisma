@@ -29,6 +29,10 @@ model Story {
   consensusScore    Int      @default(0)
   totalCost         Float    @default(0)
   analysisSeconds   Int      @default(0)
+  thePattern        String?
+  framingSplit      String?   // JSON array
+  sourcesFrom       DateTime?
+  sourcesTo         DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   sources           Source[]

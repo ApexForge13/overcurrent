@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { CATEGORIES, CATEGORY_SLUGS, getCategoryColor } from "@/data/categories";
+import { createClient } from "@/lib/supabase/client";
 
 interface StoryItem {
   id: string;
@@ -67,6 +68,17 @@ export default function HomePage() {
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.email === 'connermhecht13@gmail.com') setIsAdmin(true);
+      } catch { /* not logged in */ }
+    })();
+  }, []);
 
   async function handleDelete(id: string, headline: string) {
     if (!confirm(`Delete "${headline}"?\n\nThis will permanently remove the story and all its data.`)) return;
@@ -248,21 +260,23 @@ export default function HomePage() {
             {/* Featured story — 60% */}
             {featured && (
               <div className="lg:w-[58%] relative">
-                <button
-                  onClick={() => handleDelete(featured.id, featured.headline)}
-                  title="Delete story"
-                  style={{
-                    position: 'absolute', top: 0, right: 0,
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    fontFamily: 'var(--font-mono)', fontSize: '14px',
-                    color: 'var(--text-tertiary)', padding: '4px 8px',
-                    opacity: 0.5, transition: 'opacity 150ms, color 150ms',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-                >
-                  {"\u2715"}
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => handleDelete(featured.id, featured.headline)}
+                    title="Delete story"
+                    style={{
+                      position: 'absolute', top: 0, right: 0,
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontFamily: 'var(--font-mono)', fontSize: '14px',
+                      color: 'var(--text-tertiary)', padding: '4px 8px',
+                      opacity: 0.5, transition: 'opacity 150ms, color 150ms',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+                  >
+                    {"\u2715"}
+                  </button>
+                )}
                 <a href={`/story/${featured.slug}`} className="block group">
                   <div className="flex items-center gap-3 mb-3">
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: confidenceColor(featured.confidenceLevel) }}>
@@ -317,21 +331,23 @@ export default function HomePage() {
                     className="relative py-4 border-b"
                     style={{ borderColor: 'var(--border-primary)' }}
                   >
-                    <button
-                      onClick={() => handleDelete(story.id, story.headline)}
-                      title="Delete story"
-                      style={{
-                        position: 'absolute', top: '12px', right: 0,
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontFamily: 'var(--font-mono)', fontSize: '12px',
-                        color: 'var(--text-tertiary)', padding: '2px 6px',
-                        opacity: 0.4, transition: 'opacity 150ms, color 150ms',
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-                    >
-                      {"\u2715"}
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDelete(story.id, story.headline)}
+                        title="Delete story"
+                        style={{
+                          position: 'absolute', top: '12px', right: 0,
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          fontFamily: 'var(--font-mono)', fontSize: '12px',
+                          color: 'var(--text-tertiary)', padding: '2px 6px',
+                          opacity: 0.4, transition: 'opacity 150ms, color 150ms',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+                      >
+                        {"\u2715"}
+                      </button>
+                    )}
                     <a
                       href={`/story/${story.slug}`}
                       className="block group transition-colors"

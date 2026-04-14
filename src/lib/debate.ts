@@ -87,6 +87,14 @@ export async function runRegionalDebate(
   )
   const validR1 = r1Results.filter((r): r is NonNullable<typeof r> => r !== null)
 
+  const failedModels = analysts
+    .filter(a => !validR1.some(r => r.modelName === a.name))
+    .map(a => ({ model: a.name, reason: 'R1 failed or timed out', round: 'R1' }))
+
+  if (failedModels.length > 0) {
+    console.log(`[Debate] ${region}: ${failedModels.length} model(s) failed R1: ${failedModels.map(f => f.model).join(', ')}`)
+  }
+
   onProgress?.(`R1 complete: ${validR1.length} models responded for ${region}`)
 
   // Need at least 2 models for a debate
@@ -138,7 +146,7 @@ export async function runRegionalDebate(
   // === ROUND 3: Moderator Synthesis ===
   onProgress?.(`R3: Moderator synthesizing ${region}...`)
 
-  const modResult = await runModerator(region, validR1, validR2, sources, query, storyId)
+  const modResult = await runModerator(region, validR1, validR2, sources, query, storyId, failedModels)
   debateRounds.push({
     region, round: 3, modelName: MODERATOR.name, provider: MODERATOR.provider,
     content: modResult.output, inputTokens: modResult.inputTokens, outputTokens: modResult.outputTokens, costUsd: modResult.costUsd,

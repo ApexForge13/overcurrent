@@ -50,9 +50,9 @@ export const COUNTRY_TO_MAP_REGION: Record<string, string> = {
 
 export const PROPAGATION_STATUS = {
   original:     { color: '#2A9D8F', label: 'Original' },
-  wire_copy:    { color: '#457B9D', label: 'Wire copy' },
+  wire_copy:    { color: '#378ADD', label: 'Wire copy' },
   reframed:     { color: '#F4A261', label: 'Reframed' },
-  contradicted: { color: '#E63946', label: 'Contradicted' },
+  contradicted: { color: '#E24B4A', label: 'Contradicted' },
   silent:       { color: '#5C5A56', label: 'Silent' },
 } as const
 

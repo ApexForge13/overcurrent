@@ -95,9 +95,9 @@ const REGION_LABELS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, string> = {
   original:            '#2A9D8F',
-  wire_copy:           '#457B9D',
+  wire_copy:           '#378ADD',
   reframed:            '#F4A261',
-  contradicted:        '#E63946',
+  contradicted:        '#E24B4A',
   silent:              '#2A2A2E',
   no_coverage:         '#1A1A1E',
   adjacent_coverage:   '#3D3D44',
@@ -806,7 +806,7 @@ function RegionMarkers({
     meshMap.current.forEach((mesh, regionId) => {
       const data     = activeRegions.get(regionId)
       const isActive = !!data
-      const color    = new THREE.Color(statusColor(data?.status ?? 'silent'))
+      const color    = new THREE.Color(statusColor(data?.border_status ?? data?.status ?? 'silent'))
 
       let phase = pulsePhase.current.get(regionId) ?? 0
       if (isActive) {
@@ -819,7 +819,7 @@ function RegionMarkers({
         const brightness = 0.7 + Math.sin(phase) * 0.3
         mat.color.copy(color).multiplyScalar(brightness)
         mat.opacity = 0.9
-        const baseScale = data?.status === 'original' ? 1.6 : 1.1
+        const baseScale = (data?.border_status ?? data?.status) === 'original' ? 1.6 : 1.1
         mesh.scale.setScalar(baseScale + Math.sin(phase) * 0.1)
       } else {
         mat.color.set('#333340')
@@ -936,7 +936,7 @@ function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] 
   if (regions.length < 2) return frame.flows || []
 
   // Use origin if available, otherwise use the first region (highest coverage) as hub
-  const origin = regions.find((r) => r.status === 'original') || regions[0]
+  const origin = regions.find((r) => (r.border_status ?? r.status) === 'original') || regions[0]
 
   const flows: TimelineFrame['flows'] = [...(frame.flows || [])]
   const existingFlowKeys = new Set(flows.map((f) => `${f.from}-${f.to}`))
@@ -946,9 +946,7 @@ function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] 
     if (region.region_id === origin.region_id) continue
     const key = `${origin.region_id}-${region.region_id}`
     if (existingFlowKeys.has(key)) continue
-    // If destination is ALSO an original source, the flow is "contradicted"
-    // (two competing original narratives = contradiction)
-    const flowType = region.status === 'original' ? 'contradicted' : region.status
+    const flowType = region.border_status ?? region.status
     flows.push({ from: origin.region_id, to: region.region_id, type: flowType })
     existingFlowKeys.add(key)
   }
@@ -956,16 +954,19 @@ function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] 
   // Cross-flows between non-origin regions with different statuses
   for (let i = 0; i < regions.length; i++) {
     for (let j = i + 1; j < regions.length; j++) {
+      const statusI = regions[i].border_status ?? regions[i].status
+      const statusJ = regions[j].border_status ?? regions[j].status
       if (
-        regions[i].status !== regions[j].status &&
-        regions[i].status !== 'original' &&
-        regions[j].status !== 'original'
+        statusI !== statusJ &&
+        statusI !== 'original' &&
+        statusJ !== 'original'
       ) {
         const key = `${regions[i].region_id}-${regions[j].region_id}`
         if (existingFlowKeys.has(key)) continue
-        const from = regions[i].status === 'wire_copy' ? regions[i] : regions[j]
-        const to   = regions[i].status === 'wire_copy' ? regions[j] : regions[i]
-        flows.push({ from: from.region_id, to: to.region_id, type: to.status })
+        const from = statusI === 'wire_copy' ? regions[i] : regions[j]
+        const to   = statusI === 'wire_copy' ? regions[j] : regions[i]
+        const toStatus = to === regions[i] ? statusI : statusJ
+        flows.push({ from: from.region_id, to: to.region_id, type: toStatus })
         existingFlowKeys.add(key)
       }
     }
@@ -1635,7 +1636,7 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
                       width:        '6px',
                       height:       '6px',
                       borderRadius: '50%',
-                      background:   statusColor(r.status),
+                      background:   statusColor(r.border_status ?? r.status),
                       flexShrink:   0,
                     }}
                   />

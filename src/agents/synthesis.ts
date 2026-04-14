@@ -518,6 +518,7 @@ ${JSON.stringify(
     regions: (frame.regions ?? []).map((r: any) => ({
       region_id: String(r.region_id ?? ''),
       status: String(r.status ?? 'silent'),
+      border_status: r.border_status ? String(r.border_status) : undefined,
       coverage_volume: Number(r.coverage_volume ?? 0),
       dominant_quote: String(r.dominant_quote ?? ''),
       outlet_count: Number(r.outlet_count ?? 0),

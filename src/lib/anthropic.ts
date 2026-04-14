@@ -57,6 +57,7 @@ export async function getTotalCost(): Promise<number> {
 
 const MAX_RETRIES = 3
 const BASE_DELAY_MS = 5_000 // 5s, 10s, 20s
+const SYNTHESIS_DELAY_MS = 10_000 // 10s, 20s, 40s — longer for big prompts
 
 function isRetryable(err: unknown): boolean {
   if (err && typeof err === 'object') {
@@ -64,12 +65,14 @@ function isRetryable(err: unknown): boolean {
     // Anthropic SDK errors — status codes
     if (e.status === 529 || e.status === 503 || e.status === 429 || e.status === 500) return true
     // Message-based detection (all providers)
-    if (typeof e.message === 'string' && /overloaded|rate.?limit|capacity|too many|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed/i.test(e.message)) return true
+    // "terminated" = Anthropic SDK stream dropped mid-generation (MessageStream.ts)
+    if (typeof e.message === 'string' && /overloaded|rate.?limit|capacity|too many|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed|terminated|stream.*closed|connection.*reset|aborted/i.test(e.message)) return true
     // Nested error shape from API response
     const inner = e.error as Record<string, unknown> | undefined
     if (inner?.type === 'overloaded_error') return true
     // Anthropic SDK APIConnectionError (network failures)
-    if (e.constructor && (e.constructor as { name?: string }).name === 'APIConnectionError') return true
+    const ctorName = e.constructor && (e.constructor as { name?: string }).name
+    if (ctorName === 'APIConnectionError' || ctorName === 'APIConnectionTimeoutError') return true
   }
   return false
 }
@@ -134,7 +137,14 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
   let inputTokens = 0
   let outputTokens = 0
 
+  // Log prompt size for debugging oversized inputs
+  const promptChars = systemPrompt.length + userPrompt.length
+  const estimatedTokens = Math.ceil(promptChars / 3.5) // rough estimate
+  console.log(`[callClaude] ${agentType} | model=${model} | ~${estimatedTokens.toLocaleString()} input tokens (${(promptChars / 1024).toFixed(0)}KB) | maxTokens=${maxTokens}`)
+
   const retryLabel = `callClaude(${model}, ${agentType})`
+  // Use longer backoff for synthesis — large prompts need more breathing room
+  const baseDelay = agentType === 'synthesis' ? SYNTHESIS_DELAY_MS : undefined
 
   if (useStreaming) {
     const finalMessage = await withRetry(async () => {
@@ -145,7 +155,7 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
         messages: [{ role: 'user', content: userPrompt }],
       })
       return stream.finalMessage()
-    }, retryLabel)
+    }, retryLabel, baseDelay)
 
     text = finalMessage.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
@@ -159,7 +169,7 @@ export async function callClaude(options: CallClaudeOptions): Promise<CallClaude
       max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
-    }), retryLabel)
+    }), retryLabel, baseDelay)
 
     text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')

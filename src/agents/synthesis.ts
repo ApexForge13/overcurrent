@@ -291,6 +291,76 @@ Response shape:
 }`
 
 // ---------------------------------------------------------------------------
+// Input size management
+// ---------------------------------------------------------------------------
+
+/**
+ * Estimated token count for a string (~3.5 chars per token for English).
+ */
+function estimateTokens(s: string): number {
+  return Math.ceil(s.length / 3.5)
+}
+
+/**
+ * Truncate regional analyses to fit within a target token budget.
+ * Strategy: keep claims + discrepancies + framingAnalysis (essential),
+ * truncate notes/long strings, drop sourceSummaries entirely (already excluded).
+ * If still too large, cap claims per region.
+ */
+function truncateRegionalData(
+  analyses: RegionalAnalysis[],
+  maxTokens: number,
+): Array<{ region: string; claims: unknown[]; discrepancies: unknown[]; framingAnalysis: unknown; omissions: unknown[] }> {
+  const mapped = analyses.map((r) => ({
+    region: r.region,
+    claims: r.claims.map((c) => ({
+      ...c,
+      // Truncate long notes
+      notes: c.notes && c.notes.length > 200 ? c.notes.substring(0, 200) + '...' : c.notes,
+      // Cap supportedBy/contradictedBy lists
+      supportedBy: c.supportedBy.slice(0, 8),
+      contradictedBy: c.contradictedBy.slice(0, 5),
+    })),
+    discrepancies: r.discrepancies,
+    framingAnalysis: r.framingAnalysis,
+    omissions: r.omissions,
+  }))
+
+  let serialized = JSON.stringify(mapped, null, 2)
+  let tokens = estimateTokens(serialized)
+
+  // If within budget, return as-is
+  if (tokens <= maxTokens) return mapped
+
+  // Second pass: cap claims at 8 per region, discrepancies at 5
+  const trimmed = mapped.map((r) => ({
+    ...r,
+    claims: r.claims.slice(0, 8),
+    discrepancies: r.discrepancies.slice(0, 5),
+    omissions: r.omissions.slice(0, 5),
+  }))
+
+  serialized = JSON.stringify(trimmed, null, 2)
+  tokens = estimateTokens(serialized)
+
+  if (tokens <= maxTokens) {
+    console.log(`[Synthesis] Trimmed regional data from ${analyses.reduce((n, r) => n + r.claims.length, 0)} claims to ${trimmed.reduce((n, r) => n + r.claims.length, 0)} (~${tokens.toLocaleString()} tokens)`)
+    return trimmed
+  }
+
+  // Third pass: cap claims at 5 per region, remove omissions
+  const aggressive = trimmed.map((r) => ({
+    ...r,
+    claims: r.claims.slice(0, 5),
+    discrepancies: r.discrepancies.slice(0, 3),
+    omissions: [],
+  }))
+
+  console.log(`[Synthesis] Aggressively trimmed regional data to ~${estimateTokens(JSON.stringify(aggressive, null, 2)).toLocaleString()} tokens`)
+  return aggressive
+}
+
+// ---------------------------------------------------------------------------
 // Agent function
 // ---------------------------------------------------------------------------
 
@@ -313,22 +383,16 @@ export async function synthesize(
     ? `\n\nPre-computed propagation timeline (based on real publication timestamps — use these exact time buckets, do NOT invent new ones):\n${JSON.stringify(preComputedTimeline, null, 2)}`
     : ''
 
+  // Budget: ~120K tokens for input (Opus context = 200K, need room for 32K output + system prompt)
+  const REGIONAL_TOKEN_BUDGET = 100_000
+  const truncatedRegional = truncateRegionalData(regionalAnalyses, REGIONAL_TOKEN_BUDGET)
+
   const userPrompt = `Topic: ${query}
 
 Coverage scope: ${sourceCount} sources, ${countryCount} countries, ${regionCount} regions
 
 Regional analyses:
-${JSON.stringify(
-  regionalAnalyses.map((r) => ({
-    region: r.region,
-    claims: r.claims,
-    discrepancies: r.discrepancies,
-    framingAnalysis: r.framingAnalysis,
-    omissions: r.omissions,
-  })),
-  null,
-  2,
-)}
+${JSON.stringify(truncatedRegional, null, 2)}
 
 Regions with zero coverage:
 ${JSON.stringify(

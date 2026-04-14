@@ -127,7 +127,7 @@ function buildUrl(query: string, maxrecords: number = 250): string {
  */
 async function fetchGdeltQuery(query: string, maxrecords: number = 250): Promise<GdeltResult[]> {
   const url = buildUrl(query, maxrecords)
-  const delays = [0, 2000, 5000]
+  const delays = [0, 3000, 8000]
 
   for (let attempt = 0; attempt < 3; attempt++) {
     if (delays[attempt] > 0) {
@@ -138,6 +138,13 @@ async function fetchGdeltQuery(query: string, maxrecords: number = 250): Promise
     try {
       const response = await fetchWithTimeout(url, 20_000)
 
+      // 429 = rate limited — retryable
+      if (response.status === 429) {
+        console.warn(`[GDELT] Rate limited (429) on attempt ${attempt + 1}. Query: ${query}`)
+        continue
+      }
+
+      // Other 4xx = bad request — not retryable
       if (response.status >= 400 && response.status < 500) {
         console.warn(`[GDELT] Client error ${response.status} — not retrying. Query: ${query}`)
         return []

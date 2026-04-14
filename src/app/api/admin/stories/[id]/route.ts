@@ -35,3 +35,15 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const story = await prisma.story.update({ where: { id }, data })
   return Response.json(story)
 }
+
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+
+  try {
+    await prisma.story.delete({ where: { id } })
+    return Response.json({ ok: true })
+  } catch (err) {
+    console.error('Failed to delete story:', err)
+    return Response.json({ error: 'Story not found or delete failed' }, { status: 404 })
+  }
+}

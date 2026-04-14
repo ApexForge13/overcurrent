@@ -5,6 +5,7 @@ import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { CATEGORIES, CATEGORY_SLUGS, getCategoryColor } from "@/data/categories";
 
 interface StoryItem {
+  id: string;
   slug: string;
   headline: string;
   synopsis: string;
@@ -66,6 +67,20 @@ export default function HomePage() {
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  async function handleDelete(id: string, headline: string) {
+    if (!confirm(`Delete "${headline}"?\n\nThis will permanently remove the story and all its data.`)) return;
+    try {
+      const res = await fetch(`/api/admin/stories/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setStories(prev => prev.filter(s => s.id !== id));
+      } else {
+        alert('Failed to delete story');
+      }
+    } catch {
+      alert('Failed to delete story');
+    }
+  }
 
   const fetchFeed = useCallback(async () => {
     try {
@@ -232,43 +247,60 @@ export default function HomePage() {
           <div className="flex gap-12 flex-col lg:flex-row">
             {/* Featured story — 60% */}
             {featured && (
-              <a href={`/story/${featured.slug}`} className="lg:w-[58%] block group">
-                <div className="flex items-center gap-3 mb-3">
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: confidenceColor(featured.confidenceLevel) }}>
-                    {featured.confidenceLevel}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                    {featured.consensusScore}% consensus
-                  </span>
-                </div>
-                <h2
-                  className="group-hover:opacity-80 transition-opacity"
+              <div className="lg:w-[58%] relative">
+                <button
+                  onClick={() => handleDelete(featured.id, featured.headline)}
+                  title="Delete story"
                   style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: '36px',
-                    fontWeight: 700,
-                    lineHeight: 1.15,
-                    letterSpacing: '-0.02em',
-                    color: 'var(--text-primary)',
+                    position: 'absolute', top: 0, right: 0,
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontFamily: 'var(--font-mono)', fontSize: '14px',
+                    color: 'var(--text-tertiary)', padding: '4px 8px',
+                    opacity: 0.5, transition: 'opacity 150ms, color 150ms',
                   }}
+                  onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
                 >
-                  {featured.headline}
-                </h2>
-                <p className="mt-4 line-clamp-3" style={{ fontFamily: 'var(--font-body)', fontSize: '16px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-                  {featured.synopsis?.replace(/<[^>]*>/g, '').substring(0, 300)}
-                </p>
-                <div className="mt-4 flex items-center gap-4">
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                    {featured.sourceCount} sources
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                    {featured.countryCount} countries
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                    {timeAgo(featured.createdAt)}
-                  </span>
-                </div>
-              </a>
+                  {"\u2715"}
+                </button>
+                <a href={`/story/${featured.slug}`} className="block group">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: confidenceColor(featured.confidenceLevel) }}>
+                      {featured.confidenceLevel}
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                      {featured.consensusScore}% consensus
+                    </span>
+                  </div>
+                  <h2
+                    className="group-hover:opacity-80 transition-opacity"
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '36px',
+                      fontWeight: 700,
+                      lineHeight: 1.15,
+                      letterSpacing: '-0.02em',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    {featured.headline}
+                  </h2>
+                  <p className="mt-4 line-clamp-3" style={{ fontFamily: 'var(--font-body)', fontSize: '16px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                    {featured.synopsis?.replace(/<[^>]*>/g, '').substring(0, 300)}
+                  </p>
+                  <div className="mt-4 flex items-center gap-4">
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                      {featured.sourceCount} sources
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                      {featured.countryCount} countries
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                      {timeAgo(featured.createdAt)}
+                    </span>
+                  </div>
+                </a>
+              </div>
             )}
 
             {/* Story list — 40% */}
@@ -280,40 +312,59 @@ export default function HomePage() {
               </div>
               <div>
                 {rest.map((story) => (
-                  <a
+                  <div
                     key={story.slug}
-                    href={`/story/${story.slug}`}
-                    className="block py-4 border-b group transition-colors"
+                    className="relative py-4 border-b"
                     style={{ borderColor: 'var(--border-primary)' }}
                   >
-                    <h3
-                      className="group-hover:opacity-70 transition-opacity"
+                    <button
+                      onClick={() => handleDelete(story.id, story.headline)}
+                      title="Delete story"
                       style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: '18px',
-                        fontWeight: 600,
-                        lineHeight: 1.3,
-                        letterSpacing: '-0.01em',
-                        color: 'var(--text-primary)',
+                        position: 'absolute', top: '12px', right: 0,
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        fontFamily: 'var(--font-mono)', fontSize: '12px',
+                        color: 'var(--text-tertiary)', padding: '2px 6px',
+                        opacity: 0.4, transition: 'opacity 150ms, color 150ms',
                       }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
                     >
-                      {story.headline}
-                    </h3>
-                    <div className="mt-2 flex items-center gap-3">
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' as const, color: confidenceColor(story.confidenceLevel) }}>
-                        {story.confidenceLevel}
-                      </span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                        {story.consensusScore}%
-                      </span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                        {story.sourceCount} sources
-                      </span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                        {timeAgo(story.createdAt)}
-                      </span>
-                    </div>
-                  </a>
+                      {"\u2715"}
+                    </button>
+                    <a
+                      href={`/story/${story.slug}`}
+                      className="block group transition-colors"
+                    >
+                      <h3
+                        className="group-hover:opacity-70 transition-opacity pr-6"
+                        style={{
+                          fontFamily: 'var(--font-display)',
+                          fontSize: '18px',
+                          fontWeight: 600,
+                          lineHeight: 1.3,
+                          letterSpacing: '-0.01em',
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        {story.headline}
+                      </h3>
+                      <div className="mt-2 flex items-center gap-3">
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' as const, color: confidenceColor(story.confidenceLevel) }}>
+                          {story.confidenceLevel}
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                          {story.consensusScore}%
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                          {story.sourceCount} sources
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                          {timeAgo(story.createdAt)}
+                        </span>
+                      </div>
+                    </a>
+                  </div>
                 ))}
               </div>
             </div>

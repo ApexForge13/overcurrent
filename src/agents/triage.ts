@@ -122,10 +122,10 @@ export async function triageSources(
     console.log(`[Triage]   ${region}: ${sources.length} sources`)
   }
 
-  // ── BUILD REGION-GROUPED BATCHES OF ~25 ──────────────────────────────
-  // 25 sources per batch keeps Haiku well within its effective processing
-  // limit. Each batch is homogeneous by region for better relevance scoring.
-  const BATCH_SIZE = 25
+  // ── BUILD REGION-GROUPED BATCHES OF ~10 ──────────────────────────────
+  // 10 sources per batch keeps Haiku focused and reduces JSON parse failures.
+  // Each batch is homogeneous by region for better relevance scoring.
+  const BATCH_SIZE = 10
   const allTriagedSources: Record<string, unknown>[] = []
   let costUsd = 0
   let suggestedCategory = 'society'

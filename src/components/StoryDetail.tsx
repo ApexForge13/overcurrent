@@ -365,142 +365,139 @@ export function StoryDetail({ story }: StoryDetailProps) {
     evidence_status: q.evidenceStatus,
   }));
 
+  // ── Zone 1 prep: "What The World Missed" (top 3 buried + top 2 omissions) ──
+  const topBuried = (buriedEvidenceItems || []).slice(0, 3);
+  const topOmissions = story.omissions.slice(0, 2);
+  const hasWorldMissed = topBuried.length > 0 || topOmissions.length > 0;
+
+  // ── Zone 1 prep: "Framing at a Glance" (top 3 frames, one sentence each) ──
+  const glanceFrames = framingSplitData.length > 0
+    ? framingSplitData.slice(0, 3)
+    : story.framings.slice(0, 3).map(f => ({
+        frameName: f.region,
+        outletCount: 0,
+        outletTypes: '',
+        ledWith: f.framing,
+        omitted: '',
+        outlets: '',
+      }));
+
+  // ── Zone 2 prep: claims split ──
+  const CLAIMS_PREVIEW = 5;
+  const previewClaims = sortedClaims.slice(0, CLAIMS_PREVIEW);
+  const remainingClaims = sortedClaims.slice(CLAIMS_PREVIEW);
+
+  // ── Zone 3: Shareable stats ──
+  const shareableStats: string[] = [];
+  shareableStats.push(`${story.sourceCount} outlets. ${story.countryCount} countries. ${modelCount} AI models argued about this.`);
+  if (topBuried[0]) {
+    const missed = topBuried[0].notPickedUpBy?.length || 0;
+    if (missed > 0) shareableStats.push(`${missed} outlets covered the story but missed: "${topBuried[0].fact.substring(0, 100)}"`);
+  }
+  const factsKilled = (factSurvivalItems || []).filter((f: {diedAt: string}) => f.diedAt !== 'survived_all');
+  if (factsKilled.length > 0) {
+    shareableStats.push(`"${factsKilled[0].fact}" died at the ${factsKilled[0].diedAt} boundary.`);
+  }
+  if (story.thePattern) shareableStats.push(story.thePattern);
+
+  // ── Claim rendering helper ──
+  function renderClaim(claim: typeof sortedClaims[0], i: number) {
+    const iconColor = getClaimIconColor(claim.confidence);
+    const icon = getClaimIcon(claim.confidence);
+    const supporters = parseList(claim.supportedBy);
+    const contradictors = parseList(claim.contradictedBy);
+    const SOURCE_WEIGHTS: Record<string, number> = { state: 0.5, wire: 0.3, tabloid: 0.6, digital: 0.8, newspaper: 1.0, broadcaster: 1.0 };
+    const sourcesByOutlet = new Map((story.sources || []).map(s => [s.outlet.toLowerCase(), s]));
+    let weightedSupport = 0; let wireCopyCount = 0;
+    for (const name of supporters) {
+      const src = sourcesByOutlet.get(name.toLowerCase());
+      const type = src?.outletType?.toLowerCase() || 'digital';
+      weightedSupport += SOURCE_WEIGHTS[type] ?? 0.8;
+      if (type === 'wire') wireCopyCount++;
+    }
+    const total = supporters.length + contradictors.length;
+    const rawPct = total > 0 ? Math.round((supporters.length / total) * 100) : 0;
+    let maxPct = 100;
+    if (weightedSupport <= 0.5) maxPct = 25; else if (weightedSupport <= 1) maxPct = 40;
+    else if (weightedSupport <= 2) maxPct = 55; else if (weightedSupport <= 4) maxPct = 70;
+    else if (weightedSupport <= 7) maxPct = 85; else maxPct = 95;
+    const displayPct = claim.consensusPct > 0 ? Math.min(claim.consensusPct, maxPct) : Math.min(rawPct, maxPct);
+    const weightedLabel = weightedSupport !== supporters.length
+      ? ` (weighted: ${weightedSupport.toFixed(1)}${wireCopyCount > 0 ? ` · ${wireCopyCount} wire` : ''})` : '';
+
+    return (
+      <div key={i} style={{ padding: "16px 0", borderBottom: "1px solid var(--border-primary)", display: "flex", alignItems: "flex-start", gap: "12px" }}>
+        <span style={{ ...mono, fontSize: "14px", color: iconColor, flexShrink: 0, width: "20px", textAlign: "center" }}>{icon}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.5 }}>{claim.claim}</p>
+          <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ width: "80px", height: "3px", background: "var(--border-primary)" }}>
+              <div style={{ width: `${Math.max(0, Math.min(100, displayPct))}%`, height: "100%", background: iconColor }} />
+            </div>
+            <span style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)" }}>{displayPct}%</span>
+          </div>
+          {supporters.length > 0 && (
+            <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+              Supported by {supporters.length} outlet{supporters.length !== 1 ? 's' : ''}{weightedLabel}
+              {weightedLabel && <span title="Weighted score accounts for outlet independence, reliability rating, and whether the source provided full article text or only a headline." style={{ cursor: 'help', marginLeft: '4px', opacity: 0.6 }}>&#9432;</span>}
+              : {supporters.join(", ")}
+            </p>
+          )}
+          {contradictors.length > 0 && (
+            <p style={{ ...mono, fontSize: "11px", color: "var(--accent-red)", marginTop: "4px" }}>Contradicted by: {contradictors.join(", ")}</p>
+          )}
+          {claim.notes && <p style={{ ...body, fontSize: "13px", color: "var(--text-tertiary)", fontStyle: "italic", marginTop: "8px" }}>{claim.notes}</p>}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <article
-      className="story-article"
-      style={{
-        maxWidth: "720px",
-        margin: "0 auto",
-        padding: "0 24px 80px",
-      }}
-    >
-      {/* ────────────────────────────────────────────────
-          1. DISCLAIMER BAR
-          ──────────────────────────────────────────────── */}
-      <div
-        style={{
-          padding: "10px 0",
-          borderBottom: "1px solid var(--border-primary)",
-          fontSize: "12px",
-          color: "var(--text-tertiary)",
-          ...body,
-        }}
-      >
+    <article className="story-article" style={{ maxWidth: "720px", margin: "0 auto", padding: "0 24px 80px" }}>
+
+      {/* DISCLAIMER */}
+      <div style={{ padding: "10px 0", borderBottom: "1px solid var(--border-primary)", fontSize: "12px", color: "var(--text-tertiary)", ...body }}>
         Coverage analysis, not journalism. We could be wrong.
       </div>
 
-      {/* ────────────────────────────────────────────────
-          2. VERDICT CARD
-          ──────────────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════
+          ZONE 1 — THE STORY (above the fold, 60-second read)
+          ═══════════════════════════════════════════════════════ */}
+
       <div style={{ marginTop: "32px" }}>
-        {/* Confidence bar row */}
-        <div
-          className="confidence-row"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            ...mono,
-          }}
-        >
-          <span
-            style={{
-              fontSize: "11px",
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: confidenceColor,
-              whiteSpace: "nowrap",
-            }}
-          >
+        {/* Confidence bar */}
+        <div className="confidence-row" style={{ display: "flex", alignItems: "center", gap: "12px", ...mono }}>
+          <span style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: confidenceColor, whiteSpace: "nowrap" }}>
             {story.confidenceLevel.replace(/_/g, " ")} CONFIDENCE
           </span>
-          <span
-            style={{
-              fontSize: "14px",
-              letterSpacing: "1px",
-              color: confidenceColor,
-            }}
-          >
-            {buildConfidenceBlocks(story.consensusScore)}
-          </span>
-          <span
-            style={{
-              fontSize: "13px",
-              color: "var(--text-primary)",
-            }}
-          >
-            {story.consensusScore}% of {story.sourceCount} sources
-          </span>
+          <span style={{ fontSize: "14px", letterSpacing: "1px", color: confidenceColor }}>{buildConfidenceBlocks(story.consensusScore)}</span>
+          <span style={{ fontSize: "13px", color: "var(--text-primary)" }}>{story.consensusScore}% of {story.sourceCount} sources</span>
         </div>
-
-        {/* Source depth caveat */}
         {parsedNote.confidenceCaveat && (
-          <p className="text-xs font-mono mt-1" style={{ color: '#F4A261' }}>
-            {parsedNote.confidenceCaveat}
-          </p>
+          <p className="text-xs font-mono mt-1" style={{ color: '#F4A261' }}>{parsedNote.confidenceCaveat}</p>
         )}
 
         {/* Category tag */}
         {story.primaryCategory && (
           <div style={{ marginTop: "20px" }}>
-            <span style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "11px",
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: getCategoryColor(story.primaryCategory),
-              border: `1px solid ${getCategoryColor(story.primaryCategory)}`,
-              padding: "3px 10px",
-            }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: getCategoryColor(story.primaryCategory), border: `1px solid ${getCategoryColor(story.primaryCategory)}`, padding: "3px 10px" }}>
               {story.primaryCategory.replace(/_/g, " ")}
             </span>
           </div>
         )}
 
-        {/* Large serif headline */}
-        <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: "36px",
-            fontWeight: 700,
-            lineHeight: 1.15,
-            letterSpacing: "-0.02em",
-            color: "var(--text-primary)",
-            marginTop: story.primaryCategory ? "12px" : "20px",
-          }}
-        >
+        {/* Headline */}
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "36px", fontWeight: 700, lineHeight: 1.15, letterSpacing: "-0.02em", color: "var(--text-primary)", marginTop: story.primaryCategory ? "12px" : "20px" }}>
           {story.headline}
         </h1>
 
-        {/* Summary / synopsis */}
-        <div
-          style={{
-            marginTop: "16px",
-            ...body,
-            fontSize: "15px",
-            lineHeight: 1.7,
-            color: "var(--text-secondary, #a3a3a3)",
-          }}
-          dangerouslySetInnerHTML={{
-            __html: `<p>${renderMarkdown(story.synopsis)}</p>`,
-          }}
+        {/* Synopsis */}
+        <div style={{ marginTop: "16px", ...body, fontSize: "15px", lineHeight: 1.7, color: "var(--text-secondary, #a3a3a3)" }}
+          dangerouslySetInnerHTML={{ __html: `<p>${renderMarkdown(story.synopsis)}</p>` }}
         />
 
         {/* Stats row */}
-        <div
-          style={{
-            marginTop: "16px",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            flexWrap: "wrap",
-            ...mono,
-            fontSize: "12px",
-            color: "var(--text-tertiary)",
-          }}
-        >
+        <div style={{ marginTop: "16px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", ...mono, fontSize: "12px", color: "var(--text-tertiary)" }}>
           <span>{story.sourceCount} articles from {new Set(story.sources.map(s => s.outlet)).size} outlets</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span>{story.countryCount} countries</span>
@@ -508,27 +505,10 @@ export function StoryDetail({ story }: StoryDetailProps) {
           <span>{story.regionCount} {story.regionCount === 1 ? "region" : "regions"}</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span>{modelCount} AI models</span>
-          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <span>{Math.max(1, Math.ceil(
-            (story.synopsis.split(/\s+/).length +
-             story.claims.reduce((n, c) => n + (c.claim?.split(/\s+/).length || 0) + (c.notes?.split(/\s+/).length || 0), 0) +
-             (story.thePattern?.split(/\s+/).length || 0)) / 238
-          ))} min read</span>
         </div>
 
         {/* Model dots */}
-        <div
-          style={{
-            marginTop: "8px",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            flexWrap: "wrap",
-            ...mono,
-            fontSize: "12px",
-            color: "var(--text-tertiary)",
-          }}
-        >
+        <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", ...mono, fontSize: "12px", color: "var(--text-tertiary)" }}>
           <span style={{ color: "#D4A574" }}>{"\u25CF"} Claude</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span style={{ color: "#74D4A5" }}>{"\u25CF"} GPT-5.4</span>
@@ -537,428 +517,209 @@ export function StoryDetail({ story }: StoryDetailProps) {
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span style={{ color: "#D47474" }}>{"\u25CF"} Grok</span>
         </div>
+
         {/* Publication timestamp */}
-        <div
-          style={{
-            marginTop: "12px",
-            ...mono,
-            fontSize: "11px",
-            color: "var(--text-tertiary)",
-          }}
-        >
+        <div style={{ marginTop: "12px", ...mono, fontSize: "11px", color: "var(--text-tertiary)" }}>
           Published {new Date(story.publishedAt || story.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
           {story.publishedAt && story.createdAt && new Date(story.createdAt).getTime() !== new Date(story.publishedAt).getTime() && (
             <span> · Last updated {new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
           )}
         </div>
         {(story.sourcesFrom || story.sourcesTo) && (
-          <div style={{
-            ...mono,
-            fontSize: "11px",
-            color: "var(--text-tertiary)",
-            marginTop: "4px",
-          }}>
-            Sources collected: {story.sourcesFrom
-              ? new Date(story.sourcesFrom).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-              : '?'
-            }
+          <div style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+            Sources collected: {story.sourcesFrom ? new Date(story.sourcesFrom).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '?'}
             {story.sourcesTo && story.sourcesFrom && new Date(story.sourcesTo).getTime() !== new Date(story.sourcesFrom).getTime()
               ? `–${new Date(story.sourcesTo).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-              : story.sourcesFrom ? `, ${new Date(story.sourcesFrom).getFullYear()}` : ''
-            }
+              : story.sourcesFrom ? `, ${new Date(story.sourcesFrom).getFullYear()}` : ''}
           </div>
         )}
       </div>
 
-      {/* ────────────────────────────────────────────────
-          3. THE PATTERN
-          ──────────────────────────────────────────────── */}
+      {/* ── THE PATTERN ── */}
       {story.thePattern && (
-        <ThePattern
-          pattern={story.thePattern}
-          confidence={story.confidenceLevel.toUpperCase()}
-        />
+        <ThePattern pattern={story.thePattern} confidence={story.confidenceLevel.toUpperCase()} />
       )}
 
-      {/* ────────────────────────────────────────────────
-          4. COLLAPSIBLE SECTIONS
-          ──────────────────────────────────────────────── */}
+      {/* ── WHAT THE WORLD MISSED ── */}
+      {hasWorldMissed && (
+        <div style={{ marginTop: "32px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+            <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-red)" }}>
+              WHAT THE WORLD MISSED
+            </span>
+            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+          </div>
+          <div style={{ borderLeft: "3px solid var(--accent-red)", paddingLeft: "16px" }}>
+            {topBuried.map((b: any, i: number) => (
+              <div key={`buried-${i}`} style={{ marginBottom: "16px" }}>
+                <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.6 }}>{b.fact}</p>
+                <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+                  {b.notPickedUpBy && b.notPickedUpBy.length > 0
+                    ? `${story.sourceCount - 1} of ${story.sourceCount} outlets missed this. Reported by ${b.reportedBy}.`
+                    : `Reported by ${b.reportedBy}.`}
+                </p>
+              </div>
+            ))}
+            {topOmissions.map((o, i) => (
+              <div key={`omit-${i}`} style={{ marginBottom: "16px" }}>
+                <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.6 }}>{o.missing}</p>
+                <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+                  Present in: {o.presentIn}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {/* ── HOW THIS STORY TRAVELED (visual hook — first thing readers see) ── */}
+      {/* ── FRAMING AT A GLANCE (compact: 3 frames max, one sentence each) ── */}
+      {glanceFrames.length > 0 && (
+        <div style={{ marginTop: "32px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+            <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+              HOW DIFFERENT OUTLETS FRAMED IT
+            </span>
+            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+          </div>
+          {glanceFrames.map((frame, i) => (
+            <div key={i} style={{ display: "flex", gap: "12px", padding: "10px 0", borderBottom: "1px solid var(--border-primary)" }}>
+              <span style={{ ...mono, fontSize: "11px", fontWeight: 700, color: "var(--accent-purple)", minWidth: "80px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                {frame.frameName}
+              </span>
+              <p style={{ ...body, fontSize: "14px", color: "var(--text-secondary, #a3a3a3)", lineHeight: 1.5, flex: 1 }}>
+                {frame.ledWith}
+              </p>
+            </div>
+          ))}
+          {(framingSplitData.length > 3 || story.framings.length > 3) && (
+            <a href="#full-framing" style={{ ...mono, fontSize: "11px", color: "var(--accent-blue)", marginTop: "8px", display: "inline-block" }}>
+              See all {framingSplitData.length || story.framings.length} frames &darr;
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* ── FACT SURVIVAL (compact) ── */}
+      {factSurvivalItems && factSurvivalItems.length > 0 && (
+        <div style={{ marginTop: "32px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+            <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+              FACT SURVIVAL
+            </span>
+            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+          </div>
+          <FactSurvival items={factSurvivalItems} />
+        </div>
+      )}
+
+      {/* ── PROPAGATION MAP ── */}
       {propagationTimeline && propagationTimeline.length >= 3 && (
-        <CollapsibleSection
-          title="HOW THIS STORY TRAVELED"
-          preview={`Tracked across ${new Set(propagationTimeline.flatMap((f: { regions: Array<{ region_id: string }> }) => f.regions.map((r: { region_id: string }) => r.region_id))).size} regions`}
-          defaultOpen
-        >
-          <PropagationGlobeClient
-            timeline={propagationTimeline}
-            storyHeadline={story.headline}
-          />
-        </CollapsibleSection>
+        <div style={{ marginTop: "32px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+            <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+              HOW THIS STORY TRAVELED
+            </span>
+            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+          </div>
+          <PropagationGlobeClient timeline={propagationTimeline} storyHeadline={story.headline} />
+        </div>
       )}
 
-      {/* ── KEY CLAIMS ── */}
+      {/* ── SHAREABLE INSIGHTS (Zone 3 inline — between zones for scroll engagement) ── */}
+      {shareableStats.length > 0 && (
+        <div style={{ marginTop: "40px", padding: "20px 0", borderTop: "1px solid var(--border-primary)", borderBottom: "1px solid var(--border-primary)" }}>
+          {shareableStats.slice(0, 4).map((stat, i) => (
+            <p key={i} style={{ ...mono, fontSize: "13px", color: i === 0 ? "var(--accent-teal)" : "var(--text-secondary, #a3a3a3)", lineHeight: 1.6, marginBottom: i < shareableStats.length - 1 ? "8px" : 0 }}>
+              {stat}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          ZONE 2 — THE EVIDENCE (deep readers, expandable)
+          ═══════════════════════════════════════════════════════ */}
+
+      <div style={{ marginTop: "48px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+          <div style={{ flex: 1, height: "2px", background: "var(--border-primary)" }} />
+          <span style={{ ...mono, fontSize: "13px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+            FULL EVIDENCE
+          </span>
+          <div style={{ flex: 1, height: "2px", background: "var(--border-primary)" }} />
+        </div>
+        <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", textAlign: "center", marginBottom: "24px" }}>
+          Complete analysis for deep readers
+        </p>
+      </div>
+
+      {/* ── KEY CLAIMS (show first 5, expand for rest) ── */}
       {sortedClaims.length > 0 && (
         <CollapsibleSection
           title="KEY CLAIMS"
           preview={`${sortedClaims.length} claims verified across ${story.sourceCount} sources`}
           defaultOpen
         >
-          {sortedClaims.map((claim, i) => {
-            const iconColor = getClaimIconColor(claim.confidence);
-            const icon = getClaimIcon(claim.confidence);
-            const supporters = parseList(claim.supportedBy);
-            const contradictors = parseList(claim.contradictedBy);
-
-            // Weighted confidence: different source types count differently
-            const SOURCE_WEIGHTS: Record<string, number> = {
-              state: 0.5,
-              wire: 0.3,   // Wire copies are reprints, not independent verification
-              tabloid: 0.6,
-              digital: 0.8,
-              newspaper: 1.0,
-              broadcaster: 1.0,
-            };
-
-            // Match supporter names to sources to get outlet types
-            const sourcesByOutlet = new Map(
-              (story.sources || []).map(s => [s.outlet.toLowerCase(), s])
-            );
-
-            let weightedSupport = 0;
-            let wireCopyCount = 0;
-            for (const name of supporters) {
-              const src = sourcesByOutlet.get(name.toLowerCase());
-              const type = src?.outletType?.toLowerCase() || 'digital';
-              const weight = SOURCE_WEIGHTS[type] ?? 0.8;
-              weightedSupport += weight;
-              if (type === 'wire') wireCopyCount++;
-            }
-
-            const supportCount = supporters.length;
-            const contradictCount = contradictors.length;
-            const total = supportCount + contradictCount;
-            const rawPct = total > 0 ? Math.round((supportCount / total) * 100) : 0;
-
-            // Cap confidence by weighted source count
-            let maxPct = 100;
-            if (weightedSupport <= 0.5) maxPct = 25;
-            else if (weightedSupport <= 1) maxPct = 40;
-            else if (weightedSupport <= 2) maxPct = 55;
-            else if (weightedSupport <= 4) maxPct = 70;
-            else if (weightedSupport <= 7) maxPct = 85;
-            else maxPct = 95;
-
-            const cappedPct = Math.min(rawPct, maxPct);
-            const displayPct = claim.consensusPct > 0 ? Math.min(claim.consensusPct, maxPct) : cappedPct;
-            const weightedLabel = weightedSupport !== supportCount
-              ? ` (weighted: ${weightedSupport.toFixed(1)}${wireCopyCount > 0 ? ` · ${wireCopyCount} wire` : ''})`
-              : '';
-
-            return (
-              <div
-                key={i}
-                style={{
-                  padding: "16px 0",
-                  borderBottom: "1px solid var(--border-primary)",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "12px",
-                }}
-              >
-                <span
-                  style={{
-                    ...mono,
-                    fontSize: "14px",
-                    color: iconColor,
-                    flexShrink: 0,
-                    width: "20px",
-                    textAlign: "center",
-                  }}
-                >
-                  {icon}
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p
-                    style={{
-                      ...body,
-                      fontSize: "15px",
-                      color: "var(--text-primary)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {claim.claim}
-                  </p>
-                  {/* Consensus bar */}
-                  <div
-                    style={{
-                      marginTop: "8px",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "80px",
-                        height: "3px",
-                        background: "var(--border-primary)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${Math.max(0, Math.min(100, displayPct))}%`,
-                          height: "100%",
-                          background: iconColor,
-                        }}
-                      />
-                    </div>
-                    <span
-                      style={{
-                        ...mono,
-                        fontSize: "11px",
-                        color: "var(--text-tertiary)",
-                      }}
-                    >
-                      {displayPct}%
-                    </span>
-                  </div>
-                  {supporters.length > 0 && (
-                    <p
-                      style={{
-                        ...mono,
-                        fontSize: "11px",
-                        color: "var(--text-tertiary)",
-                        marginTop: "4px",
-                      }}
-                    >
-                      Supported by {supportCount} outlet{supportCount !== 1 ? 's' : ''}{weightedLabel}
-                      {weightedLabel && (
-                        <span
-                          title="Weighted score accounts for outlet independence, reliability rating, and whether the source provided full article text or only a headline. Wire copy syndications are counted once, not per-outlet."
-                          style={{ cursor: 'help', marginLeft: '4px', opacity: 0.6 }}
-                        >
-                          &#9432;
-                        </span>
-                      )}
-                      : {supporters.join(", ")}
-                    </p>
-                  )}
-                  {contradictors.length > 0 && (
-                    <p
-                      style={{
-                        ...mono,
-                        fontSize: "11px",
-                        color: "var(--accent-red)",
-                        marginTop: "4px",
-                      }}
-                    >
-                      Contradicted by: {contradictors.join(", ")}
-                    </p>
-                  )}
-                  {claim.notes && (
-                    <p
-                      style={{
-                        ...body,
-                        fontSize: "13px",
-                        color: "var(--text-tertiary)",
-                        fontStyle: "italic",
-                        marginTop: "8px",
-                      }}
-                    >
-                      {claim.notes}
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {previewClaims.map((claim, i) => renderClaim(claim, i))}
+          {remainingClaims.length > 0 && (
+            <CollapsibleSection
+              title={`${remainingClaims.length} MORE CLAIMS`}
+              preview={`Show all ${sortedClaims.length} claims`}
+            >
+              {remainingClaims.map((claim, i) => renderClaim(claim, CLAIMS_PREVIEW + i))}
+            </CollapsibleSection>
+          )}
         </CollapsibleSection>
       )}
 
-      {/* ── FRAMING SPLIT ── */}
-      {(framingSplitData && framingSplitData.length > 0) ? (
-        <CollapsibleSection
-          title="FRAMING SPLIT"
-          preview={`${framingSplitData.length} distinct frames identified`}
-          defaultOpen
-        >
-          {framingSplitData.map((frame, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "16px 0",
-                borderBottom: "1px solid var(--border-primary)",
-              }}
-            >
-              {/* Frame header */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "baseline",
-                  marginBottom: "8px",
-                }}
-              >
-                <span
-                  style={{
-                    ...mono,
-                    fontSize: "12px",
-                    fontWeight: 700,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  FRAME {i + 1}: {frame.frameName}
-                </span>
-                <span
-                  style={{
-                    ...mono,
-                    fontSize: "12px",
-                    color: "var(--text-tertiary)",
-                  }}
-                >
-                  {frame.outletCount} outlets
-                </span>
+      {/* ── FULL FRAMING ANALYSIS ── */}
+      <div id="full-framing">
+        {(framingSplitData && framingSplitData.length > 0) ? (
+          <CollapsibleSection
+            title="FULL FRAMING ANALYSIS"
+            preview={`${framingSplitData.length} distinct frames identified`}
+          >
+            {framingSplitData.map((frame, i) => (
+              <div key={i} style={{ padding: "16px 0", borderBottom: "1px solid var(--border-primary)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
+                  <span style={{ ...mono, fontSize: "12px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-primary)" }}>
+                    FRAME {i + 1}: {frame.frameName}
+                  </span>
+                  <span style={{ ...mono, fontSize: "12px", color: "var(--text-tertiary)" }}>{frame.outletCount} outlets</span>
+                </div>
+                <p style={{ ...body, fontSize: "13px", color: "var(--text-secondary, #a3a3a3)", marginBottom: "6px" }}>{frame.outletTypes}</p>
+                <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginBottom: "2px" }}>Led with: {frame.ledWith}</p>
+                <p style={{ ...mono, fontSize: "11px", color: "var(--accent-amber)", marginBottom: "2px" }}>Omitted: {frame.omitted}</p>
+                <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)" }}>Outlets: {frame.outlets}</p>
               </div>
-              {/* Outlet types */}
-              <p
-                style={{
-                  ...body,
-                  fontSize: "13px",
-                  color: "var(--text-secondary, #a3a3a3)",
-                  marginBottom: "6px",
-                }}
-              >
-                {frame.outletTypes}
-              </p>
-              {/* Led with */}
-              <p
-                style={{
-                  ...mono,
-                  fontSize: "11px",
-                  color: "var(--text-tertiary)",
-                  marginBottom: "2px",
-                }}
-              >
-                Led with: {frame.ledWith}
-              </p>
-              {/* Omitted */}
-              <p
-                style={{
-                  ...mono,
-                  fontSize: "11px",
-                  color: "var(--accent-amber)",
-                  marginBottom: "2px",
-                }}
-              >
-                Omitted: {frame.omitted}
-              </p>
-              {/* Outlets */}
-              <p
-                style={{
-                  ...mono,
-                  fontSize: "11px",
-                  color: "var(--text-tertiary)",
-                }}
-              >
-                Outlets: {frame.outlets}
-              </p>
-            </div>
-          ))}
-        </CollapsibleSection>
-      ) : story.framings.length > 0 ? (
-        <CollapsibleSection
-          title="FRAMING ANALYSIS"
-          preview={`${story.framings.length} regional frames compared`}
-          defaultOpen
-        >
-          {story.framings.map((f, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "16px 0",
-                borderBottom: "1px solid var(--border-primary)",
-                display: "flex",
-                alignItems: "flex-start",
-                gap: "12px",
-              }}
-            >
-              <span
-                style={{
-                  ...mono,
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  color: "var(--accent-purple)",
-                  minWidth: "60px",
-                  flexShrink: 0,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                }}
-              >
-                {f.region}
-              </span>
-              <div style={{ flex: 1 }}>
-                <p
-                  style={{
-                    ...body,
-                    fontSize: "15px",
-                    color: "var(--text-primary)",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {f.framing}
-                </p>
-                {f.contrastWith && (
-                  <p
-                    style={{
-                      ...body,
-                      fontSize: "13px",
-                      color: "var(--text-tertiary)",
-                      fontStyle: "italic",
-                      marginTop: "4px",
-                    }}
-                  >
-                    Contrast: {f.contrastWith}
-                  </p>
-                )}
+            ))}
+          </CollapsibleSection>
+        ) : story.framings.length > 0 ? (
+          <CollapsibleSection title="FRAMING ANALYSIS" preview={`${story.framings.length} regional frames compared`}>
+            {story.framings.map((f, i) => (
+              <div key={i} style={{ padding: "16px 0", borderBottom: "1px solid var(--border-primary)", display: "flex", alignItems: "flex-start", gap: "12px" }}>
+                <span style={{ ...mono, fontSize: "11px", fontWeight: 600, color: "var(--accent-purple)", minWidth: "60px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>{f.region}</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.5 }}>{f.framing}</p>
+                  {f.contrastWith && <p style={{ ...body, fontSize: "13px", color: "var(--text-tertiary)", fontStyle: "italic", marginTop: "4px" }}>Contrast: {f.contrastWith}</p>}
+                </div>
               </div>
-            </div>
-          ))}
-        </CollapsibleSection>
-      ) : null}
+            ))}
+          </CollapsibleSection>
+        ) : null}
+      </div>
 
-      {/* ── DISCREPANCIES (moved up — where outlets disagree) ── */}
+      {/* ── DISCREPANCIES ── */}
       {story.discrepancies.length > 0 && (
-        <CollapsibleSection
-          title="DISCREPANCIES"
-          preview={`${story.discrepancies.length} factual conflicts found`}
-        >
+        <CollapsibleSection title="DISCREPANCIES" preview={`${story.discrepancies.length} factual conflicts found`}>
           {story.discrepancies.map((d, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "20px 0",
-                borderBottom: "1px solid var(--border-primary)",
-              }}
-            >
-              <p
-                style={{
-                  ...body,
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                  marginBottom: "12px",
-                }}
-              >
-                {d.issue}
-              </p>
-              <div
-                className="discrepancy-columns"
-                style={{ display: "flex", gap: "0", fontSize: "13px" }}
-              >
+            <div key={i} style={{ padding: "20px 0", borderBottom: "1px solid var(--border-primary)" }}>
+              <p style={{ ...body, fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", marginBottom: "12px" }}>{d.issue}</p>
+              <div className="discrepancy-columns" style={{ display: "flex", gap: "0", fontSize: "13px" }}>
                 <div style={{ flex: 1, paddingRight: "16px" }}>
                   <span style={{ ...mono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)", display: "block", marginBottom: "4px" }}>SIDE A</span>
                   <p style={{ ...body, color: "var(--text-secondary, #a3a3a3)", lineHeight: 1.5 }}>{d.sideA}</p>
@@ -971,112 +732,40 @@ export function StoryDetail({ story }: StoryDetailProps) {
                   <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>{d.sourcesB}</p>
                 </div>
               </div>
-              {d.assessment && (
-                <p style={{ ...body, fontSize: "13px", color: "var(--text-tertiary)", fontStyle: "italic", marginTop: "12px", paddingTop: "8px", borderTop: "1px solid var(--border-primary)" }}>
-                  {d.assessment}
-                </p>
-              )}
+              {d.assessment && <p style={{ ...body, fontSize: "13px", color: "var(--text-tertiary)", fontStyle: "italic", marginTop: "12px", paddingTop: "8px", borderTop: "1px solid var(--border-primary)" }}>{d.assessment}</p>}
             </div>
           ))}
         </CollapsibleSection>
       )}
 
-      {/* ── REPORTED BUT BURIED (moved up — exclusive finds) ── */}
+      {/* ── FULL BURIED LEADS ── */}
       {buriedEvidenceItems && buriedEvidenceItems.length > 0 && (
-        <CollapsibleSection
-          title="REPORTED BUT BURIED"
-          preview={`${buriedEvidenceItems.length} fact(s) reported by credible outlets but not picked up by national coverage`}
-        >
+        <CollapsibleSection title="ALL BURIED LEADS" preview={`${buriedEvidenceItems.length} fact(s) reported but not picked up by national coverage`}>
           <BuriedEvidence items={buriedEvidenceItems} totalSourceCount={story.sourceCount} />
         </CollapsibleSection>
       )}
 
-      {/* ── WHAT'S MISSING ── */}
+      {/* ── FULL WHAT'S MISSING ── */}
       {story.omissions.length > 0 && (
-        <CollapsibleSection
-          title="WHAT'S MISSING"
-          preview={`${story.omissions.length} omissions detected`}
-        >
+        <CollapsibleSection title="ALL OMISSIONS" preview={`${story.omissions.length} omissions detected`}>
           {story.omissions.map((o, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "16px 0",
-                borderBottom: "1px solid var(--border-primary)",
-                display: "flex",
-                alignItems: "flex-start",
-                gap: "12px",
-              }}
-            >
-              <span
-                style={{
-                  ...mono,
-                  fontSize: "14px",
-                  color: "var(--accent-amber)",
-                  flexShrink: 0,
-                  width: "20px",
-                  textAlign: "center",
-                }}
-              >
-                {"\u26A0"}
-              </span>
+            <div key={i} style={{ padding: "16px 0", borderBottom: "1px solid var(--border-primary)", display: "flex", alignItems: "flex-start", gap: "12px" }}>
+              <span style={{ ...mono, fontSize: "14px", color: "var(--accent-amber)", flexShrink: 0, width: "20px", textAlign: "center" }}>{"\u26A0"}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p
-                  style={{
-                    ...body,
-                    fontSize: "15px",
-                    color: "var(--text-primary)",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {o.missing}
-                </p>
-                <p
-                  style={{
-                    ...mono,
-                    fontSize: "11px",
-                    color: "var(--text-tertiary)",
-                    marginTop: "4px",
-                  }}
-                >
-                  {o.outletRegion} &mdash; Present in: {o.presentIn}
-                </p>
-                {o.significance && (
-                  <p
-                    style={{
-                      ...body,
-                      fontSize: "13px",
-                      color: "var(--text-tertiary)",
-                      fontStyle: "italic",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {o.significance}
-                  </p>
-                )}
+                <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.5 }}>{o.missing}</p>
+                <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>{o.outletRegion} &mdash; Present in: {o.presentIn}</p>
+                {o.significance && <p style={{ ...body, fontSize: "13px", color: "var(--text-tertiary)", fontStyle: "italic", marginTop: "4px" }}>{o.significance}</p>}
               </div>
             </div>
           ))}
         </CollapsibleSection>
       )}
 
-      {/* (DISCREPANCIES, REPORTED BUT BURIED moved up above WHAT'S MISSING) */}
-
-      {/* ── FACT SURVIVAL ── */}
-      {factSurvivalItems && factSurvivalItems.length > 0 && (
-        <CollapsibleSection
-          title="FACT SURVIVAL"
-          preview={`${factSurvivalItems.filter((f: {diedAt: string}) => f.diedAt !== 'survived_all').length} facts died before reaching national/international coverage`}
-        >
-          <FactSurvival items={factSurvivalItems} />
-        </CollapsibleSection>
-      )}
-
-      {/* ── MODEL DEBATE (moved down — methodology proof, not hook) ── */}
+      {/* ── MODEL DEBATE (collapsed by default) ── */}
       {story.debateRounds && story.debateRounds.length > 0 && (
         <CollapsibleSection
           title="MODEL DEBATE"
-          preview={`${new Set(story.debateRounds.filter((r) => r.round === 1).map((r) => r.modelName)).size} models debated across ${new Set(story.debateRounds.map((r) => r.region)).size} regions`}
+          preview={`See how ${new Set(story.debateRounds.filter((r) => r.round === 1).map((r) => r.modelName)).size} AI models argued about this story across ${new Set(story.debateRounds.map((r) => r.region)).size} regions`}
         >
           <DebateHighlights debateRounds={story.debateRounds} />
         </CollapsibleSection>
@@ -1084,133 +773,33 @@ export function StoryDetail({ story }: StoryDetailProps) {
 
       {/* ── FOLLOW-UP QUESTIONS ── */}
       {hasNewFollowUps && followUpQuestionsData ? (
-        <CollapsibleSection
-          title="FOLLOW-UP QUESTIONS"
-          preview={`${followUpQuestionsData.length} questions to investigate`}
-        >
+        <CollapsibleSection title="FOLLOW-UP QUESTIONS" preview={`${followUpQuestionsData.length} questions to investigate`}>
           <FollowUpQuestions questions={followUpQuestionsData} />
         </CollapsibleSection>
       ) : oldFollowUps.length > 0 ? (
-        <CollapsibleSection
-          title="FOLLOW-UP QUESTIONS"
-          preview={`${oldFollowUps.length} questions to investigate`}
-        >
-          {[...oldFollowUps]
-            .sort((a, b) => a.sortOrder - b.sortOrder)
-            .map((q, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: "12px 0",
-                  borderBottom: "1px solid var(--border-primary)",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "12px",
-                }}
-              >
-                <span
-                  style={{
-                    ...mono,
-                    fontSize: "12px",
-                    color: "var(--text-tertiary)",
-                    flexShrink: 0,
-                    width: "24px",
-                  }}
-                >
-                  {i + 1}.
-                </span>
-                <p
-                  style={{
-                    ...body,
-                    fontSize: "14px",
-                    color: "var(--text-secondary, #a3a3a3)",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {q.question}
-                </p>
-              </div>
-            ))}
+        <CollapsibleSection title="FOLLOW-UP QUESTIONS" preview={`${oldFollowUps.length} questions to investigate`}>
+          {[...oldFollowUps].sort((a, b) => a.sortOrder - b.sortOrder).map((q, i) => (
+            <div key={i} style={{ padding: "12px 0", borderBottom: "1px solid var(--border-primary)", display: "flex", alignItems: "flex-start", gap: "12px" }}>
+              <span style={{ ...mono, fontSize: "12px", color: "var(--text-tertiary)", flexShrink: 0, width: "24px" }}>{i + 1}.</span>
+              <p style={{ ...body, fontSize: "14px", color: "var(--text-secondary, #a3a3a3)", lineHeight: 1.5 }}>{q.question}</p>
+            </div>
+          ))}
         </CollapsibleSection>
       ) : null}
 
       {/* ── SOURCES ── */}
       {story.sources.length > 0 && (
-        <CollapsibleSection
-          title="SOURCES"
-          preview={`${story.sources.length} sources from ${Object.keys(groupedSources).length} regions`}
-          defaultOpen={false}
-        >
+        <CollapsibleSection title="SOURCES" preview={`${story.sources.length} sources from ${Object.keys(groupedSources).length} regions`} defaultOpen={false}>
           <div>
             {Object.entries(groupedSources).map(([region, regionSources]) => (
               <div key={region} style={{ marginBottom: "16px" }}>
-                <p
-                  style={{
-                    ...mono,
-                    fontSize: "10px",
-                    fontWeight: 600,
-                    letterSpacing: "0.1em",
-                    textTransform: "uppercase",
-                    color: "var(--text-tertiary)",
-                    marginBottom: "8px",
-                  }}
-                >
-                  {region}
-                </p>
+                <p style={{ ...mono, fontSize: "10px", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)", marginBottom: "8px" }}>{region}</p>
                 {regionSources.map((source, j) => (
-                  <div
-                    key={j}
-                    style={{
-                      padding: "8px 0",
-                      borderBottom: "1px solid var(--border-primary)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      flexWrap: "wrap",
-                      fontSize: "13px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        ...body,
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      {source.outlet}
-                    </span>
-                    <span
-                      style={{
-                        ...mono,
-                        fontSize: "10px",
-                        color: "var(--text-tertiary)",
-                      }}
-                    >
-                      &middot; {source.country}
-                    </span>
-                    {source.politicalLean && (
-                      <span
-                        style={{
-                          ...mono,
-                          fontSize: "10px",
-                          color: "var(--text-tertiary)",
-                        }}
-                      >
-                        &middot; {source.politicalLean}
-                      </span>
-                    )}
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        ...mono,
-                        fontSize: "11px",
-                        color: "var(--text-tertiary)",
-                        marginLeft: "auto",
-                      }}
-                    >
-                      link &rarr;
-                    </a>
+                  <div key={j} style={{ padding: "8px 0", borderBottom: "1px solid var(--border-primary)", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", fontSize: "13px" }}>
+                    <span style={{ ...body, color: "var(--text-primary)" }}>{source.outlet}</span>
+                    <span style={{ ...mono, fontSize: "10px", color: "var(--text-tertiary)" }}>&middot; {source.country}</span>
+                    {source.politicalLean && <span style={{ ...mono, fontSize: "10px", color: "var(--text-tertiary)" }}>&middot; {source.politicalLean}</span>}
+                    <a href={source.url} target="_blank" rel="noopener noreferrer" style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginLeft: "auto" }}>link &rarr;</a>
                   </div>
                 ))}
               </div>
@@ -1219,88 +808,39 @@ export function StoryDetail({ story }: StoryDetailProps) {
         </CollapsibleSection>
       )}
 
-      {/* ────────────────────────────────────────────────
-          STREAM 2: SOCIAL DISCOURSE
-          Two streams never cross. Above = news outlets only.
-          Below = social media only (Reddit, Twitter/X).
-          ──────────────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════
+          DISCOURSE GAP (separate data stream — social media)
+          ═══════════════════════════════════════════════════════ */}
       {story.discourseGap && (
         <>
-          {/* Hard visual divider */}
           <div style={{ marginTop: '48px', marginBottom: '24px' }}>
             <div style={{ height: '2px', background: 'linear-gradient(to right, transparent, var(--accent-purple), transparent)' }} />
             <div style={{ textAlign: 'center', marginTop: '16px', marginBottom: '4px' }}>
-              <span style={{
-                ...mono,
-                fontSize: '13px',
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                color: 'var(--accent-purple)',
-              }}>
+              <span style={{ ...mono, fontSize: '13px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent-purple)' }}>
                 DISCOURSE GAP — Media vs. Public
               </span>
             </div>
-            <p style={{
-              ...mono,
-              fontSize: '11px',
-              color: 'var(--text-tertiary)',
-              textAlign: 'center',
-              lineHeight: 1.4,
-            }}>
+            <p style={{ ...mono, fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', lineHeight: 1.4 }}>
               How news coverage compares to public discussion on Reddit and Twitter/X
             </p>
             <div style={{ height: '2px', background: 'linear-gradient(to right, transparent, var(--accent-purple), transparent)', marginTop: '16px' }} />
           </div>
-
-          <div style={{
-            padding: '10px 16px',
-            marginBottom: '20px',
-            border: '1px solid var(--border-primary)',
-            background: 'var(--bg-secondary)',
-          }}>
-            <p style={{
-              ...mono,
-              fontSize: '11px',
-              color: 'var(--text-tertiary)',
-              lineHeight: 1.6,
-            }}>
+          <div style={{ padding: '10px 16px', marginBottom: '20px', border: '1px solid var(--border-primary)', background: 'var(--bg-secondary)' }}>
+            <p style={{ ...mono, fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
               The analysis above is based exclusively on published news outlets.
               This section draws from a separate data stream — public social media (Reddit, X/Twitter).
               The two streams are analyzed independently and never cross-contaminate.
             </p>
           </div>
-
-          <DiscourseGap
-            gap={story.discourseGap}
-            posts={story.discourseSnapshots?.[0]?.posts}
-          />
+          <DiscourseGap gap={story.discourseGap} posts={story.discourseSnapshots?.[0]?.posts} />
         </>
       )}
 
-      {/* ────────────────────────────────────────────────
-          5. ACTION BAR
-          ──────────────────────────────────────────────── */}
-      <div
-        style={{
-          marginTop: "64px",
-          paddingTop: "24px",
-          borderTop: "1px solid var(--border-primary)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "16px",
-          ...mono,
-          fontSize: "11px",
-        }}
-      >
-        <a href="#" style={{ color: "var(--accent-purple)" }}>
-          Share
-        </a>
+      {/* ── COST FOOTER ── */}
+      <div style={{ marginTop: "64px", paddingTop: "24px", borderTop: "1px solid var(--border-primary)", display: "flex", alignItems: "center", justifyContent: "center", gap: "16px", ...mono, fontSize: "11px" }}>
+        <a href="#" style={{ color: "var(--accent-purple)" }}>Share</a>
         <span style={{ color: "var(--text-tertiary)" }}>&middot;</span>
-        <a href="#" style={{ color: "var(--accent-purple)" }}>
-          Flag an error
-        </a>
+        <a href="#" style={{ color: "var(--accent-purple)" }}>Flag an error</a>
       </div>
     </article>
   );

@@ -94,18 +94,24 @@ const REGION_LABELS: Record<string, string> = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  original:     '#2A9D8F',
-  wire_copy:    '#457B9D',
-  reframed:     '#F4A261',
-  contradicted: '#E63946',
-  silent:       '#2A2A2E',
+  original:            '#2A9D8F',
+  wire_copy:           '#457B9D',
+  reframed:            '#F4A261',
+  contradicted:        '#E63946',
+  silent:              '#2A2A2E',
+  no_coverage:         '#1A1A1E',
+  adjacent_coverage:   '#3D3D44',
+  displaced_coverage:  '#2D2D33',
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  original:     'Original',
-  wire_copy:    'Wire Copy',
-  reframed:     'Reframed',
-  contradicted: 'Contradicted',
+  original:            'Original',
+  wire_copy:           'Wire Copy',
+  reframed:            'Reframed',
+  contradicted:        'Contradicted',
+  no_coverage:         'No Coverage',
+  adjacent_coverage:   'Adjacent Coverage',
+  displaced_coverage:  'Displaced',
 }
 
 const MAX_ARCS = 50

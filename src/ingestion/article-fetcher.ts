@@ -1,3 +1,5 @@
+export type ContentQuality = 'FULL' | 'PARTIAL' | 'SNIPPET'
+
 export interface ArticleContent {
   title: string
   content: string
@@ -5,9 +7,22 @@ export interface ArticleContent {
   byline?: string
   siteName?: string
   length: number
+  contentQuality: ContentQuality
 }
 
 const MAX_WORDS = 3_000
+
+/**
+ * Classify content quality by word count.
+ * FULL: 200+ words — complete article text
+ * PARTIAL: 50-199 words — truncated or partial extraction
+ * SNIPPET: <50 words — headline + RSS snippet only
+ */
+function classifyQuality(wordCount: number): ContentQuality {
+  if (wordCount >= 200) return 'FULL'
+  if (wordCount >= 50) return 'PARTIAL'
+  return 'SNIPPET'
+}
 
 /**
  * Strip HTML tags and normalize whitespace to produce plain text.
@@ -87,12 +102,14 @@ export async function fetchArticle(
         // Fall back to RSS snippet if available
         if (rssSnippet && rssSnippet.length >= 50) {
           const snippetText = stripHtml(rssSnippet)
-          console.log(`[fetch] Using RSS snippet fallback for ${url} (${snippetText.split(/\s+/).length} words)`)
+          const wordCount = snippetText.split(/\s+/).length
+          console.log(`[fetch] Using RSS snippet fallback for ${url} (${wordCount} words, ${classifyQuality(wordCount)})`)
           return {
             title: rssTitle || '',
             content: truncateWords(snippetText, MAX_WORDS),
             excerpt: snippetText.slice(0, 200),
-            length: snippetText.split(/\s+/).length,
+            length: wordCount,
+            contentQuality: classifyQuality(wordCount),
           }
         }
         return null
@@ -116,13 +133,15 @@ export async function fetchArticle(
         const plainText = stripHtml(article.content)
         if (plainText) {
           const truncated = truncateWords(plainText, MAX_WORDS)
+          const wordCount = truncated.split(/\s+/).length
           return {
             title: article.title ?? '',
             content: truncated,
             excerpt: article.excerpt ?? undefined,
             byline: article.byline ?? undefined,
             siteName: article.siteName ?? undefined,
-            length: truncated.split(/\s+/).length,
+            length: wordCount,
+            contentQuality: classifyQuality(wordCount),
           }
         }
       }
@@ -155,12 +174,14 @@ export async function fetchArticle(
       console.warn(`[fetch] No body content extracted from ${url}`)
       if (rssSnippet && rssSnippet.length >= 50) {
         const snippetText = stripHtml(rssSnippet)
-        console.log(`[fetch] Using RSS snippet fallback for ${url} (${snippetText.split(/\s+/).length} words)`)
+        const wc = snippetText.split(/\s+/).length
+        console.log(`[fetch] Using RSS snippet fallback for ${url} (${wc} words, ${classifyQuality(wc)})`)
         return {
           title: rssTitle || title || '',
           content: truncateWords(snippetText, MAX_WORDS),
           excerpt: snippetText.slice(0, 200),
-          length: snippetText.split(/\s+/).length,
+          length: wc,
+          contentQuality: classifyQuality(wc),
         }
       }
       return null
@@ -171,34 +192,40 @@ export async function fetchArticle(
       console.warn(`[fetch] Content too short (${plainText.length} chars) for ${url}`)
       if (rssSnippet && rssSnippet.length >= 50) {
         const snippetText = stripHtml(rssSnippet)
-        console.log(`[fetch] Using RSS snippet fallback for ${url} (${snippetText.split(/\s+/).length} words)`)
+        const wc = snippetText.split(/\s+/).length
+        console.log(`[fetch] Using RSS snippet fallback for ${url} (${wc} words, ${classifyQuality(wc)})`)
         return {
           title: rssTitle || title || '',
           content: truncateWords(snippetText, MAX_WORDS),
           excerpt: snippetText.slice(0, 200),
-          length: snippetText.split(/\s+/).length,
+          length: wc,
+          contentQuality: classifyQuality(wc),
         }
       }
       return null
     }
 
     const truncated = truncateWords(plainText, MAX_WORDS)
+    const wordCount = truncated.split(/\s+/).length
     return {
       title,
       content: truncated,
-      length: truncated.split(/\s+/).length,
+      length: wordCount,
+      contentQuality: classifyQuality(wordCount),
     }
   } catch (err) {
     console.warn(`[fetch] Extraction error for ${url}:`, err instanceof Error ? err.message : err)
     // Fall back to RSS snippet if available
     if (rssSnippet && rssSnippet.length >= 50) {
       const snippetText = stripHtml(rssSnippet)
-      console.log(`[fetch] Using RSS snippet fallback for ${url} (${snippetText.split(/\s+/).length} words)`)
+      const wc = snippetText.split(/\s+/).length
+      console.log(`[fetch] Using RSS snippet fallback for ${url} (${wc} words, ${classifyQuality(wc)})`)
       return {
         title: rssTitle || '',
         content: truncateWords(snippetText, MAX_WORDS),
         excerpt: snippetText.slice(0, 200),
-        length: snippetText.split(/\s+/).length,
+        length: wc,
+        contentQuality: classifyQuality(wc),
       }
     }
     return null

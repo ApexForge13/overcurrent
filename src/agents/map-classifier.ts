@@ -1,4 +1,4 @@
-import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { callClaude, parseJSON, HAIKU } from '@/lib/anthropic'
 import { JSON_RULES } from './prompts'
 
 export interface CountryClassification {
@@ -6,8 +6,8 @@ export interface CountryClassification {
   region_id: string
   outlet_count: number
   outlets: string[]
-  border_status: 'original' | 'wire_copy' | 'reframed'
-  fill_status: 'original' | 'wire_copy' | 'reframed' | 'contradicted'
+  border_status: 'original' | 'wire_copy' | 'reframed' | 'no_coverage'
+  fill_status: 'original' | 'wire_copy' | 'reframed' | 'contradicted' | 'no_coverage' | 'adjacent_coverage' | 'displaced_coverage'
   dominant_framing: string
 }
 
@@ -19,18 +19,23 @@ BORDER STATUS (how the country RECEIVED the story):
 - "original": The event physically happened in this country, OR the country is a direct government participant. Only 2-3 countries per story qualify.
 - "wire_copy": The country's outlets received the story via AP, Reuters, AFP wire services. Most international coverage is wire copy.
 - "reframed": The country's outlets did significant original reporting — own correspondents, exclusive interviews, analysis beyond wire content.
+- "no_coverage": No outlets from this region covered the story at all. Use this for regions listed in REGIONS WITHOUT SOURCES below.
 
 FILL STATUS (how the country REPORTED the story relative to consensus):
 - "original": Coverage aligns with moderator consensus. Core facts reported without significant editorial reframing.
 - "wire_copy": Same as original but explicitly wire-sourced.
 - "reframed": Outlets emphasized different aspects, added unique regional angles, or applied distinct editorial framing. Examples: India focusing on regional rivalry, Israel focusing on security.
 - "contradicted": Outlets directly contradicted a moderator consensus claim OR presented an opposing narrative as the PRIMARY frame. Quoting the other side is NOT contradiction — leading with the other side's narrative AS the primary frame IS.
+- "no_coverage": No outlets from this region covered the story. The story did not propagate here.
+- "adjacent_coverage": Region covered a RELATED topic (e.g., same geographic area, same policy domain) but NOT the specific story. Almost-coverage.
+- "displaced_coverage": Region's outlets were covering a DIFFERENT major story instead, explaining why this story was crowded out.
 
 IMPORTANT DISTINCTIONS:
 - Balanced reporting that quotes both sides = wire_copy or original fill (NOT contradicted)
 - Adding a unique regional angle while reporting consensus facts = reframed fill
 - Leading with a counter-narrative as the headline/primary frame = contradicted fill
 - State media (RT, CGTN, PressTV) that reframe stories through their government's lens = reframed border, often contradicted fill
+- Regions with ZERO sources must still be classified — use no_coverage, adjacent_coverage, or displaced_coverage
 
 dominant_framing should be a SHORT quote (under 15 words) summarizing how this country's outlets framed the story. Use the actual framing from the analysis, not generic descriptions.
 
@@ -49,7 +54,9 @@ Output format:
       "dominant_framing": "Iran refused nuclear commitments"
     }
   ]
-}`
+}
+
+CRITICAL: Return ONLY valid JSON. No explanatory text. No markdown fences.`
 
 /** Map country code to globe region ID */
 function countryToRegionId(country: string): string {
@@ -100,11 +107,19 @@ export async function classifyMapRegions(
     has_state_media: data.leans.has('state-controlled'),
   }))
 
+  // Find regions WITHOUT sources for no_coverage/adjacent/displaced classification
+  const ALL_REGION_IDS = ['us', 'ca', 'mx', 'uk', 'eu', 'ru', 'tr', 'ir', 'il', 'me', 'af', 'in', 'pk', 'cn', 'jp', 'kr', 'sea', 'au', 'la']
+  const coveredRegions = new Set(regionSummary.map(r => r.region_id))
+  const uncoveredRegions = ALL_REGION_IDS.filter(r => !coveredRegions.has(r))
+
   const userPrompt = `STORY: ${story.headline}
 Synopsis: ${story.synopsis || 'N/A'}
 
 SOURCES BY REGION (${regionSummary.length} regions, ${story.sources.length} total sources):
 ${JSON.stringify(regionSummary, null, 2)}
+
+REGIONS WITHOUT SOURCES (classify as no_coverage, adjacent_coverage, or displaced_coverage):
+${JSON.stringify(uncoveredRegions)}
 
 REGIONAL FRAMINGS FROM SYNTHESIS:
 ${JSON.stringify(story.framings.map(f => ({ region: f.region, framing: f.framing, contrast: f.contrastWith })), null, 2)}
@@ -115,10 +130,10 @@ ${JSON.stringify(story.discrepancies.map(d => ({ issue: d.issue, sideA: d.sideA,
 KEY CLAIMS:
 ${JSON.stringify(story.claims.slice(0, 8).map(c => ({ claim: c.claim, confidence: c.confidence, supportedBy: c.supportedBy, contradictedBy: c.contradictedBy })), null, 2)}
 
-Classify every region_id listed above. Use the framing and discrepancy data to determine fill status. Use the story headline to determine which countries are direct participants (border=original).`
+Classify EVERY region — both those WITH sources and those WITHOUT. For regions without sources, use border_status="no_coverage" and fill_status as no_coverage, adjacent_coverage, or displaced_coverage. Set outlet_count=0 and outlets=[] for uncovered regions.`
 
   const result = await callClaude({
-    model: SONNET,
+    model: HAIKU,
     systemPrompt: SYSTEM_PROMPT,
     userPrompt,
     agentType: 'map-classifier',
@@ -134,8 +149,8 @@ Classify every region_id listed above. Use the framing and discrepancy data to d
       region_id: String(c.region_id ?? ''),
       outlet_count: Number(c.outlet_count ?? 0),
       outlets: Array.isArray(c.outlets) ? c.outlets.map(String) : [],
-      border_status: (['original', 'wire_copy', 'reframed'].includes(c.border_status) ? c.border_status : 'wire_copy') as CountryClassification['border_status'],
-      fill_status: (['original', 'wire_copy', 'reframed', 'contradicted'].includes(c.fill_status) ? c.fill_status : 'wire_copy') as CountryClassification['fill_status'],
+      border_status: (['original', 'wire_copy', 'reframed', 'no_coverage'].includes(c.border_status) ? c.border_status : 'wire_copy') as CountryClassification['border_status'],
+      fill_status: (['original', 'wire_copy', 'reframed', 'contradicted', 'no_coverage', 'adjacent_coverage', 'displaced_coverage'].includes(c.fill_status) ? c.fill_status : 'wire_copy') as CountryClassification['fill_status'],
       dominant_framing: String(c.dominant_framing ?? ''),
     })),
     costUsd: result.costUsd,

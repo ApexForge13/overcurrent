@@ -14,17 +14,44 @@ const GDELT_BASE = 'https://api.gdeltproject.org/api/v2/doc/doc'
 const TIMESPAN = '14d'
 
 /**
- * Quote words containing hyphens for GDELT.
- * GDELT rejects bare hyphens — "F-15" must be sent as `"F-15"`.
+ * Common synonyms/related terms for international news topics.
+ * Each variation MUST include the topic anchor to stay relevant.
  */
-function sanitizeQuery(query: string): string {
+const QUERY_SYNONYMS: Record<string, string[]> = {
+  crisis: ['emergency', 'humanitarian'],
+  war: ['conflict', 'military', 'strikes'],
+  ceasefire: ['truce', 'peace talks', 'armistice'],
+  negotiations: ['talks', 'diplomacy', 'deal'],
+  sanctions: ['embargo', 'restrictions'],
+  protest: ['demonstrations', 'unrest', 'uprising'],
+  election: ['vote', 'ballot', 'polling'],
+  refugee: ['displaced', 'asylum'],
+  migrant: ['migration', 'immigrant', 'refugee'],
+  blockade: ['embargo', 'naval blockade', 'siege'],
+  nuclear: ['atomic', 'enrichment'],
+  attack: ['strike', 'assault', 'offensive'],
+  invasion: ['incursion', 'offensive'],
+}
+
+/**
+ * Build a multi-strategy GDELT query from a natural-language topic.
+ *
+ * Strategy (run as a single OR'd query to GDELT, which returns the union):
+ *   1. Full quoted phrase — exact match for the whole query
+ *   2. Quoted bigrams — adjacent-word pairs for partial phrase matching
+ *   3. AND-joined words — all significant words must appear (GDELT default)
+ *   4. Synonym variations — anchor word + synonym, AND-joined
+ *
+ * This replaces the old OR-per-word approach which matched any single word
+ * (e.g. "Honduras OR migrant OR crisis" matched articles about Dublin fuel crisis).
+ */
+function buildGdeltQuery(query: string): string {
   const words = query
     .split(/\s+/)
-    .filter((w) => w.length >= 3) // GDELT rejects short keywords
+    .filter((w) => w.length >= 3)
     .map((word) => {
-      if (word.includes('-') && !word.startsWith('"')) {
-        return `"${word}"`
-      }
+      // Quote hyphenated words — GDELT rejects bare hyphens
+      if (word.includes('-') && !word.startsWith('"')) return `"${word}"`
       return word
     })
 
@@ -33,9 +60,38 @@ function sanitizeQuery(query: string): string {
     return ''
   }
 
-  // Join with OR for broader matching — GDELT ANDs by default which is too strict
-  // GDELT requires OR'd terms to be wrapped in parentheses
-  const result = `(${words.join(' OR ')})`
+  const clauses: string[] = []
+
+  // 1. Full quoted phrase (highest precision)
+  clauses.push(`"${words.join(' ')}"`)
+
+  // 2. Quoted bigrams for partial matches
+  if (words.length >= 3) {
+    for (let i = 0; i < words.length - 1; i++) {
+      const bigram = `"${words[i]} ${words[i + 1]}"`
+      if (!clauses.includes(bigram)) clauses.push(bigram)
+    }
+  }
+
+  // 3. AND-joined (all words present — GDELT defaults to AND when no operator)
+  //    Wrap in parens so it's one clause
+  clauses.push(`(${words.join(' ')})`)
+
+  // 4. Synonym variations: anchor word (first significant word, usually a proper noun)
+  //    paired with synonyms for context words
+  const anchor = words[0] // e.g. "Honduras"
+  const contextWords = words.slice(1).map(w => w.toLowerCase().replace(/"/g, ''))
+
+  for (const ctx of contextWords) {
+    const syns = QUERY_SYNONYMS[ctx]
+    if (syns) {
+      for (const syn of syns.slice(0, 2)) { // Cap at 2 synonyms per word
+        clauses.push(`(${anchor} ${syn})`)
+      }
+    }
+  }
+
+  const result = clauses.join(' OR ')
   console.log('[GDELT] Query:', result)
   return result
 }
@@ -140,7 +196,7 @@ export async function searchGdelt(
   query: string,
   region?: string,
 ): Promise<GdeltResult[]> {
-  const safeQuery = sanitizeQuery(query)
+  const safeQuery = buildGdeltQuery(query)
   if (!safeQuery) return []
   return fetchGdeltQuery(region ? `${safeQuery} sourcecountry:"${region}"` : safeQuery)
 }
@@ -150,7 +206,7 @@ export async function searchGdelt(
  * Returns results with sourcecountry populated.
  */
 export async function searchGdeltGlobal(query: string): Promise<GdeltResult[]> {
-  const safeQuery = sanitizeQuery(query)
+  const safeQuery = buildGdeltQuery(query)
   if (!safeQuery) return []
   return fetchGdeltQuery(safeQuery, 250)
 }

@@ -1,4 +1,4 @@
-import { callClaude, parseJSON, SONNET } from '@/lib/anthropic'
+import { callClaude, parseJSON, HAIKU } from '@/lib/anthropic'
 import { ANTI_HALLUCINATION_RULES, JSON_RULES } from './prompts'
 
 // ---------------------------------------------------------------------------
@@ -60,6 +60,8 @@ ${ANTI_HALLUCINATION_RULES}
 
 ${JSON_RULES}
 
+CRITICAL: Your ENTIRE response must be valid JSON. No explanations, no markdown, no text before or after the JSON object. Start with { and end with }.
+
 Response shape:
 {
   "sources": [
@@ -81,7 +83,12 @@ Response shape:
   "suggestedCategory": "string",
   "suggestedSecondary": ["string"],
   "searchQueryRefinement": "string"
-}`
+}
+
+CRITICAL: Your response must be ONLY a valid JSON object. No text before or after the JSON.
+No explanations. No commentary. No markdown code fences.
+If zero sources are relevant, return exactly: {"sources": []}
+Any text outside the JSON object will cause a system failure.`
 
 // ---------------------------------------------------------------------------
 // Agent function
@@ -116,7 +123,7 @@ export async function triageSources(
   }
 
   // ── BUILD REGION-GROUPED BATCHES OF ~25 ──────────────────────────────
-  // 25 sources per batch keeps Sonnet well within its effective processing
+  // 25 sources per batch keeps Haiku well within its effective processing
   // limit. Each batch is homogeneous by region for better relevance scoring.
   const BATCH_SIZE = 25
   const allTriagedSources: Record<string, unknown>[] = []
@@ -153,14 +160,14 @@ export async function triageSources(
       country: s.sourcecountry,
       region: s.knownRegion || '',
     }))
-    const batchPrompt = `Query: ${query}\n\nRaw sources (batch ${bIdx + 1}/${batches.length}, region: ${region}, ${slimBatch.length} sources):\n${JSON.stringify(slimBatch)}`
+    const batchPrompt = `Query: ${query}\n\nRaw sources (batch ${bIdx + 1}/${batches.length}, region: ${region}, ${slimBatch.length} sources):\n${JSON.stringify(slimBatch)}\n\nRespond with JSON only. No explanations.`
 
     let success = false
     for (let attempt = 0; attempt < 2 && !success; attempt++) {
       try {
         if (attempt > 0) console.log(`[Triage] Batch ${bIdx + 1} (${region}) retry after JSON parse failure`)
         const result = await callClaude({
-          model: SONNET,
+          model: HAIKU,
           systemPrompt: SYSTEM_PROMPT,
           userPrompt: batchPrompt,
           agentType: 'triage',
@@ -191,34 +198,45 @@ export async function triageSources(
     }
   }
 
-  // Retry all failed batch sources as one final batch
+  // ── MINI-BATCH RECOVERY ─────────────────────────────────────────────────
+  // Instead of retrying all failed sources as one big batch (which fails for
+  // the same reason), split into mini-batches of 5 sources each. Smaller
+  // batches are more likely to produce valid JSON, even if most are irrelevant.
   if (failedBatchSources.length > 0) {
-    console.log(`[Triage] Retrying ${failedBatchSources.length} sources from failed batches as final batch`)
-    const slimFailed = failedBatchSources.map(s => ({
-      url: s.url,
-      title: s.title.substring(0, 120),
-      domain: s.domain,
-      country: s.sourcecountry,
-      region: s.knownRegion || '',
-    }))
-    const failedPrompt = `Query: ${query}\n\nRaw sources (recovery batch, ${slimFailed.length} sources):\n${JSON.stringify(slimFailed)}`
-    try {
-      const result = await callClaude({
-        model: SONNET,
-        systemPrompt: SYSTEM_PROMPT,
-        userPrompt: failedPrompt,
-        agentType: 'triage',
-        maxTokens: 8192,
-        storyId,
-      })
-      costUsd += result.costUsd
-      const parsed = parseJSON<Record<string, unknown>>(result.text)
-      if (parsed.sources && Array.isArray(parsed.sources)) {
-        console.log(`[Triage] Recovery batch: ${(parsed.sources as unknown[]).length} sources recovered`)
-        allTriagedSources.push(...(parsed.sources as Record<string, unknown>[]))
+    const MINI_BATCH = 5
+    const miniBatchCount = Math.ceil(failedBatchSources.length / MINI_BATCH)
+    console.log(`[Triage] Splitting ${failedBatchSources.length} failed sources into ${miniBatchCount} mini-batches of ${MINI_BATCH}`)
+
+    for (let m = 0; m < failedBatchSources.length; m += MINI_BATCH) {
+      const miniBatch = failedBatchSources.slice(m, m + MINI_BATCH)
+      const slimMini = miniBatch.map(s => ({
+        url: s.url,
+        title: s.title.substring(0, 120),
+        domain: s.domain,
+        country: s.sourcecountry,
+        region: s.knownRegion || '',
+      }))
+      const miniPrompt = `Query: ${query}\n\nRaw sources (recovery mini-batch, ${slimMini.length} sources):\n${JSON.stringify(slimMini)}\n\nRespond with JSON only. No explanations.`
+      try {
+        const result = await callClaude({
+          model: HAIKU,
+          systemPrompt: SYSTEM_PROMPT,
+          userPrompt: miniPrompt,
+          agentType: 'triage',
+          maxTokens: 4096,
+          storyId,
+        })
+        costUsd += result.costUsd
+        const parsed = parseJSON<Record<string, unknown>>(result.text)
+        if (parsed.sources && Array.isArray(parsed.sources)) {
+          console.log(`[Triage] Mini-batch ${Math.floor(m / MINI_BATCH) + 1}: ${(parsed.sources as unknown[]).length} sources recovered`)
+          allTriagedSources.push(...(parsed.sources as Record<string, unknown>[]))
+        }
+      } catch (err) {
+        console.error(`[Triage] Mini-batch ${Math.floor(m / MINI_BATCH) + 1} failed:`, err instanceof Error ? err.message : err)
+        // Log raw response for debugging parse failures
+        console.error(`[Triage] Mini-batch sources: ${slimMini.map(s => s.domain).join(', ')}`)
       }
-    } catch (err) {
-      console.error(`[Triage] Recovery batch also failed:`, err instanceof Error ? err.message : err)
     }
   }
 

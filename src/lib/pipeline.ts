@@ -11,7 +11,8 @@ import { analyzeSilence } from '@/agents/silence'
 import { synthesize } from '@/agents/synthesis'
 import { runRegionalDebate, moderatorToRegionalAnalysis } from '@/lib/debate'
 import type { DebateRoundData } from '@/lib/debate'
-import { generateSocialDrafts } from '@/agents/social-drafts'
+// Social draft generation removed from pipeline — drafts written manually
+// import { generateSocialDrafts } from '@/agents/social-drafts'
 import { fetchRedditDiscourse } from '@/ingestion/reddit-discourse'
 import { fetchTwitterDiscourse } from '@/ingestion/twitter-discourse'
 import { analyzeDiscourse } from '@/agents/discourse'
@@ -550,13 +551,34 @@ export async function runVerifyPipeline(
   }
 
   // If any region is below minimum and we have extra raw sources, backfill
+  // ONLY with topic-relevant articles — don't pad with unrelated content
   const usedUrls = new Set(triageResult.sources.map(s => s.url))
+  const backfillKeywords = queryToKeywords(query)
+
   for (const [region, min] of Object.entries(REGION_MINIMUMS)) {
     const current = sourcesByReg.get(region) ?? []
     if (current.length < min) {
-      // Find unused raw sources from this region
-      const backfill = dedupedSources
+      // Find unused raw sources from this region that are topic-relevant
+      const candidates = dedupedSources
         .filter(rs => rs.knownRegion === region && !usedUrls.has(rs.url))
+
+      // Filter by topic relevance: require at least 1 anchor + 1 context keyword in title
+      const relevant = candidates.filter(rs => {
+        const lower = rs.title.toLowerCase()
+        if (backfillKeywords.anchors.length > 0 && backfillKeywords.context.length > 0) {
+          const hasAnchor = backfillKeywords.anchors.some(a => lower.includes(a))
+          const hasContext = backfillKeywords.context.some(c => lower.includes(c))
+          return hasAnchor && hasContext
+        }
+        // Fallback: at least 2 keyword matches
+        let hits = 0
+        for (const k of backfillKeywords.all) {
+          if (lower.includes(k)) { hits++; if (hits >= 2) return true }
+        }
+        return false
+      })
+
+      const backfill = relevant
         .slice(0, min - current.length)
         .map(rs => ({
           url: rs.url,
@@ -577,8 +599,8 @@ export async function runVerifyPipeline(
         triageResult.sources.push(s)
         usedUrls.add(s.url)
       }
-      if (backfill.length > 0) {
-        console.log(`[diversity] Backfilled ${backfill.length} sources for ${region} (was ${current.length}, min ${min})`)
+      if (backfill.length > 0 || candidates.length > 0) {
+        console.log(`[diversity] ${region}: ${candidates.length} candidates, ${relevant.length} relevant, backfilled ${backfill.length} (was ${current.length}, min ${min})`)
       }
     }
   }
@@ -619,13 +641,20 @@ export async function runVerifyPipeline(
   }
   console.log(`[fetch] By region:`, JSON.stringify(fetchRegionBreakdown))
 
+  const qualityCounts = { FULL: 0, PARTIAL: 0, SNIPPET: 0, FAILED: 0 }
   const fetchedArticles = await parallelWithLimit(topSources, 5, async (source) => {
     // Pass RSS snippet as fallback for when full fetch fails (403, paywall, timeout)
     const snippetData = rssSnippetMap.get(source.url)
     const article = await fetchArticle(source.url, snippetData?.snippet, snippetData?.title)
+    if (article) {
+      qualityCounts[article.contentQuality]++
+    } else {
+      qualityCounts.FAILED++
+    }
     return {
       ...source,
       content: article?.content ?? undefined,
+      contentQuality: article?.contentQuality,
     }
   })
 
@@ -633,6 +662,7 @@ export async function runVerifyPipeline(
   const failedCount = topSources.length - fetchedCount
   const snippetFallbacks = rssSnippetMap.size
   console.log(`[fetch] ${fetchedCount}/${topSources.length} fetched (${failedCount} failed). ${snippetFallbacks} RSS snippets available as fallbacks.`)
+  console.log(`[fetch] Quality: ${qualityCounts.FULL} FULL, ${qualityCounts.PARTIAL} PARTIAL, ${qualityCounts.SNIPPET} SNIPPET, ${qualityCounts.FAILED} FAILED`)
 
   onProgress('fetch', {
     phase: 'fetch',
@@ -643,7 +673,7 @@ export async function runVerifyPipeline(
   // ── PHASE 4: ANALYSIS ────────────────────────────────────────────────
 
   // Group sources by region
-  const sourcesByRegion = new Map<string, Array<{ url: string; title: string; outlet: string; content?: string }>>()
+  const sourcesByRegion = new Map<string, Array<{ url: string; title: string; outlet: string; content?: string; contentQuality?: string }>>()
   for (const region of regionList) {
     sourcesByRegion.set(region, [])
   }
@@ -654,7 +684,10 @@ export async function runVerifyPipeline(
         url: source.url,
         title: source.title,
         outlet: source.outlet,
-        content: source.content,
+        content: source.contentQuality === 'SNIPPET'
+          ? `[SNIPPET ONLY — full article not available] ${source.content ?? ''}`
+          : source.content,
+        contentQuality: source.contentQuality,
       })
     }
   }
@@ -1041,44 +1074,15 @@ export async function runVerifyPipeline(
     return story
   })
 
-  // Generate social drafts (outside transaction — failure shouldn't roll back the story)
-  try {
-    const drafts = await generateSocialDrafts({
-      headline: synthesisResult.headline,
-      synopsis: synthesisResult.synopsis,
-      confidenceLevel: synthesisResult.confidenceLevel,
-      consensusScore: synthesisResult.consensusScore,
-      sourceCount: triageResult.sources.length,
-      countryCount: countries.size,
-      regionCount: regions.size,
-      claims: synthesisResult.claims,
-      discrepancies: synthesisResult.discrepancies,
-      omissions: synthesisResult.omissions,
-      framings: synthesisResult.framings,
-    }, story.id)
-
-    if (drafts.length > 0) {
-      await prisma.socialDraft.createMany({
-        data: drafts.map((d) => ({
-          storyId: story.id,
-          platform: d.platform,
-          content: d.content,
-          metadata: d.metadata ? JSON.stringify(d.metadata) : null,
-          status: 'draft',
-        })),
-      })
-    }
-    onProgress('social', { phase: 'social', message: `Generated ${drafts.length} social drafts` })
-  } catch (err) {
-    console.error('Social draft generation failed:', err)
-  }
+  // Social draft generation removed — drafts are written manually in Claude chat
+  // Keeping social-drafts.ts agent file for potential future re-integration
 
   // ── STREAM 2: DISCOURSE ANALYSIS (social media only) ──────────────────
   // Completely separate from Stream 1. Reddit + Twitter/X feed the Discourse
   // Gap section. News outlets never enter this stream.
   try {
     // Use the same rich keyword set as RSS search (includes international variants)
-    const discourseKeywords = queryToKeywords(query)
+    const discourseKeywords = queryToKeywords(query).all
 
     const [redditPosts, twitterPosts] = await Promise.all([
       fetchRedditDiscourse(discourseKeywords, triageResult.suggestedCategory, 10, 50, new Date()),

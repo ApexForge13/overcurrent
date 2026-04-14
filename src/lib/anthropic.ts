@@ -202,11 +202,25 @@ export function parseJSON<T = unknown>(text: string): T {
     .replace(/\n?```\s*$/gi, '')
     .trim()
 
+  // Pre-clean: fix common LLM JSON mistakes
+  function cleanJson(s: string): string {
+    return s
+      // Remove trailing commas before } or ]
+      .replace(/,\s*([}\]])/g, '$1')
+      // Replace single quotes around keys/values with double quotes (heuristic)
+      .replace(/(?<=[\[{,]\s*)'([^']+)'(?=\s*:)/g, '"$1"')
+  }
+
   // Try direct parse
   try {
     return JSON.parse(stripped) as T
   } catch {
-    // pass
+    // Try cleaned version
+    try {
+      return JSON.parse(cleanJson(stripped)) as T
+    } catch {
+      // pass
+    }
   }
 
   // Try extracting JSON object via regex
@@ -215,24 +229,25 @@ export function parseJSON<T = unknown>(text: string): T {
     try {
       return JSON.parse(match[0]) as T
     } catch {
-      // Try fixing truncated JSON — close open brackets/braces
-      let fixable = match[0]
-      const openBraces = (fixable.match(/\{/g) || []).length
-      const closeBraces = (fixable.match(/\}/g) || []).length
-      const openBrackets = (fixable.match(/\[/g) || []).length
-      const closeBrackets = (fixable.match(/\]/g) || []).length
-
-      // Remove trailing comma before closing
-      fixable = fixable.replace(/,\s*$/, '')
-
-      // Close unclosed arrays/objects
-      for (let i = 0; i < openBrackets - closeBrackets; i++) fixable += ']'
-      for (let i = 0; i < openBraces - closeBraces; i++) fixable += '}'
-
       try {
-        return JSON.parse(fixable) as T
+        return JSON.parse(cleanJson(match[0])) as T
       } catch {
-        // pass
+        // Try fixing truncated JSON — close open brackets/braces
+        let fixable = cleanJson(match[0])
+        const openBraces = (fixable.match(/\{/g) || []).length
+        const closeBraces = (fixable.match(/\}/g) || []).length
+        const openBrackets = (fixable.match(/\[/g) || []).length
+        const closeBrackets = (fixable.match(/\]/g) || []).length
+
+        // Close unclosed arrays/objects
+        for (let i = 0; i < openBrackets - closeBrackets; i++) fixable += ']'
+        for (let i = 0; i < openBraces - closeBraces; i++) fixable += '}'
+
+        try {
+          return JSON.parse(fixable) as T
+        } catch {
+          // pass
+        }
       }
     }
   }
@@ -243,19 +258,46 @@ export function parseJSON<T = unknown>(text: string): T {
     try {
       return JSON.parse(arrayMatch[0]) as T
     } catch {
-      // Try closing unclosed brackets
-      let fixable = arrayMatch[0].replace(/,\s*$/, '')
-      const openBrackets = (fixable.match(/\[/g) || []).length
-      const closeBrackets = (fixable.match(/\]/g) || []).length
-      const openBraces = (fixable.match(/\{/g) || []).length
-      const closeBraces = (fixable.match(/\}/g) || []).length
-      for (let i = 0; i < openBraces - closeBraces; i++) fixable += '}'
-      for (let i = 0; i < openBrackets - closeBrackets; i++) fixable += ']'
       try {
-        return JSON.parse(fixable) as T
+        return JSON.parse(cleanJson(arrayMatch[0])) as T
       } catch {
-        // pass
+        // Try closing unclosed brackets
+        let fixable = cleanJson(arrayMatch[0])
+        const openBrackets = (fixable.match(/\[/g) || []).length
+        const closeBrackets = (fixable.match(/\]/g) || []).length
+        const openBraces = (fixable.match(/\{/g) || []).length
+        const closeBraces = (fixable.match(/\}/g) || []).length
+        for (let i = 0; i < openBraces - closeBraces; i++) fixable += '}'
+        for (let i = 0; i < openBrackets - closeBrackets; i++) fixable += ']'
+        try {
+          return JSON.parse(fixable) as T
+        } catch {
+          // pass
+        }
       }
+    }
+  }
+
+  // Last resort: extract individual JSON objects from text and wrap in a triage-like structure
+  const objectMatches = [...stripped.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g)]
+  if (objectMatches.length > 0) {
+    const objects: unknown[] = []
+    for (const m of objectMatches) {
+      try {
+        objects.push(JSON.parse(cleanJson(m[0])))
+      } catch {
+        // skip unparseable objects
+      }
+    }
+    if (objects.length > 0) {
+      // If we got individual source objects, wrap them
+      const first = objects[0] as Record<string, unknown>
+      if (first.url || first.sources) {
+        if (first.sources) return first as T
+        return { sources: objects } as T
+      }
+      // Return the first valid object
+      return first as T
     }
   }
 

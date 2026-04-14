@@ -9,7 +9,7 @@ export interface DebateModel {
 
 export const DEBATE_MODELS: Record<string, DebateModel> = {
   analyst_1: { id: 'analyst_1', provider: 'anthropic', model: 'claude-sonnet-4-6', name: 'Claude' },
-  analyst_2: { id: 'analyst_2', provider: 'openai', model: 'gpt-4o', name: 'GPT-4o' },
+  analyst_2: { id: 'analyst_2', provider: 'openai', model: 'gpt-5.4', name: 'GPT-5.4' },
   analyst_3: { id: 'analyst_3', provider: 'google', model: 'gemini-2.5-pro', name: 'Gemini' },
   analyst_4: { id: 'analyst_4', provider: 'xai', model: 'grok-4', name: 'Grok' },
 }

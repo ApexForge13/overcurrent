@@ -36,6 +36,8 @@ const OUTLET_HEADER_OVERRIDES: Record<string, Record<string, string>> = {
  */
 function sanitizeXml(xml: string): string {
   return xml
+    // Fix <rss> tags missing version attribute (News24, UOL) — rss-parser requires it
+    .replace(/<rss(?=[>\s])(?![^>]*version)/i, '<rss version="2.0"')
     // Fix unencoded ampersands (but not already-encoded entities)
     .replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;')
     // Remove control characters (keep tab \x09, newline \x0A, carriage return \x0D)
@@ -45,18 +47,75 @@ function sanitizeXml(xml: string): string {
 }
 
 /**
- * Check if a string contains any of the given keywords (case-insensitive).
+ * Keywords split into anchors (proper nouns, countries — MUST match at least one)
+ * and context words (topic terms — MUST match at least one).
+ * Both groups must have a hit for an article to be considered relevant.
  */
-function matchesKeywords(text: string, keywords: string[]): boolean {
-  const lower = text.toLowerCase()
-  return keywords.some((kw) => lower.includes(kw))
+export interface SplitKeywords {
+  anchors: string[]   // Proper nouns, countries, key entities
+  context: string[]   // Topic/action words
+  all: string[]       // Combined flat list (for non-English lenient matching)
 }
 
 /**
- * Extract keywords from a query string for matching.
+ * Known proper nouns / country names that act as topic anchors.
+ * An article must mention at least one anchor AND one context word.
+ */
+const ANCHOR_WORDS = new Set([
+  // Countries
+  'iran', 'iraq', 'israel', 'palestine', 'gaza', 'lebanon', 'syria', 'yemen', 'jordan',
+  'saudi', 'qatar', 'egypt', 'turkey', 'russia', 'ukraine', 'china', 'taiwan', 'japan',
+  'korea', 'india', 'pakistan', 'afghanistan', 'honduras', 'mexico', 'brazil', 'venezuela',
+  'colombia', 'cuba', 'argentina', 'chile', 'peru', 'nigeria', 'kenya', 'sudan', 'libya',
+  'somalia', 'ethiopia', 'congo', 'myanmar', 'philippines', 'indonesia', 'vietnam',
+  // Cities / regions
+  'tehran', 'islamabad', 'jerusalem', 'kyiv', 'moscow', 'beijing', 'taipei', 'kabul',
+  'baghdad', 'damascus', 'beirut', 'riyadh', 'doha', 'cairo', 'ankara', 'nairobi',
+  // Key figures
+  'trump', 'biden', 'putin', 'zelensky', 'netanyahu', 'khamenei', 'modi', 'erdogan',
+  'vance', 'witkoff', 'kushner', 'araghchi', 'pezeshkian', 'sharif', 'jinping',
+  // Organizations
+  'nato', 'hamas', 'hezbollah', 'houthi', 'iaea', 'opec',
+])
+
+/**
+ * Check if text matches the anchor+context keyword strategy.
+ * Requires at least 1 anchor AND at least 1 context keyword to match.
+ * Falls back to requiring 2+ keyword matches if no anchors defined.
+ */
+function matchesKeywordsStrict(text: string, kw: SplitKeywords): boolean {
+  const lower = text.toLowerCase()
+
+  if (kw.anchors.length > 0 && kw.context.length > 0) {
+    const hasAnchor = kw.anchors.some(a => lower.includes(a))
+    const hasContext = kw.context.some(c => lower.includes(c))
+    return hasAnchor && hasContext
+  }
+
+  // Fallback: require at least 2 keywords from the full list
+  let hits = 0
+  for (const k of kw.all) {
+    if (lower.includes(k)) {
+      hits++
+      if (hits >= 2) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Lenient match for non-English outlets — any single keyword hit.
+ */
+function matchesKeywordsLenient(text: string, kw: SplitKeywords): boolean {
+  const lower = text.toLowerCase()
+  return kw.all.some(k => lower.includes(k))
+}
+
+/**
+ * Extract keywords from a query string, split into anchors and context.
  * Also generates broader variants for international matching.
  */
-export function queryToKeywords(query: string): string[] {
+export function queryToKeywords(query: string): SplitKeywords {
   const words = query
     .toLowerCase()
     .split(/\s+/)
@@ -70,8 +129,15 @@ export function queryToKeywords(query: string): string[] {
   if (words.includes('negotiations')) extras.push('talks', 'diplomacy', 'diplomatic', 'deal')
   if (words.includes('trump')) extras.push('vance', 'witkoff', 'kushner')
   if (words.includes('war')) extras.push('conflict', 'military', 'strike', 'attack')
+  if (words.includes('honduras')) extras.push('honduran', 'tegucigalpa', 'central america')
+  if (words.includes('migrant')) extras.push('migration', 'immigrant', 'refugee', 'caravan', 'asylum')
+  if (words.includes('blockade')) extras.push('embargo', 'naval', 'siege')
 
-  return [...new Set([...words, ...extras])]
+  const all = [...new Set([...words, ...extras])]
+  const anchors = all.filter(w => ANCHOR_WORDS.has(w))
+  const context = all.filter(w => !ANCHOR_WORDS.has(w))
+
+  return { anchors, context, all }
 }
 
 /**
@@ -80,7 +146,7 @@ export function queryToKeywords(query: string): string[] {
 async function fetchFeed(
   outlet: OutletInfo,
   parser: { parseString: (xml: string) => Promise<{ items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }> },
-  keywords: string[],
+  keywords: SplitKeywords,
 ): Promise<RssResult[]> {
   if (!outlet.rssUrl) return []
 
@@ -101,10 +167,22 @@ async function fetchFeed(
 
     let xml = await response.text()
 
-    // Detect HTML response (redirect to homepage)
+    // Detect HTML response (redirect to homepage) — retry once for intermittent CDN issues
     if (xml.includes('<!DOCTYPE html') || (xml.includes('<html') && !xml.includes('<rss') && !xml.includes('<feed'))) {
-      console.warn(`[rss] ${outlet.name}: got HTML instead of XML (likely redirect)`)
-      return []
+      // Retry once — some CDN edges intermittently serve HTML
+      const retry = await fetchWithTimeout(outlet.rssUrl!, RSS_TIMEOUT, { headers, redirect: 'follow' })
+      if (retry.ok) {
+        const retryXml = await retry.text()
+        if (retryXml.includes('<rss') || retryXml.includes('<feed') || retryXml.includes('<?xml')) {
+          xml = retryXml
+        } else {
+          console.warn(`[rss] ${outlet.name}: got HTML instead of XML (likely redirect)`)
+          return []
+        }
+      } else {
+        console.warn(`[rss] ${outlet.name}: got HTML instead of XML (likely redirect)`)
+        return []
+      }
     }
 
     // Try parsing raw XML first, fall back to sanitized version
@@ -152,7 +230,7 @@ async function fetchFeed(
 
         const searchText = `${title} ${snippet}`
 
-        if (matchesKeywords(searchText, keywords)) {
+        if (matchesKeywordsStrict(searchText, keywords)) {
           matched.push({
             url: articleUrl,
             title,
@@ -162,9 +240,9 @@ async function fetchFeed(
             region: outlet.region,
             country: outlet.country,
           })
-        } else if (!isEnglishOutlet) {
-          // For non-English outlets, include ANY recent article from feeds
-          // that cover international news — the triage agent will filter
+        } else if (!isEnglishOutlet && matchesKeywordsLenient(searchText, keywords)) {
+          // For non-English outlets, use lenient matching (any keyword)
+          // but still require at least one keyword hit + recency
           const pubDate = item.isoDate || item.pubDate
           if (pubDate) {
             const age = Date.now() - new Date(pubDate).getTime()
@@ -208,7 +286,7 @@ interface FeedDiagnostics {
 async function batchFetchFeeds(
   outlets: OutletInfo[],
   parser: { parseString: (xml: string) => Promise<{ items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }> },
-  keywords: string[],
+  keywords: SplitKeywords,
 ): Promise<{ results: RssResult[]; diagnostics: FeedDiagnostics }> {
   const allResults: RssResult[] = []
   const diagnostics: FeedDiagnostics = { total: outlets.length, success: 0, failed: 0, empty: 0, byRegion: {} }
@@ -254,7 +332,7 @@ export async function scanRssFeeds(
   if (outlets.length === 0) return []
 
   const keywords = queryToKeywords(query)
-  if (keywords.length === 0) return []
+  if (keywords.all.length === 0) return []
 
   let ParserClass: new () => { parseString: (xml: string) => Promise<{ items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }> }
   try {
@@ -290,7 +368,7 @@ export async function scanRssFeeds(
 
   if (missingHighPriority.length > 0) {
     console.log(`[RSS] Missing high-priority outlets, attempting web search fallback: ${missingHighPriority.join(', ')}`)
-    const searchQuery = keywords.slice(0, 5).join(' ')
+    const searchQuery = keywords.all.slice(0, 5).join(' ')
 
     for (const domain of missingHighPriority.slice(0, 5)) { // Cap at 5 to avoid rate limits
       try {

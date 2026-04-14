@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { requireAdmin } from '@/lib/auth-guard'
 
 const W = 1080
 const H = 1080
@@ -133,6 +134,9 @@ function slide5(sourceCount: number, countryCount: number, regionCount: number):
 }
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const { id } = await params
 
   const story = await prisma.story.findUnique({

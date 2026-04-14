@@ -1,8 +1,12 @@
 import { prisma } from '@/lib/db'
+import { requireAdmin } from '@/lib/auth-guard'
 
 const VALID_STATUSES = ['draft', 'review', 'published', 'archived', 'rejected']
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const { id } = await params
 
   let body: Record<string, unknown>
@@ -37,6 +41,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const { id } = await params
 
   try {

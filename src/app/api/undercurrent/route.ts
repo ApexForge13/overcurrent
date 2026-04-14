@@ -1,6 +1,11 @@
+import { requireAdmin } from '@/lib/auth-guard'
+
 export const maxDuration = 300
 
 export async function POST(request: Request) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   let query: string
   let startDate: string | undefined
   let endDate: string | undefined

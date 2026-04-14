@@ -1,7 +1,11 @@
 import { prisma } from '@/lib/db'
 import { classifyMapRegions, type CountryClassification } from '@/agents/map-classifier'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const { id } = await params
 
   const story = await prisma.story.findUnique({

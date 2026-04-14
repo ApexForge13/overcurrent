@@ -1,6 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? 'connermhecht13@gmail.com')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -24,7 +28,7 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Protect /admin routes — require authenticated user
+  // Protect /admin pages — require authenticated admin
   if (request.nextUrl.pathname.startsWith('/admin')) {
     if (!user) {
       const url = request.nextUrl.clone()
@@ -32,22 +36,33 @@ export async function middleware(request: NextRequest) {
       url.searchParams.set('redirect', request.nextUrl.pathname)
       return NextResponse.redirect(url)
     }
+    if (!user.email || !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      return NextResponse.redirect(url)
+    }
   }
 
-  // Protect /api/admin routes
+  // Protect /api/admin routes — require authenticated admin
   if (request.nextUrl.pathname.startsWith('/api/admin')) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (!user.email || !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
   }
 
-  // Protect cost-incurring API routes
+  // Protect cost-incurring API routes — require authenticated admin
   if (
     request.nextUrl.pathname === '/api/analyze' ||
     request.nextUrl.pathname === '/api/undercurrent'
   ) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (!user.email || !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
   }
 

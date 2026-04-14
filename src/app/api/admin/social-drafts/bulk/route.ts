@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/db'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function PUT(request: Request) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   let ids: string[]
   let action: string
   let scheduledFor: string | undefined

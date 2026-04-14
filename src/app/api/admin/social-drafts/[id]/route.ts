@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/db'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const { id } = await params
   const draft = await prisma.socialDraft.findUnique({ where: { id }, include: { story: true } })
   if (!draft) return Response.json({ error: 'Not found' }, { status: 404 })
@@ -10,6 +14,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 const VALID_DRAFT_STATUSES = ['draft', 'approved', 'rejected', 'scheduled', 'posted']
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const { id } = await params
 
   let body: Record<string, unknown>

@@ -1,7 +1,11 @@
 import { prisma } from '@/lib/db'
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function GET() {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   // Newsletter subscribers (from our Subscriber table)
   const [newsletterActive, newsletterTotal] = await Promise.all([
     prisma.subscriber.count({ where: { status: 'active' } }),

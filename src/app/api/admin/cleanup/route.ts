@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/db'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function POST() {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   // Delete stories with junk headlines from testing
   const junkPatterns = [
     'No Coverage Found',

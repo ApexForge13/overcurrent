@@ -1,4 +1,18 @@
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+import { redirect } from 'next/navigation'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
+
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? 'connermhecht13@gmail.com')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user || !user.email || !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+    redirect('/login')
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8 border-b border-border pb-4">
@@ -10,10 +24,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <a href="/admin" className="text-text-secondary hover:text-accent-green">Dashboard</a>
           <a href="/admin/social" className="text-text-secondary hover:text-accent-purple">Social</a>
           <a href="/admin/archive" className="text-text-secondary hover:text-accent-amber">Archive</a>
-          <a href="/admin/costs" className="text-text-secondary hover:text-text-muted">Costs</a>
+          <a href="/admin/costs" className="text-text-secondary hover:text-accent-amber">Costs</a>
           <a href="/admin/tiktok" className="text-text-secondary hover:text-accent-purple">TikTok</a>
           <a href="/api/admin/newsletter" className="text-text-secondary hover:text-accent-amber">Newsletter</a>
-          <a href="/" className="text-text-muted hover:text-text-secondary">← Site</a>
+          <a href="/" className="text-text-muted hover:text-text-secondary">&larr; Site</a>
         </nav>
       </div>
       {children}

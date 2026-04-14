@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/db'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function GET() {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   // Get published stories from the last 7 days
   const weekAgo = new Date()
   weekAgo.setDate(weekAgo.getDate() - 7)

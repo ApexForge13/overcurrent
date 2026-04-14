@@ -1,7 +1,11 @@
 import { prisma } from '@/lib/db'
 import { NextRequest } from 'next/server'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const searchParams = request.nextUrl.searchParams
   const status = searchParams.get('status') ?? undefined
   const platform = searchParams.get('platform') ?? undefined

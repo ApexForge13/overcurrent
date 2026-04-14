@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { requireAdmin } from '@/lib/auth-guard'
 
 function guessCategory(headline: string, synopsis: string): string {
   const text = (headline + ' ' + synopsis).toLowerCase()
@@ -17,6 +18,9 @@ function guessCategory(headline: string, synopsis: string): string {
 }
 
 export async function POST() {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const stories = await prisma.story.findMany({
     where: { primaryCategory: null },
     select: { id: true, headline: true, synopsis: true },

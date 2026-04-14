@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/db'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function POST(request: Request) {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   try {
     const { storyId, platform, posts } = await request.json()
     if (!storyId || !platform || !Array.isArray(posts)) {

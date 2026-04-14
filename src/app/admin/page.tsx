@@ -29,7 +29,8 @@ interface ReviewStory {
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [reviewStories, setReviewStories] = useState<ReviewStory[]>([] )
+  const [reviewStories, setReviewStories] = useState<ReviewStory[]>([])
+  const [publishedStories, setPublishedStories] = useState<ReviewStory[]>([])
   const [actionInFlight, setActionInFlight] = useState<string | null>(null)
   const [mapStatus, setMapStatus] = useState<Record<string, string>>({})
   const [socialStatus, setSocialStatus] = useState<Record<string, string>>({})
@@ -57,6 +58,13 @@ export default function AdminDashboard() {
       .catch(() => {})
   }, [])
 
+  const fetchPublishedStories = useCallback(() => {
+    fetch('/api/admin/stories?status=published&limit=20')
+      .then(r => r.json())
+      .then(data => setPublishedStories(data.stories ?? []))
+      .catch(() => {})
+  }, [])
+
   useEffect(() => {
     Promise.all([
       fetch('/api/admin/stories?limit=1').then(r => r.json()),
@@ -77,7 +85,8 @@ export default function AdminDashboard() {
     }).catch(() => {})
 
     fetchReviewStories()
-  }, [fetchReviewStories])
+    fetchPublishedStories()
+  }, [fetchReviewStories, fetchPublishedStories])
 
   async function updateStoryStatus(id: string, status: 'published' | 'archived') {
     setActionInFlight(id)
@@ -338,6 +347,59 @@ export default function AdminDashboard() {
                     </div>
                   )}
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mb-8">
+        <h3 className="font-display font-bold text-lg mb-4">Published Stories</h3>
+        {publishedStories.length === 0 ? (
+          <p className="text-sm text-text-muted">No published stories.</p>
+        ) : (
+          <div className="space-y-3">
+            {publishedStories.map(story => (
+              <div key={story.id} className="bg-surface border border-border rounded-lg p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <a href={`/story/${story.slug}`} className="font-display font-bold text-text-primary hover:text-accent-green transition-colors">
+                      {story.headline}
+                    </a>
+                    <div className="flex gap-4 mt-2 text-xs font-mono text-text-muted">
+                      <span>{story.sourceCount} sources</span>
+                      <span>{story.countryCount} countries</span>
+                      <span>{story.regionCount} regions</span>
+                      <span>{new Date(story.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => regenerateMap(story.id)}
+                      disabled={!!mapStatus[story.id]?.startsWith('regenerating')}
+                      className="px-3 py-1.5 text-sm font-mono rounded bg-accent-purple/20 text-accent-purple hover:bg-accent-purple/30 transition-colors disabled:opacity-50"
+                    >
+                      {mapStatus[story.id]?.startsWith('regenerating') ? 'rebuilding...' : 'Regen Map'}
+                    </button>
+                    <button
+                      onClick={() => regenerateSocial(story.id)}
+                      disabled={!!socialStatus[story.id]?.startsWith('generating')}
+                      className="px-3 py-1.5 text-sm font-mono rounded bg-accent-amber/20 text-accent-amber hover:bg-accent-amber/30 transition-colors disabled:opacity-50"
+                    >
+                      {socialStatus[story.id]?.startsWith('generating') ? 'generating...' : 'Regen Social'}
+                    </button>
+                  </div>
+                </div>
+                {mapStatus[story.id] && !mapStatus[story.id].startsWith('regenerating') && (
+                  <p className="text-xs font-mono mt-2" style={{ color: mapStatus[story.id].startsWith('done') ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                    {mapStatus[story.id]}
+                  </p>
+                )}
+                {socialStatus[story.id] && !socialStatus[story.id].startsWith('generating') && (
+                  <p className="text-xs font-mono mt-1" style={{ color: socialStatus[story.id].startsWith('done') ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                    {socialStatus[story.id]}
+                  </p>
+                )}
               </div>
             ))}
           </div>

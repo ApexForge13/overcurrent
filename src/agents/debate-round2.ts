@@ -133,7 +133,23 @@ ${sourceText}`
     storyId,
   })
 
-  const analysis = parseJSON<Round2Analysis>(result.text)
+  let analysis: Round2Analysis
+  try {
+    analysis = parseJSON<Round2Analysis>(result.text)
+  } catch (err) {
+    console.warn(`[Debate R2] ${model.name} parse failed for ${region}. Raw:`, result.text.substring(0, 300))
+    // Return empty analysis so the debate continues without this model's R2
+    analysis = {
+      model_name: model.name,
+      region,
+      confirmations: [],
+      challenges: [],
+      corrections: [],
+      additions: [],
+      concessions: [],
+      provenance_flags: [],
+    }
+  }
   analysis.model_name = model.name
   analysis.region = region
 

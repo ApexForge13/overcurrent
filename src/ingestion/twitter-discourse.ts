@@ -26,7 +26,7 @@ const NEWS_OUTLET_HANDLES = new Set([
 export async function fetchTwitterDiscourse(
   keywords: string[],
   maxPosts: number = 10,
-  minLikes: number = 100,
+  minLikes: number = 50,
 ): Promise<TwitterDiscoursePost[]> {
   const token = process.env.TWITTER_BEARER_TOKEN
   if (!token) {
@@ -127,11 +127,11 @@ export async function fetchTwitterDiscourse(
         const textWithoutUrls = t.content.replace(/https?:\/\/\S+/g, '').trim()
         return textWithoutUrls.length >= 20
       })
-      // Filter: post-fetch relevance — tweet must contain at least 2 story keywords
+      // Filter: post-fetch relevance — tweet must contain at least 1 story keyword
       .filter((t: { content: string }) => {
         const lower = t.content.toLowerCase()
         const matches = storyTerms.filter(kw => lower.includes(kw.toLowerCase()))
-        return matches.length >= 2
+        return matches.length >= 1
       })
       // Sort by total engagement descending
       .sort((a: { _engagement: number }, b: { _engagement: number }) => b._engagement - a._engagement)
@@ -143,12 +143,16 @@ export async function fetchTwitterDiscourse(
         return post
       })
 
-    console.log(`[Twitter] After filters: ${processed.length} tweets (from ${tweets.length} raw)`)
+    // Log the filter funnel for debugging
+    const afterLikes = tweets.filter((t: { public_metrics: { like_count: number } }) => (t.public_metrics?.like_count || 0) >= minLikes).length
+    console.log(`[Twitter] Funnel: ${tweets.length} raw → ${afterLikes} with ${minLikes}+ likes → ${processed.length} after all filters`)
 
-    // If all tweets got filtered, return top 5 by engagement regardless of threshold
-    if (processed.length === 0 && tweets.length > 0) {
-      console.log(`[Twitter] All tweets filtered — returning top 5 by engagement as fallback`)
-      const fallback = tweets
+    // If fewer than 3 tweets survived, supplement with top engagement tweets
+    if (processed.length < 3 && tweets.length > 0) {
+      const need = 5 - processed.length
+      console.log(`[Twitter] Only ${processed.length} tweets — supplementing with top ${need} by engagement`)
+      const existingUrls = new Set(processed.map(p => p.url))
+      const supplement: TwitterDiscoursePost[] = tweets
         .map((t: { id: string; text: string; author_id: string; created_at: string; public_metrics: { like_count: number; retweet_count: number; reply_count: number; impression_count: number } }) => {
           const user = users.get(t.author_id) as { username: string; verified?: boolean; public_metrics?: { followers_count: number } } | undefined
           return {
@@ -166,9 +170,10 @@ export async function fetchTwitterDiscourse(
             createdAt: t.created_at || '',
           }
         })
+        .filter((t: TwitterDiscoursePost) => !existingUrls.has(t.url) && !NEWS_OUTLET_HANDLES.has(t.author.toLowerCase()))
         .sort((a: { likes: number; retweets: number }, b: { likes: number; retweets: number }) => (b.likes + b.retweets) - (a.likes + a.retweets))
-        .slice(0, 5)
-      return fallback
+        .slice(0, need)
+      processed.push(...supplement)
     }
 
     return processed

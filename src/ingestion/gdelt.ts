@@ -18,15 +18,25 @@ const TIMESPAN = '14d'
  * GDELT rejects bare hyphens — "F-15" must be sent as `"F-15"`.
  */
 function sanitizeQuery(query: string): string {
-  return query
+  const words = query
     .split(/\s+/)
+    .filter((w) => w.length >= 3) // GDELT rejects short keywords
     .map((word) => {
       if (word.includes('-') && !word.startsWith('"')) {
         return `"${word}"`
       }
       return word
     })
-    .join(' ')
+
+  if (words.length < 2) {
+    console.warn('[GDELT] Query too short after filtering:', words.join(' '))
+    return ''
+  }
+
+  // Join with OR for broader matching — GDELT ANDs by default which is too strict
+  const result = words.join(' OR ')
+  console.log('[GDELT] Query:', result)
+  return result
 }
 
 /**
@@ -130,6 +140,7 @@ export async function searchGdelt(
   region?: string,
 ): Promise<GdeltResult[]> {
   const safeQuery = sanitizeQuery(query)
+  if (!safeQuery) return []
   return fetchGdeltQuery(region ? `${safeQuery} sourcecountry:"${region}"` : safeQuery)
 }
 
@@ -139,5 +150,6 @@ export async function searchGdelt(
  */
 export async function searchGdeltGlobal(query: string): Promise<GdeltResult[]> {
   const safeQuery = sanitizeQuery(query)
+  if (!safeQuery) return []
   return fetchGdeltQuery(safeQuery, 250)
 }

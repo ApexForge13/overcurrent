@@ -237,5 +237,27 @@ export function parseJSON<T = unknown>(text: string): T {
     }
   }
 
+  // Try extracting JSON array via regex
+  const arrayMatch = stripped.match(/\[[\s\S]*\]/)
+  if (arrayMatch) {
+    try {
+      return JSON.parse(arrayMatch[0]) as T
+    } catch {
+      // Try closing unclosed brackets
+      let fixable = arrayMatch[0].replace(/,\s*$/, '')
+      const openBrackets = (fixable.match(/\[/g) || []).length
+      const closeBrackets = (fixable.match(/\]/g) || []).length
+      const openBraces = (fixable.match(/\{/g) || []).length
+      const closeBraces = (fixable.match(/\}/g) || []).length
+      for (let i = 0; i < openBraces - closeBraces; i++) fixable += '}'
+      for (let i = 0; i < openBrackets - closeBrackets; i++) fixable += ']'
+      try {
+        return JSON.parse(fixable) as T
+      } catch {
+        // pass
+      }
+    }
+  }
+
   throw new Error('Failed to parse JSON from response')
 }

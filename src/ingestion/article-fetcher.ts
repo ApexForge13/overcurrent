@@ -58,7 +58,10 @@ export async function fetchArticle(
         },
       })
 
-      if (!response.ok) return null
+      if (!response.ok) {
+        console.warn(`[fetch] HTTP ${response.status} for ${url}`)
+        return null
+      }
       html = await response.text()
     } finally {
       clearTimeout(timeoutId)
@@ -66,9 +69,11 @@ export async function fetchArticle(
 
     // Try jsdom + Readability first (may not be available in serverless)
     try {
-      const { JSDOM } = await import('jsdom')
+      const jsdom = await import('jsdom')
       const { Readability } = await import('@mozilla/readability')
-      const dom = new JSDOM(html, { url })
+      const virtualConsole = new jsdom.VirtualConsole()
+      virtualConsole.on('error', () => {}) // Suppress CSS parse warnings
+      const dom = new jsdom.JSDOM(html, { url, virtualConsole })
       const reader = new Readability(dom.window.document)
       const article = reader.parse()
 
@@ -86,8 +91,8 @@ export async function fetchArticle(
           }
         }
       }
-    } catch {
-      // jsdom not available in this runtime — fall through to regex
+    } catch (err) {
+      console.warn(`[fetch] jsdom/readability failed for ${url}:`, err instanceof Error ? err.message : err)
     }
 
     // Fallback: regex-based extraction
@@ -111,10 +116,16 @@ export async function fetchArticle(
       }
     }
 
-    if (!bodyHtml) return null
+    if (!bodyHtml) {
+      console.warn(`[fetch] No body content extracted from ${url}`)
+      return null
+    }
 
     const plainText = stripHtml(bodyHtml)
-    if (plainText.length < 50) return null
+    if (plainText.length < 50) {
+      console.warn(`[fetch] Content too short (${plainText.length} chars) for ${url}`)
+      return null
+    }
 
     const truncated = truncateWords(plainText, MAX_WORDS)
     return {
@@ -122,7 +133,8 @@ export async function fetchArticle(
       content: truncated,
       length: truncated.split(/\s+/).length,
     }
-  } catch {
+  } catch (err) {
+    console.warn(`[fetch] Extraction error for ${url}:`, err instanceof Error ? err.message : err)
     return null
   }
 }

@@ -142,6 +142,8 @@ export async function triageSources(
   console.log(`[Triage] Running ${batches.length} batches (${BATCH_SIZE} sources each, grouped by region)`)
 
   // Run batches — sequential to avoid rate limits, but fast since each is small
+  const failedBatchSources: typeof deduped = []
+
   for (let bIdx = 0; bIdx < batches.length; bIdx++) {
     const { region, sources: batch } = batches[bIdx]
     const slimBatch = batch.map(s => ({
@@ -153,29 +155,70 @@ export async function triageSources(
     }))
     const batchPrompt = `Query: ${query}\n\nRaw sources (batch ${bIdx + 1}/${batches.length}, region: ${region}, ${slimBatch.length} sources):\n${JSON.stringify(slimBatch)}`
 
+    let success = false
+    for (let attempt = 0; attempt < 2 && !success; attempt++) {
+      try {
+        if (attempt > 0) console.log(`[Triage] Batch ${bIdx + 1} (${region}) retry after JSON parse failure`)
+        const result = await callClaude({
+          model: SONNET,
+          systemPrompt: SYSTEM_PROMPT,
+          userPrompt: batchPrompt,
+          agentType: 'triage',
+          maxTokens: 8192,
+          storyId,
+        })
+        costUsd += result.costUsd
+
+        const batchParsed = parseJSON<Record<string, unknown>>(result.text)
+        if (batchParsed.sources && Array.isArray(batchParsed.sources)) {
+          console.log(`[Triage] Batch ${bIdx + 1} (${region}): ${(batchParsed.sources as unknown[]).length} sources returned`)
+          allTriagedSources.push(...(batchParsed.sources as Record<string, unknown>[]))
+        } else {
+          console.warn(`[Triage] Batch ${bIdx + 1} (${region}): no sources array in response`)
+        }
+        if (batchParsed.suggestedCategory) suggestedCategory = String(batchParsed.suggestedCategory)
+        if (batchParsed.searchQueryRefinement) searchQueryRefinement = String(batchParsed.searchQueryRefinement)
+        if (Array.isArray(batchParsed.suggestedSecondary)) suggestedSecondary = batchParsed.suggestedSecondary as string[]
+        success = true
+      } catch (err) {
+        if (attempt === 0) {
+          console.warn(`[Triage] Batch ${bIdx + 1} (${region}) attempt 1 failed:`, err instanceof Error ? err.message : err)
+        } else {
+          console.error(`[Triage] Batch ${bIdx + 1} (${region}) failed after retry:`, err instanceof Error ? err.message : err)
+          failedBatchSources.push(...batch)
+        }
+      }
+    }
+  }
+
+  // Retry all failed batch sources as one final batch
+  if (failedBatchSources.length > 0) {
+    console.log(`[Triage] Retrying ${failedBatchSources.length} sources from failed batches as final batch`)
+    const slimFailed = failedBatchSources.map(s => ({
+      url: s.url,
+      title: s.title.substring(0, 120),
+      domain: s.domain,
+      country: s.sourcecountry,
+      region: s.knownRegion || '',
+    }))
+    const failedPrompt = `Query: ${query}\n\nRaw sources (recovery batch, ${slimFailed.length} sources):\n${JSON.stringify(slimFailed)}`
     try {
       const result = await callClaude({
         model: SONNET,
         systemPrompt: SYSTEM_PROMPT,
-        userPrompt: batchPrompt,
+        userPrompt: failedPrompt,
         agentType: 'triage',
         maxTokens: 8192,
         storyId,
       })
       costUsd += result.costUsd
-
-      const batchParsed = parseJSON<Record<string, unknown>>(result.text)
-      if (batchParsed.sources && Array.isArray(batchParsed.sources)) {
-        console.log(`[Triage] Batch ${bIdx + 1} (${region}): ${(batchParsed.sources as unknown[]).length} sources returned`)
-        allTriagedSources.push(...(batchParsed.sources as Record<string, unknown>[]))
-      } else {
-        console.warn(`[Triage] Batch ${bIdx + 1} (${region}): no sources array in response`)
+      const parsed = parseJSON<Record<string, unknown>>(result.text)
+      if (parsed.sources && Array.isArray(parsed.sources)) {
+        console.log(`[Triage] Recovery batch: ${(parsed.sources as unknown[]).length} sources recovered`)
+        allTriagedSources.push(...(parsed.sources as Record<string, unknown>[]))
       }
-      if (batchParsed.suggestedCategory) suggestedCategory = String(batchParsed.suggestedCategory)
-      if (batchParsed.searchQueryRefinement) searchQueryRefinement = String(batchParsed.searchQueryRefinement)
-      if (Array.isArray(batchParsed.suggestedSecondary)) suggestedSecondary = batchParsed.suggestedSecondary as string[]
     } catch (err) {
-      console.error(`[Triage] Batch ${bIdx + 1} (${region}) failed:`, err instanceof Error ? err.message : err)
+      console.error(`[Triage] Recovery batch also failed:`, err instanceof Error ? err.message : err)
     }
   }
 

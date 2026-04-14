@@ -8,16 +8,16 @@ export interface DebateModel {
 }
 
 export const DEBATE_MODELS: Record<string, DebateModel> = {
-  analyst_1: { id: 'analyst_1', provider: 'anthropic', model: 'claude-sonnet-4-20250514', name: 'Claude' },
+  analyst_1: { id: 'analyst_1', provider: 'anthropic', model: 'claude-sonnet-4-6-20250514', name: 'Claude' },
   analyst_2: { id: 'analyst_2', provider: 'openai', model: 'gpt-4o', name: 'GPT-4o' },
   analyst_3: { id: 'analyst_3', provider: 'google', model: 'gemini-2.5-pro', name: 'Gemini' },
-  analyst_4: { id: 'analyst_4', provider: 'xai', model: 'grok-3', name: 'Grok' },
+  analyst_4: { id: 'analyst_4', provider: 'xai', model: 'grok-4', name: 'Grok' },
 }
 
 export const MODERATOR: DebateModel = {
   id: 'moderator',
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6-20250514',
   name: 'Claude (Moderator)',
 }
 

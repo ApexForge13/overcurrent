@@ -40,22 +40,25 @@ export type ModelProvider = 'anthropic' | 'openai' | 'google' | 'xai'
 export type ModelTier = 'fast' | 'deep' | 'premium'
 
 const MODEL_MAP: Record<ModelProvider, Record<ModelTier, string>> = {
-  anthropic: { fast: 'claude-haiku-4-5-20251001', deep: 'claude-sonnet-4-20250514', premium: 'claude-opus-4-20250514' },
+  anthropic: { fast: 'claude-haiku-4-5-20251001', deep: 'claude-sonnet-4-6-20250514', premium: 'claude-opus-4-6-20250514' },
   openai:    { fast: 'gpt-4o-mini', deep: 'gpt-4o', premium: 'gpt-4o' },
   google:    { fast: 'gemini-2.0-flash', deep: 'gemini-2.5-pro', premium: 'gemini-2.5-pro' },
-  xai:       { fast: 'grok-3-mini', deep: 'grok-3', premium: 'grok-3' },
+  xai:       { fast: 'grok-3-mini', deep: 'grok-4', premium: 'grok-4' },
 }
 
 const PRICING: Record<string, { input: number; output: number }> = {
   'claude-haiku-4-5-20251001': { input: 0.80, output: 4.0 },
-  'claude-sonnet-4-20250514':  { input: 3.0, output: 15.0 },
-  'claude-opus-4-20250514':    { input: 15.0, output: 75.0 },
+  'claude-sonnet-4-20250514':  { input: 3.0, output: 15.0 },   // legacy
+  'claude-opus-4-20250514':    { input: 15.0, output: 75.0 },  // legacy
+  'claude-sonnet-4-6-20250514': { input: 3.0, output: 15.0 },
+  'claude-opus-4-6-20250514':   { input: 5.0, output: 25.0 },
   'gpt-4o-mini':               { input: 0.15, output: 0.60 },
   'gpt-4o':                    { input: 2.50, output: 10.0 },
   'gemini-2.0-flash':          { input: 0.10, output: 0.40 },
   'gemini-2.5-pro':            { input: 1.25, output: 10.0 },
   'grok-3-mini':               { input: 0.30, output: 0.50 },
-  'grok-3':                    { input: 3.0, output: 15.0 },
+  'grok-3':                    { input: 3.0, output: 15.0 },  // legacy
+  'grok-4':                    { input: 3.0, output: 15.0 },
 }
 
 export interface ModelCallOptions {

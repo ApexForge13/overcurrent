@@ -480,7 +480,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
         >
           <span style={{ color: "#D4A574" }}>{"\u25CF"} Claude</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <span style={{ color: "#74D4A5" }}>{"\u25CF"} GPT-4o</span>
+          <span style={{ color: "#74D4A5" }}>{"\u25CF"} GPT-5.4</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span style={{ color: "#74A5D4" }}>{"\u25CF"} Gemini</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>

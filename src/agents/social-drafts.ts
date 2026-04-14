@@ -59,7 +59,7 @@ CONTENT SELECTION RULES:
 6. Never repeat the same finding across tweets.
 7. Always use specific numbers: "47 outlets across 12 countries" not "dozens"
 8. Always name the outlets: "Only The Guardian reported..." not "Only one outlet"
-9. For debate highlights, name both models: "GPT-4o hallucinated X — Gemini caught it"
+9. For debate highlights, name both models: "GPT-5.4 hallucinated X — Gemini caught it"
 10. If a fact died at an editorial boundary, say where it died.
 
 WHAT NEVER TO INCLUDE:

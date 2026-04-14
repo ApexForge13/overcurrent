@@ -124,7 +124,7 @@ export default function MethodologyPage() {
       >
         {[
           { name: 'Claude', color: 'var(--model-claude)' },
-          { name: 'GPT-4o', color: 'var(--model-gpt)' },
+          { name: 'GPT-5.4', color: 'var(--model-gpt)' },
           { name: 'Gemini', color: 'var(--model-gemini)' },
           { name: 'Grok', color: 'var(--model-grok)' },
         ].map((model) => (

@@ -61,6 +61,7 @@ interface CaughtError {
 
 const MODEL_COLORS: Record<string, string> = {
   Claude: "#22c55e",
+  "GPT-5.4": "#3b82f6",
   "GPT-4o": "#3b82f6",
   Gemini: "#f59e0b",
   Grok: "#a855f7",

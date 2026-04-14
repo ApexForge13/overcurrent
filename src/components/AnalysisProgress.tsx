@@ -17,6 +17,7 @@ interface AnalysisProgressProps {
 
 const MODEL_COLORS: Record<string, string> = {
   Claude: "#22c55e",
+  "GPT-5.4": "#3b82f6",
   "GPT-4o": "#3b82f6",
   Gemini: "#f59e0b",
   Grok: "#a855f7",
@@ -25,12 +26,12 @@ const MODEL_COLORS: Record<string, string> = {
 
 const MODEL_POSITIONS = [
   { x: 15, y: 30 },  // top-left: Claude
-  { x: 85, y: 30 },  // top-right: GPT-4o
+  { x: 85, y: 30 },  // top-right: GPT-5.4
   { x: 15, y: 70 },  // bottom-left: Gemini
   { x: 85, y: 70 },  // bottom-right: Grok
 ];
 
-const MODELS = ["Claude", "GPT-4o", "Gemini", "Grok"];
+const MODELS = ["Claude", "GPT-5.4", "Gemini", "Grok"];
 
 export function AnalysisProgress({ events, mode }: AnalysisProgressProps) {
   const accentColor = mode === "verify" ? "#22c55e" : "#a855f7";

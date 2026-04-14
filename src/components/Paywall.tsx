@@ -1,5 +1,7 @@
 "use client";
 
+import { SIGNUP_FREE_READS } from "@/lib/paywall";
+
 interface PaywallProps {
   readCount: number;
   isLoggedIn: boolean;
@@ -37,7 +39,7 @@ export function Paywall({ readCount, isLoggedIn }: PaywallProps) {
           textTransform: 'uppercase',
           marginBottom: '16px',
         }}>
-          {readCount} of 5 free reads used
+          {readCount} of {SIGNUP_FREE_READS} free reads used
         </p>
 
         <h2 style={{
@@ -48,7 +50,7 @@ export function Paywall({ readCount, isLoggedIn }: PaywallProps) {
           lineHeight: 1.2,
           marginBottom: '12px',
         }}>
-          You&apos;ve read your 5 free analyses
+          You&apos;ve read your {SIGNUP_FREE_READS} free analyses
         </h2>
 
         <p style={{

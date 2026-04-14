@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { recordLocalRead, isPaywalled, remainingReads, FREE_READS } from "@/lib/paywall";
+import { recordLocalRead, getAccessTier, remainingFreeReads, ANON_FREE_READS, SIGNUP_FREE_READS } from "@/lib/paywall";
 import { Paywall } from "./Paywall";
 import { ReadCounter } from "./ReadCounter";
 
@@ -54,14 +54,28 @@ export function StoryPaywallWrapper({ slug, children }: StoryPaywallWrapperProps
     checkAuth();
   }, [slug]);
 
-  // If not loaded yet, show nothing (prevents flash)
+  // Show content immediately while loading (prevents flash of blank page)
   if (!loaded) return <>{children}</>;
 
   // Admin and subscribers always see full content
   if (isAdmin || isSubscribed) return <>{children}</>;
 
-  // NOT LOGGED IN — show teaser content + signup overlay
-  if (!isLoggedIn) {
+  const tier = getAccessTier(readCount, isLoggedIn);
+  const remaining = remainingFreeReads(readCount, isLoggedIn);
+  const limit = isLoggedIn ? SIGNUP_FREE_READS : ANON_FREE_READS;
+
+  // ── TIER 1: FREE (reads 1-3 anon, 1-5 logged in) ──
+  if (tier === 'free') {
+    return (
+      <>
+        <ReadCounter remaining={remaining} total={limit} />
+        {children}
+      </>
+    );
+  }
+
+  // ── TIER 2: SIGNUP WALL (anon, reads 4+) ──
+  if (tier === 'signup_wall') {
     return (
       <div style={{ position: 'relative' }}>
         {/* Show first ~500px of content as teaser */}
@@ -81,7 +95,7 @@ export function StoryPaywallWrapper({ slug, children }: StoryPaywallWrapperProps
           zIndex: 10,
         }} />
 
-        {/* Signup CTA — always visible below the fade */}
+        {/* Signup CTA */}
         <div style={{
           position: 'relative',
           zIndex: 20,
@@ -106,7 +120,7 @@ export function StoryPaywallWrapper({ slug, children }: StoryPaywallWrapperProps
               color: 'var(--accent-green)',
               marginBottom: '16px',
             }}>
-              5 free articles on us
+              {readCount} of {ANON_FREE_READS} free reads used
             </div>
             <h2 style={{
               fontFamily: 'var(--font-display)',
@@ -116,7 +130,7 @@ export function StoryPaywallWrapper({ slug, children }: StoryPaywallWrapperProps
               lineHeight: 1.2,
               marginBottom: '12px',
             }}>
-              Sign up to read the full analysis
+              Create a free account to keep reading
             </h2>
             <p style={{
               fontFamily: 'var(--font-body)',
@@ -125,7 +139,7 @@ export function StoryPaywallWrapper({ slug, children }: StoryPaywallWrapperProps
               lineHeight: 1.6,
               marginBottom: '24px',
             }}>
-              Propagation maps, AI debate replays, framing splits, buried evidence — the full experience. No feature restrictions.
+              Sign up for {SIGNUP_FREE_READS - ANON_FREE_READS} more free analyses — propagation maps, AI debate replays, framing splits, buried evidence.
             </p>
             <a
               href="/signup"
@@ -153,37 +167,19 @@ export function StoryPaywallWrapper({ slug, children }: StoryPaywallWrapperProps
                 Already have an account? <span style={{ color: 'var(--accent-green)', textDecoration: 'underline' }}>Sign in</span>
               </a>
             </div>
-            <p style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              color: 'var(--text-tertiary)',
-              marginTop: '20px',
-            }}>
-              Then $4.99/mo for unlimited access
-            </p>
           </div>
         </div>
       </div>
     );
   }
 
-  // LOGGED IN but not subscribed — metered paywall after 10 reads
-  const paywalled = isPaywalled(readCount);
-  const remaining = remainingReads(readCount);
-
-  if (paywalled) {
-    return (
-      <div style={{ position: 'relative', maxHeight: '600px', overflow: 'hidden' }}>
-        {children}
-        <Paywall readCount={readCount} isLoggedIn={isLoggedIn} />
-      </div>
-    );
-  }
-
+  // ── TIER 3: PAYWALL (logged in, reads 6+) ──
   return (
-    <>
-      <ReadCounter remaining={remaining} total={FREE_READS} />
-      {children}
-    </>
+    <div style={{ position: 'relative' }}>
+      <div style={{ maxHeight: '600px', overflow: 'hidden' }}>
+        {children}
+      </div>
+      <Paywall readCount={readCount} isLoggedIn={isLoggedIn} />
+    </div>
   );
 }

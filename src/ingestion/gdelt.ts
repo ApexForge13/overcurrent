@@ -34,7 +34,8 @@ function sanitizeQuery(query: string): string {
   }
 
   // Join with OR for broader matching — GDELT ANDs by default which is too strict
-  const result = words.join(' OR ')
+  // GDELT requires OR'd terms to be wrapped in parentheses
+  const result = `(${words.join(' OR ')})`
   console.log('[GDELT] Query:', result)
   return result
 }

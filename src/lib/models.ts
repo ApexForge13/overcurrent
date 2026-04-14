@@ -40,7 +40,7 @@ export type ModelProvider = 'anthropic' | 'openai' | 'google' | 'xai'
 export type ModelTier = 'fast' | 'deep' | 'premium'
 
 const MODEL_MAP: Record<ModelProvider, Record<ModelTier, string>> = {
-  anthropic: { fast: 'claude-haiku-4-5-20251001', deep: 'claude-sonnet-4-6-20250514', premium: 'claude-opus-4-6-20250514' },
+  anthropic: { fast: 'claude-haiku-4-5-20251001', deep: 'claude-sonnet-4-20250514', premium: 'claude-opus-4-20250514' },
   openai:    { fast: 'gpt-4o-mini', deep: 'gpt-4o', premium: 'gpt-4o' },
   google:    { fast: 'gemini-2.0-flash', deep: 'gemini-2.5-pro', premium: 'gemini-2.5-pro' },
   xai:       { fast: 'grok-3-mini', deep: 'grok-4', premium: 'grok-4' },

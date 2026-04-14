@@ -12,6 +12,30 @@ export interface RedditDiscoursePost {
   topComments: Array<{ text: string; upvotes: number }>
 }
 
+/**
+ * Filter Reddit posts by keyword relevance.
+ * Strict: post must match 2+ keywords. Falls back to 1-keyword if <3 posts pass strict.
+ */
+export function filterByKeywordRelevance(
+  posts: RedditDiscoursePost[],
+  keywords: string[],
+): RedditDiscoursePost[] {
+  const lowerKeywords = keywords.map(k => k.toLowerCase())
+  const relevantPosts = posts.filter(post => {
+    const text = post.content.toLowerCase()
+    const matchCount = lowerKeywords.filter(kw => text.includes(kw)).length
+    return matchCount >= 2
+  })
+
+  // Fall back to 1-keyword match if 2-keyword filter is too strict
+  return relevantPosts.length >= 3
+    ? relevantPosts
+    : posts.filter(post => {
+        const text = post.content.toLowerCase()
+        return lowerKeywords.some(kw => text.includes(kw))
+      })
+}
+
 // ── Subreddit allowlists ───────────────────────────────────────────────
 // Always searched for every story:
 const ALWAYS_SUBS = ['worldnews', 'politics', 'news', 'geopolitics']
@@ -143,22 +167,7 @@ export async function fetchRedditDiscourse(
   }
 
   // ── KEYWORD RELEVANCE FILTER ─────────────────────────────────────────
-  // A post must match AT LEAST 2 of the story keywords in title+body.
-  // This eliminates irrelevant viral posts (MLM stories, unrelated content).
-  const lowerKeywords = keywords.map(k => k.toLowerCase())
-  const relevantPosts = allPosts.filter(post => {
-    const text = post.content.toLowerCase()
-    const matchCount = lowerKeywords.filter(kw => text.includes(kw)).length
-    return matchCount >= 2
-  })
-
-  // Fall back to 1-keyword match if 2-keyword filter is too strict
-  const filteredByKeyword = relevantPosts.length >= 3
-    ? relevantPosts
-    : allPosts.filter(post => {
-        const text = post.content.toLowerCase()
-        return lowerKeywords.some(kw => text.includes(kw))
-      })
+  const filteredByKeyword = filterByKeywordRelevance(allPosts, keywords)
 
   // ── TEMPORAL RELEVANCE FILTER ──────────────────────────────────────
   // Only include posts within 72hr of the story (24hr before, 48hr after).

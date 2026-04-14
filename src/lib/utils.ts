@@ -1,6 +1,7 @@
 export function slugify(text: string): string {
   return text
     .toLowerCase()
+    .replace(/[\u2013\u2014]/g, '-')   // en-dash/em-dash → hyphen
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/[\s]+/g, '-')
     .replace(/-+/g, '-')

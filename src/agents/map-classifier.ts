@@ -66,7 +66,7 @@ Output format:
 CRITICAL: Return ONLY valid JSON. No explanatory text. No markdown fences.`
 
 /** Map country code to globe region ID */
-function countryToRegionId(country: string): string {
+export function countryToRegionId(country: string): string {
   const map: Record<string, string> = {
     US: 'us', CA: 'ca', MX: 'mx', GB: 'uk', IE: 'uk',
     FR: 'eu', DE: 'eu', IT: 'eu', ES: 'eu', NL: 'eu', SE: 'eu', NO: 'eu', BE: 'eu',

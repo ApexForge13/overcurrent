@@ -1,7 +1,7 @@
 import { fetchWithTimeout } from '@/lib/utils'
 
 /** Strip diacritics/accents for GDELT API compatibility */
-function stripDiacritics(s: string): string {
+export function stripDiacritics(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
 

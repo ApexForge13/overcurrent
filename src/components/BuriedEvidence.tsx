@@ -13,9 +13,10 @@ interface BuriedEvidenceItem {
 
 interface BuriedEvidenceProps {
   items: BuriedEvidenceItem[];
+  totalSourceCount?: number;
 }
 
-export function BuriedEvidence({ items }: BuriedEvidenceProps) {
+export function BuriedEvidence({ items, totalSourceCount }: BuriedEvidenceProps) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   if (!items || items.length === 0) return null;
@@ -66,7 +67,7 @@ export function BuriedEvidence({ items }: BuriedEvidenceProps) {
                     fontSize: '11px',
                     color: 'var(--text-tertiary)',
                   }}>
-                    Reported by: {item.reportedBy} — not picked up by {item.notPickedUpBy.length} other outlet{item.notPickedUpBy.length !== 1 ? 's' : ''}
+                    Reported by {item.reportedBy}{totalSourceCount ? ` — 1 of ${totalSourceCount} sources (${(100 / totalSourceCount).toFixed(1)}% coverage)` : ` — not found in ${item.notPickedUpBy.length} other outlet${item.notPickedUpBy.length !== 1 ? 's' : ''}`}
                   </p>
                 </div>
               </div>
@@ -106,7 +107,7 @@ export function BuriedEvidence({ items }: BuriedEvidenceProps) {
                     letterSpacing: '0.04em',
                     marginBottom: '4px',
                   }}>
-                    NOT PICKED UP BY
+                    NOT FOUND IN
                   </p>
                   <p style={{
                     fontFamily: 'var(--font-mono)',

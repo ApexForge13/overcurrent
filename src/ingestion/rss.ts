@@ -125,6 +125,9 @@ async function fetchFeed(
     const matched: RssResult[] = []
     const items = feed.items ?? []
 
+    // Detect Google News RSS proxy feeds
+    const isGoogleNewsProxy = outlet.rssUrl?.includes('news.google.com/rss/')
+
     // For non-English outlets, be more lenient — include recent articles
     // even if keyword match is weak
     const isEnglishOutlet = outlet.language === 'en'
@@ -132,13 +135,26 @@ async function fetchFeed(
     for (const item of items) {
       // Per-item try/catch — one bad item shouldn't kill the whole feed
       try {
-        const title = item.title ?? ''
+        let title = item.title ?? ''
+        let articleUrl = item.link ?? ''
         const snippet = item.contentSnippet ?? item.content ?? ''
+
+        // Google News RSS: strip " - OutletName" from title, fix URL
+        if (isGoogleNewsProxy) {
+          // Title format: "Article Title - Outlet Name"
+          title = title.replace(/\s*-\s*[^-]+$/, '')
+          // Google News URLs are opaque redirects — construct searchable URL
+          // Use the outlet domain + slugified title for dedup, article fetcher
+          // will attempt to fetch this and fall back to snippet if it fails
+          const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80)
+          articleUrl = `https://${outlet.domain}/${slug}`
+        }
+
         const searchText = `${title} ${snippet}`
 
         if (matchesKeywords(searchText, keywords)) {
           matched.push({
-            url: item.link ?? '',
+            url: articleUrl,
             title,
             outlet: outlet.name,
             publishedAt: item.isoDate ?? item.pubDate ?? '',
@@ -155,7 +171,7 @@ async function fetchFeed(
             const hoursOld = age / (1000 * 60 * 60)
             if (hoursOld < 72) {
               matched.push({
-                url: item.link ?? '',
+                url: articleUrl,
                 title,
                 outlet: outlet.name,
                 publishedAt: pubDate,

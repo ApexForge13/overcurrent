@@ -76,76 +76,51 @@ export async function fetchTwitterDiscourse(
 
     console.log(`[Twitter] API returned ${tweets.length} tweets, ${users.size} users`)
 
-    const processed: TwitterDiscoursePost[] = tweets
-      .map((t: {
-        id: string
-        text: string
-        author_id: string
-        created_at: string
-        public_metrics: {
-          like_count: number
-          retweet_count: number
-          reply_count: number
-          impression_count: number
-          quote_count?: number
-        }
-      }) => {
-        const user = users.get(t.author_id) as {
-          username: string
-          verified?: boolean
-          public_metrics?: { followers_count: number }
-        } | undefined
+    // Map all tweets to typed objects first for staged filtering
+    type MappedTweet = TwitterDiscoursePost & { _engagement: number }
+    const mapped: MappedTweet[] = tweets.map((t: {
+      id: string; text: string; author_id: string; created_at: string
+      public_metrics: { like_count: number; retweet_count: number; reply_count: number; impression_count: number; quote_count?: number }
+    }) => {
+      const user = users.get(t.author_id) as {
+        username: string; verified?: boolean; public_metrics?: { followers_count: number }
+      } | undefined
+      const likes = t.public_metrics?.like_count || 0
+      const retweets = t.public_metrics?.retweet_count || 0
+      return {
+        platform: 'twitter' as const,
+        url: `https://x.com/${user?.username || 'i'}/status/${t.id}`,
+        author: user?.username || '',
+        authorFollowers: user?.public_metrics?.followers_count || 0,
+        isVerified: user?.verified || false,
+        content: t.text,
+        hashtags: (t.text.match(/#\w+/g) || []),
+        likes, retweets,
+        replies: t.public_metrics?.reply_count || 0,
+        views: t.public_metrics?.impression_count || 0,
+        createdAt: t.created_at || '',
+        _engagement: likes + retweets,
+      }
+    })
 
-        const likes = t.public_metrics?.like_count || 0
-        const retweets = t.public_metrics?.retweet_count || 0
-        const username = user?.username || ''
-        const followers = user?.public_metrics?.followers_count || 0
-        const verified = user?.verified || false
+    // Staged filtering with per-stage counts
+    const afterLikes = mapped.filter(t => t.likes >= minLikes)
+    const afterOutlet = afterLikes.filter(t => !NEWS_OUTLET_HANDLES.has(t.author.toLowerCase()))
+    const afterText = afterOutlet.filter(t => {
+      const textWithoutUrls = t.content.replace(/https?:\/\/\S+/g, '').trim()
+      return textWithoutUrls.length >= 20
+    })
+    const afterKeyword = afterText.filter(t => {
+      const lower = t.content.toLowerCase()
+      return storyTerms.some(kw => lower.includes(kw.toLowerCase()))
+    })
 
-        return {
-          platform: 'twitter' as const,
-          url: `https://x.com/${username}/status/${t.id}`,
-          author: username,
-          authorFollowers: followers,
-          isVerified: verified,
-          content: t.text,
-          hashtags: (t.text.match(/#\w+/g) || []),
-          likes,
-          retweets,
-          replies: t.public_metrics?.reply_count || 0,
-          views: t.public_metrics?.impression_count || 0,
-          createdAt: t.created_at || '',
-          _engagement: likes + retweets, // internal sorting field
-        }
-      })
-      // Filter: minimum 50 likes (not 100 — too high for breaking news, not 10 — catches spam)
-      .filter((t: { likes: number }) => t.likes >= minLikes)
-      // Filter: reject news outlet official accounts
-      .filter((t: { author: string }) => !NEWS_OUTLET_HANDLES.has(t.author.toLowerCase()))
-      // Filter: reject tweets that are just a link with no commentary (>20 chars)
-      .filter((t: { content: string }) => {
-        const textWithoutUrls = t.content.replace(/https?:\/\/\S+/g, '').trim()
-        return textWithoutUrls.length >= 20
-      })
-      // Filter: post-fetch relevance — tweet must contain at least 1 story keyword
-      .filter((t: { content: string }) => {
-        const lower = t.content.toLowerCase()
-        const matches = storyTerms.filter(kw => lower.includes(kw.toLowerCase()))
-        return matches.length >= 1
-      })
-      // Sort by total engagement descending
-      .sort((a: { _engagement: number }, b: { _engagement: number }) => b._engagement - a._engagement)
-      // Take top posts
+    const processed: TwitterDiscoursePost[] = afterKeyword
+      .sort((a, b) => b._engagement - a._engagement)
       .slice(0, maxPosts)
-      // Clean up internal field
-      .map((t: { _engagement: number } & TwitterDiscoursePost) => {
-        const { _engagement: _, ...post } = t
-        return post
-      })
+      .map(({ _engagement: _, ...post }) => post)
 
-    // Log the filter funnel for debugging
-    const afterLikes = tweets.filter((t: { public_metrics: { like_count: number } }) => (t.public_metrics?.like_count || 0) >= minLikes).length
-    console.log(`[Twitter] Funnel: ${tweets.length} raw → ${afterLikes} with ${minLikes}+ likes → ${processed.length} after all filters`)
+    console.log(`[Twitter] Funnel: ${tweets.length} raw → ${afterLikes.length} with ${minLikes}+ likes → ${afterOutlet.length} after outlet filter → ${afterText.length} after text filter → ${afterKeyword.length} after keyword filter → ${processed.length} final`)
 
     // If fewer than 3 tweets survived, supplement with top engagement tweets
     if (processed.length < 3 && tweets.length > 0) {

@@ -34,6 +34,7 @@ export async function fetchRedditDiscourse(
   category?: string,
   maxPosts: number = 10,
   minUpvotes: number = 50,
+  storyDate?: Date,
 ): Promise<RedditDiscoursePost[]> {
   // Build subreddit list: always subs + category-specific
   const categorySubs = category && CATEGORY_SUBS[category]
@@ -152,14 +153,45 @@ export async function fetchRedditDiscourse(
   })
 
   // Fall back to 1-keyword match if 2-keyword filter is too strict
-  const finalPosts = relevantPosts.length >= 3
+  const filteredByKeyword = relevantPosts.length >= 3
     ? relevantPosts
     : allPosts.filter(post => {
         const text = post.content.toLowerCase()
         return lowerKeywords.some(kw => text.includes(kw))
       })
 
-  return finalPosts
+  // ── TEMPORAL RELEVANCE FILTER ──────────────────────────────────────
+  // Only include posts within 72hr of the story (24hr before, 48hr after).
+  // Posts outside the window go to "prior related discussion" category.
+  if (storyDate) {
+    const windowStart = new Date(storyDate.getTime() - 24 * 60 * 60 * 1000) // 24hr before
+    const windowEnd = new Date(storyDate.getTime() + 48 * 60 * 60 * 1000)   // 48hr after
+
+    const inWindow: RedditDiscoursePost[] = []
+    const outsideWindow: RedditDiscoursePost[] = []
+
+    for (const post of filteredByKeyword) {
+      const postDate = new Date(post.createdUtc * 1000)
+      if (postDate >= windowStart && postDate <= windowEnd) {
+        inWindow.push(post)
+      } else {
+        outsideWindow.push(post)
+      }
+    }
+
+    console.log(`[Reddit] Temporal filter: ${filteredByKeyword.length} posts → ${inWindow.length} in window, ${outsideWindow.length} outside 72hr window`)
+
+    // If temporal filter is too aggressive, supplement with recent outside-window posts
+    const finalPosts = inWindow.length >= 3
+      ? inWindow
+      : [...inWindow, ...outsideWindow.sort((a, b) => b.upvotes - a.upvotes).slice(0, 3 - inWindow.length)]
+
+    return finalPosts
+      .sort((a, b) => b.upvotes - a.upvotes)
+      .slice(0, maxPosts)
+  }
+
+  return filteredByKeyword
     .sort((a, b) => b.upvotes - a.upvotes)
     .slice(0, maxPosts)
 }

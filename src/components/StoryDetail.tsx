@@ -394,14 +394,14 @@ export function StoryDetail({ story }: StoryDetailProps) {
         {story.primaryCategory && (
           <div style={{ marginTop: "20px" }}>
             <span style={{
-              ...mono,
-              fontSize: "10px",
+              fontFamily: "var(--font-mono)",
+              fontSize: "11px",
               fontWeight: 600,
-              letterSpacing: "0.1em",
+              letterSpacing: "0.08em",
               textTransform: "uppercase",
-              color: "var(--accent-green)",
-              border: "1px solid var(--accent-green)",
-              padding: "2px 8px",
+              color: "var(--accent-teal, #2A9D8F)",
+              border: "1px solid var(--accent-teal, #2A9D8F)",
+              padding: "3px 10px",
             }}>
               {story.primaryCategory.replace(/_/g, " ")}
             </span>
@@ -450,13 +450,19 @@ export function StoryDetail({ story }: StoryDetailProps) {
             color: "var(--text-tertiary)",
           }}
         >
-          <span>{story.sourceCount} sources</span>
+          <span>{story.sourceCount} articles from {new Set(story.sources.map(s => s.outlet)).size} outlets</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span>{story.countryCount} countries</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span>{story.regionCount} {story.regionCount === 1 ? "region" : "regions"}</span>
           <span style={{ color: "var(--border-primary)" }}>&middot;</span>
           <span>{modelCount} AI models</span>
+          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
+          <span>{Math.max(1, Math.ceil(
+            (story.synopsis.split(/\s+/).length +
+             story.claims.reduce((n, c) => n + (c.claim?.split(/\s+/).length || 0) + (c.notes?.split(/\s+/).length || 0), 0) +
+             (story.thePattern?.split(/\s+/).length || 0)) / 238
+          ))} min read</span>
         </div>
 
         {/* Model dots */}
@@ -489,7 +495,10 @@ export function StoryDetail({ story }: StoryDetailProps) {
             color: "var(--text-tertiary)",
           }}
         >
-          Published {new Date(story.publishedAt || story.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+          Published {new Date(story.publishedAt || story.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          {story.publishedAt && story.createdAt && new Date(story.createdAt).getTime() !== new Date(story.publishedAt).getTime() && (
+            <span> · Last updated {new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+          )}
         </div>
       </div>
 
@@ -534,20 +543,50 @@ export function StoryDetail({ story }: StoryDetailProps) {
             const supporters = parseList(claim.supportedBy);
             const contradictors = parseList(claim.contradictedBy);
 
-            // Estimate consensus factoring in source count — not just agreement ratio
+            // Weighted confidence: different source types count differently
+            const SOURCE_WEIGHTS: Record<string, number> = {
+              state: 0.5,
+              wire: 0.3,   // Wire copies are reprints, not independent verification
+              tabloid: 0.6,
+              digital: 0.8,
+              newspaper: 1.0,
+              broadcaster: 1.0,
+            };
+
+            // Match supporter names to sources to get outlet types
+            const sourcesByOutlet = new Map(
+              (story.sources || []).map(s => [s.outlet.toLowerCase(), s])
+            );
+
+            let weightedSupport = 0;
+            let wireCopyCount = 0;
+            for (const name of supporters) {
+              const src = sourcesByOutlet.get(name.toLowerCase());
+              const type = src?.outletType?.toLowerCase() || 'digital';
+              const weight = SOURCE_WEIGHTS[type] ?? 0.8;
+              weightedSupport += weight;
+              if (type === 'wire') wireCopyCount++;
+            }
+
             const supportCount = supporters.length;
             const contradictCount = contradictors.length;
             const total = supportCount + contradictCount;
             const rawPct = total > 0 ? Math.round((supportCount / total) * 100) : 0;
 
-            // Cap confidence by source count — 1 source ≠ 100% confidence
+            // Cap confidence by weighted source count
             let maxPct = 100;
-            if (supportCount <= 1) maxPct = 40;
-            else if (supportCount <= 3) maxPct = 70;
-            else if (supportCount <= 9) maxPct = 90;
+            if (weightedSupport <= 0.5) maxPct = 25;
+            else if (weightedSupport <= 1) maxPct = 40;
+            else if (weightedSupport <= 2) maxPct = 55;
+            else if (weightedSupport <= 4) maxPct = 70;
+            else if (weightedSupport <= 7) maxPct = 85;
+            else maxPct = 95;
 
             const cappedPct = Math.min(rawPct, maxPct);
             const displayPct = claim.consensusPct > 0 ? Math.min(claim.consensusPct, maxPct) : cappedPct;
+            const weightedLabel = weightedSupport !== supportCount
+              ? ` (weighted: ${weightedSupport.toFixed(1)}${wireCopyCount > 0 ? ` · ${wireCopyCount} wire` : ''})`
+              : '';
 
             return (
               <div
@@ -626,7 +665,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
                         marginTop: "4px",
                       }}
                     >
-                      Supported by: {supporters.join(", ")}
+                      Supported by {supportCount} outlet{supportCount !== 1 ? 's' : ''}{weightedLabel}: {supporters.join(", ")}
                     </p>
                   )}
                   {contradictors.length > 0 && (
@@ -871,7 +910,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
           title="REPORTED BUT BURIED"
           preview={`${buriedEvidenceItems.length} fact(s) reported by credible outlets but not picked up by national coverage`}
         >
-          <BuriedEvidence items={buriedEvidenceItems} />
+          <BuriedEvidence items={buriedEvidenceItems} totalSourceCount={story.sourceCount} />
         </CollapsibleSection>
       )}
 

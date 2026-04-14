@@ -608,26 +608,11 @@ export async function runVerifyPipeline(
 
   // ── PHASE 3: FETCH ───────────────────────────────────────────────────
 
-  // Start with top 100 sources, then guarantee every region gets at least 5
-  const topSources = triageResult.sources.slice(0, 100)
-  const topRegionCounts = new Map<string, number>()
-  for (const s of topSources) {
-    topRegionCounts.set(s.region, (topRegionCounts.get(s.region) || 0) + 1)
-  }
-  const MIN_PER_REGION = 5
-  for (const region of regionList) {
-    const have = topRegionCounts.get(region) || 0
-    if (have < MIN_PER_REGION) {
-      const extras = triageResult.sources
-        .filter(s => s.region === region && !topSources.includes(s))
-        .slice(0, MIN_PER_REGION - have)
-      topSources.push(...extras)
-      if (extras.length > 0) {
-        console.log(`[fetch] Guaranteed ${extras.length} sources for ${region} (had ${have})`)
-      }
-    }
-  }
-  console.log(`[fetch] Fetching ${topSources.length} sources`)
+  // Fetch ALL triaged sources — no cap. Fetching is free (HTTP only, no AI).
+  // Articles are already truncated to 3,000 words and split across 6 regional
+  // debates, so even 30+ sources per region fits within model context limits.
+  const topSources = triageResult.sources
+  console.log(`[fetch] Fetching all ${topSources.length} triaged sources`)
   const fetchRegionBreakdown: Record<string, number> = {}
   for (const s of topSources) {
     fetchRegionBreakdown[s.region] = (fetchRegionBreakdown[s.region] || 0) + 1
@@ -1096,8 +1081,8 @@ export async function runVerifyPipeline(
     const discourseKeywords = queryToKeywords(query)
 
     const [redditPosts, twitterPosts] = await Promise.all([
-      fetchRedditDiscourse(discourseKeywords, triageResult.suggestedCategory, 10, 50),
-      fetchTwitterDiscourse(discourseKeywords, 10, 50), // 50 likes minimum — not too high (breaking news), not too low (spam)
+      fetchRedditDiscourse(discourseKeywords, triageResult.suggestedCategory, 10, 50, new Date()),
+      fetchTwitterDiscourse(discourseKeywords, 10, 25), // 25 likes minimum — lower for breaking international news
     ])
 
     console.log(`[discourse] Fetched ${redditPosts.length} Reddit + ${twitterPosts.length} Twitter/X posts`)

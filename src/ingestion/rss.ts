@@ -16,8 +16,32 @@ const MAX_CONCURRENT = 30 // Limit concurrent feed fetches to avoid Vercel conne
 
 // Browser User-Agent — many state media sites (PressTV, RT) block bot-looking requests
 const RSS_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  Accept: 'application/rss+xml, application/xml, text/xml, */*',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+}
+
+// Per-outlet header overrides for sites that block generic requests
+const OUTLET_HEADER_OVERRIDES: Record<string, Record<string, string>> = {
+  'presstv.ir': { 'Accept-Language': 'en-US,en;q=0.9', Referer: 'https://www.google.com/' },
+  'farsnews.ir': { 'Accept-Language': 'en-US,en;q=0.9', Referer: 'https://www.google.com/' },
+  'tasnimnews.com': { 'Accept-Language': 'en-US,en;q=0.9', Referer: 'https://www.google.com/' },
+  'rt.com': { 'Accept-Language': 'en-US,en;q=0.9' },
+  'tass.com': { 'Accept-Language': 'en-US,en;q=0.9' },
+  'globaltimes.cn': { 'Accept-Language': 'en-US,en;q=0.9' },
+}
+
+/**
+ * Sanitize malformed XML that breaks rss-parser.
+ * Common issues: unencoded ampersands, control chars, broken CDATA.
+ */
+function sanitizeXml(xml: string): string {
+  return xml
+    // Fix unencoded ampersands (but not already-encoded entities)
+    .replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;')
+    // Remove control characters (keep tab \x09, newline \x0A, carriage return \x0D)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    // Fix broken CDATA sections
+    .replace(/]]>(?!<)/g, ']]&gt;')
 }
 
 /**
@@ -61,14 +85,42 @@ async function fetchFeed(
   if (!outlet.rssUrl) return []
 
   try {
-    const response = await fetchWithTimeout(outlet.rssUrl, RSS_TIMEOUT, { headers: RSS_HEADERS })
+    // Merge base headers with per-outlet overrides
+    const domain = outlet.domain.replace(/^www\./, '')
+    const overrides = OUTLET_HEADER_OVERRIDES[domain] ?? {}
+    const headers = { ...RSS_HEADERS, ...overrides }
+
+    const response = await fetchWithTimeout(outlet.rssUrl, RSS_TIMEOUT, {
+      headers,
+      redirect: 'follow',
+    })
     if (!response.ok) {
       console.warn(`[rss] ${outlet.name} (${outlet.country}/${outlet.region}): HTTP ${response.status}`)
       return []
     }
 
-    const xml = await response.text()
-    const feed = await parser.parseString(xml)
+    let xml = await response.text()
+
+    // Detect HTML response (redirect to homepage)
+    if (xml.includes('<!DOCTYPE html') || (xml.includes('<html') && !xml.includes('<rss') && !xml.includes('<feed'))) {
+      console.warn(`[rss] ${outlet.name}: got HTML instead of XML (likely redirect)`)
+      return []
+    }
+
+    // Try parsing raw XML first, fall back to sanitized version
+    let feed: { items?: Array<{ title?: string; link?: string; contentSnippet?: string; content?: string; isoDate?: string; pubDate?: string }> }
+    try {
+      feed = await parser.parseString(xml)
+    } catch {
+      // Sanitize and retry
+      xml = sanitizeXml(xml)
+      try {
+        feed = await parser.parseString(xml)
+      } catch (parseErr) {
+        console.warn(`[rss] ${outlet.name}: XML parse failed even after sanitization: ${parseErr instanceof Error ? parseErr.message : parseErr}`)
+        return []
+      }
+    }
 
     const matched: RssResult[] = []
     const items = feed.items ?? []
@@ -78,39 +130,44 @@ async function fetchFeed(
     const isEnglishOutlet = outlet.language === 'en'
 
     for (const item of items) {
-      const title = item.title ?? ''
-      const snippet = item.contentSnippet ?? item.content ?? ''
-      const searchText = `${title} ${snippet}`
+      // Per-item try/catch — one bad item shouldn't kill the whole feed
+      try {
+        const title = item.title ?? ''
+        const snippet = item.contentSnippet ?? item.content ?? ''
+        const searchText = `${title} ${snippet}`
 
-      if (matchesKeywords(searchText, keywords)) {
-        matched.push({
-          url: item.link ?? '',
-          title,
-          outlet: outlet.name,
-          publishedAt: item.isoDate ?? item.pubDate ?? '',
-          snippet: snippet ? snippet.slice(0, 300) : undefined,
-          region: outlet.region,
-          country: outlet.country,
-        })
-      } else if (!isEnglishOutlet) {
-        // For non-English outlets, include ANY recent article from feeds
-        // that cover international news — the triage agent will filter
-        const pubDate = item.isoDate || item.pubDate
-        if (pubDate) {
-          const age = Date.now() - new Date(pubDate).getTime()
-          const hoursOld = age / (1000 * 60 * 60)
-          if (hoursOld < 72) {
-            matched.push({
-              url: item.link ?? '',
-              title,
-              outlet: outlet.name,
-              publishedAt: pubDate,
-              snippet: snippet ? snippet.slice(0, 300) : undefined,
-              region: outlet.region,
-              country: outlet.country,
-            })
+        if (matchesKeywords(searchText, keywords)) {
+          matched.push({
+            url: item.link ?? '',
+            title,
+            outlet: outlet.name,
+            publishedAt: item.isoDate ?? item.pubDate ?? '',
+            snippet: snippet ? snippet.slice(0, 3000) : undefined,
+            region: outlet.region,
+            country: outlet.country,
+          })
+        } else if (!isEnglishOutlet) {
+          // For non-English outlets, include ANY recent article from feeds
+          // that cover international news — the triage agent will filter
+          const pubDate = item.isoDate || item.pubDate
+          if (pubDate) {
+            const age = Date.now() - new Date(pubDate).getTime()
+            const hoursOld = age / (1000 * 60 * 60)
+            if (hoursOld < 72) {
+              matched.push({
+                url: item.link ?? '',
+                title,
+                outlet: outlet.name,
+                publishedAt: pubDate,
+                snippet: snippet ? snippet.slice(0, 3000) : undefined,
+                region: outlet.region,
+                country: outlet.country,
+              })
+            }
           }
         }
+      } catch {
+        // Skip malformed item, continue with rest
       }
     }
 

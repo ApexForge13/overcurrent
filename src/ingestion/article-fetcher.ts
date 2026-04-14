@@ -37,29 +37,64 @@ function truncateWords(text: string, maxWords: number): string {
 /**
  * Fetch a URL and extract the main article content.
  * Uses jsdom + Readability when available, falls back to regex extraction.
- * Returns null if extraction fails.
+ * If full-text extraction fails (403, paywall, etc.), falls back to RSS snippet.
+ * Returns null if extraction fails and no snippet is available.
  * Content is truncated to 3000 words max to control token usage.
  */
 export async function fetchArticle(
   url: string,
+  rssSnippet?: string,
+  rssTitle?: string,
 ): Promise<ArticleContent | null> {
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30_000)
 
+    const fetchHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    }
+
     let html: string
     try {
-      const response = await fetch(url, {
+      let response = await fetch(url, {
         signal: controller.signal,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
+        headers: fetchHeaders,
+        redirect: 'follow',
       })
+
+      // If blocked (403/451), try Google webcache as fallback
+      if (response.status === 403 || response.status === 451) {
+        console.warn(`[fetch] HTTP ${response.status} for ${url} — trying Google cache...`)
+        try {
+          const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}`
+          const cacheResp = await fetch(cacheUrl, {
+            signal: controller.signal,
+            headers: fetchHeaders,
+          })
+          if (cacheResp.ok) {
+            response = cacheResp
+            console.log(`[fetch] Google cache hit for ${url}`)
+          }
+        } catch {
+          // Cache attempt failed, continue to snippet fallback
+        }
+      }
 
       if (!response.ok) {
         console.warn(`[fetch] HTTP ${response.status} for ${url}`)
+        // Fall back to RSS snippet if available
+        if (rssSnippet && rssSnippet.length >= 50) {
+          const snippetText = stripHtml(rssSnippet)
+          console.log(`[fetch] Using RSS snippet fallback for ${url} (${snippetText.split(/\s+/).length} words)`)
+          return {
+            title: rssTitle || '',
+            content: truncateWords(snippetText, MAX_WORDS),
+            excerpt: snippetText.slice(0, 200),
+            length: snippetText.split(/\s+/).length,
+          }
+        }
         return null
       }
       html = await response.text()
@@ -118,12 +153,32 @@ export async function fetchArticle(
 
     if (!bodyHtml) {
       console.warn(`[fetch] No body content extracted from ${url}`)
+      if (rssSnippet && rssSnippet.length >= 50) {
+        const snippetText = stripHtml(rssSnippet)
+        console.log(`[fetch] Using RSS snippet fallback for ${url} (${snippetText.split(/\s+/).length} words)`)
+        return {
+          title: rssTitle || title || '',
+          content: truncateWords(snippetText, MAX_WORDS),
+          excerpt: snippetText.slice(0, 200),
+          length: snippetText.split(/\s+/).length,
+        }
+      }
       return null
     }
 
     const plainText = stripHtml(bodyHtml)
     if (plainText.length < 50) {
       console.warn(`[fetch] Content too short (${plainText.length} chars) for ${url}`)
+      if (rssSnippet && rssSnippet.length >= 50) {
+        const snippetText = stripHtml(rssSnippet)
+        console.log(`[fetch] Using RSS snippet fallback for ${url} (${snippetText.split(/\s+/).length} words)`)
+        return {
+          title: rssTitle || title || '',
+          content: truncateWords(snippetText, MAX_WORDS),
+          excerpt: snippetText.slice(0, 200),
+          length: snippetText.split(/\s+/).length,
+        }
+      }
       return null
     }
 
@@ -135,6 +190,17 @@ export async function fetchArticle(
     }
   } catch (err) {
     console.warn(`[fetch] Extraction error for ${url}:`, err instanceof Error ? err.message : err)
+    // Fall back to RSS snippet if available
+    if (rssSnippet && rssSnippet.length >= 50) {
+      const snippetText = stripHtml(rssSnippet)
+      console.log(`[fetch] Using RSS snippet fallback for ${url} (${snippetText.split(/\s+/).length} words)`)
+      return {
+        title: rssTitle || '',
+        content: truncateWords(snippetText, MAX_WORDS),
+        excerpt: snippetText.slice(0, 200),
+        length: snippetText.split(/\s+/).length,
+      }
+    }
     return null
   }
 }

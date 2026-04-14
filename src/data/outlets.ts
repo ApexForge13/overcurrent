@@ -101,7 +101,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "left",
     reliability: "mixed",
     language: "en",
-    rssUrl: "https://www.msnbc.com/feeds/latest",
+    rssUrl: "https://msnbc.com/feed",
   },
   {
     name: "NPR",
@@ -145,7 +145,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.politico.com/rss/politicopicks.xml",
+    rssUrl: "https://feeds.feedburner.com/politico",
   },
   {
     name: "The Hill",
@@ -156,7 +156,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://thehill.com/feed/",
+    rssUrl: "https://thehill.com/feed/?feed=partnerfeed-news-feed&format=rss",
   },
   {
     name: "USA Today",
@@ -167,7 +167,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "http://rssfeeds.usatoday.com/usatoday-NewsTopStories",
+    rssUrl: "https://feeds.feedburner.com/usatoday",
   },
   {
     name: "ABC News",
@@ -178,7 +178,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "en",
-    rssUrl: "https://abcnews.go.com/abcnews/topstories",
+    rssUrl: "https://abcnews.com/abcnews/topstories",
   },
   {
     name: "CBS News",
@@ -299,7 +299,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-right",
     reliability: "high",
     language: "en",
-    rssUrl: "https://nationalpost.com/feed/",
+    rssUrl: "https://nationalpost.com/feed",
   },
   // --- New North America outlets ---
   {
@@ -410,7 +410,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "es",
-    rssUrl: "https://www.milenio.com/rss",
+    rssUrl: "https://feeds.feedburner.com/milenio",
   },
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -458,7 +458,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.ft.com/rss/home",
+    rssUrl: "https://www.ft.com/rss/home/international",
   },
   {
     name: "The Independent",
@@ -491,7 +491,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.irishtimes.com/cmlink/the-irish-times-news-1.1319192",
+    rssUrl: "https://www.irishtimes.com/arc/outboundfeeds/digest-resolver/homepage-top/?from=0&size=15",
   },
   {
     name: "Agence France-Presse",
@@ -612,7 +612,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.rte.ie/news/rss/news-headlines.xml",
+    rssUrl: "https://www.rte.ie/feeds/rss/?index=/news/&limit=20",
   },
   {
     name: "NOS",
@@ -634,7 +634,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "sv",
-    rssUrl: "https://www.svt.se/nyheter/rss.xml",
+    rssUrl: "https://www.svt.se/rss.xml",
   },
   {
     name: "NRK",
@@ -679,7 +679,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "de",
-    rssUrl: "https://www.tagesschau.de/xml/rss2/",
+    rssUrl: "https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml",
   },
   {
     name: "Frankfurter Allgemeine Zeitung",
@@ -745,7 +745,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "fr",
-    rssUrl: "https://www.nouvelobs.com/rss",
+    rssUrl: "https://nouvelobs.com/rss.xml",
   },
   {
     name: "Aftonbladet",
@@ -822,7 +822,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "hu",
-    rssUrl: "https://hvg.hu/rss",
+    rssUrl: "https://feeds.feedburner.com/hvg",
   },
   {
     name: "Neue Zurcher Zeitung",
@@ -844,7 +844,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.swissinfo.ch/eng/rss/top-news",
+    rssUrl: "https://feeds.feedburner.com/swissinfo",
   },
   {
     name: "De Standaard",
@@ -855,7 +855,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "nl",
-    rssUrl: "https://www.standaard.be/rss/section/1f2838d4-99ea-49f0-9102-138784c7ea7c",
+    rssUrl: "https://www.standaard.be/rss/",
   },
   {
     name: "Le Soir",
@@ -866,7 +866,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "fr",
-    rssUrl: "https://www.lesoir.be/rss/homepage_une.xml",
+    rssUrl: "https://www.lesoir.be/rss.xml",
   },
   {
     name: "The Scotsman",
@@ -991,7 +991,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.scmp.com/rss/91/feed",
+    rssUrl: "https://www.scmp.com/rss/91/feed/",
   },
   {
     name: "Nikkei Asia",
@@ -1079,7 +1079,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "http://www.koreaherald.com/rss/020100000000.xml",
+    rssUrl: "https://www.koreaherald.com/rss/020100000000.xml",
   },
   {
     name: "Yonhap News Agency",
@@ -1112,7 +1112,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.bangkokpost.com/rss/data/headlines.xml",
+    rssUrl: "https://feeds.feedburner.com/bangkokpost",
   },
   {
     name: "Kyodo News",
@@ -1167,7 +1167,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.thejakartapost.com/feed",
+    rssUrl: "https://feeds.feedburner.com/thejakartapost",
   },
   {
     name: "VnExpress International",
@@ -1189,7 +1189,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.inquirer.net/feed",
+    rssUrl: "https://www.inquirer.net/feed/",
   },
   // --- New Asia-Pacific outlets ---
   {
@@ -1201,7 +1201,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "ja",
-    rssUrl: "https://www.asahi.com/ajw/rss/index.rss",
+    rssUrl: "https://feeds.feedburner.com/asahi",
   },
   {
     name: "Mainichi Shimbun",
@@ -1212,7 +1212,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "ja",
-    rssUrl: "https://mainichi.jp/rss/etc/mainichi-flash.rss",
+    rssUrl: "https://feeds.feedburner.com/mainichi",
   },
   {
     name: "Yomiuri Shimbun",
@@ -1245,7 +1245,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "ko",
-    rssUrl: "https://www.hani.co.kr/rss/",
+    rssUrl: "https://www.hani.co.kr/rss",
   },
   {
     name: "Rappler",
@@ -1311,7 +1311,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.nzherald.co.nz/arc/outboundfeeds/rss/curate/78IkEOk5QWaCcBktSUBYsF/?outputType=xml",
+    rssUrl: "https://feeds.feedburner.com/nzherald",
   },
   {
     name: "Stuff (NZ)",
@@ -1392,7 +1392,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.haaretz.com/srv/haaretz-latest-posts",
+    rssUrl: "https://feeds.feedburner.com/haaretz",
   },
   {
     name: "The Times of Israel",
@@ -1469,7 +1469,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://feeds.news24.com/articles/news24/TopStories/rss",
+    rssUrl: "https://feeds.feedburner.com/news24",
   },
   {
     name: "The East African",
@@ -1502,7 +1502,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://punchng.com/feed/",
+    rssUrl: "https://rss.punchng.com/v1/category/latest_news",
   },
   {
     name: "Al-Monitor",
@@ -1557,7 +1557,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.dailymaverick.co.za/feed/",
+    rssUrl: "https://www.dailymaverick.co.za/dmrss/",
   },
   // --- New Middle East & Africa outlets ---
   {
@@ -1613,7 +1613,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-right",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.dailysabah.com/rssFeed/0",
+    rssUrl: "https://www.dailysabah.com/rssfeed/0",
   },
   {
     name: "Hurriyet Daily News",
@@ -1668,7 +1668,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.thecitizen.co.tz/feed",
+    rssUrl: "https://thecitizen.co.tz/rss.xml",
   },
   {
     name: "Ghana Web",
@@ -1690,7 +1690,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.ethiopianreporter.com/feed/",
+    rssUrl: "https://ethiopianreporter.com/feed/",
   },
   {
     name: "AllAfrica",
@@ -1723,7 +1723,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://gulfnews.com/cmlink/1.446498",
+    rssUrl: "https://gulfnews.com/stories.rss",
   },
   {
     name: "Khaleej Times",
@@ -1881,7 +1881,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "left",
     reliability: "low",
     language: "en",
-    rssUrl: "https://www.telesurenglish.net/rss/all.xml",
+    rssUrl: "https://www.telesurenglish.net/feed/",
   },
   {
     name: "Americas Quarterly",
@@ -2003,7 +2003,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "es",
-    rssUrl: "https://www.latercera.com/feed/",
+    rssUrl: "https://www.latercera.com/arc/outboundfeeds/rss/?outputType=xml",
   },
   {
     name: "El Espectador",
@@ -2036,7 +2036,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center-left",
     reliability: "medium",
     language: "es",
-    rssUrl: "https://larepublica.pe/feed/",
+    rssUrl: "https://larepublica.pe/rss/home.xml",
   },
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -2150,7 +2150,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://www.thedailystar.net/frontpage/rss.xml",
+    rssUrl: "https://www.thedailystar.net/taxonomy/term/107/rss.xml",
   },
   {
     name: "Daily Mirror (Sri Lanka)",
@@ -2217,7 +2217,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "high",
     language: "en",
-    rssUrl: "https://www.deccanherald.com/rss/feed",
+    rssUrl: "https://www.deccanherald.com/stories.rss",
   },
   {
     name: "Livemint",
@@ -2250,7 +2250,7 @@ export const outlets: OutletInfo[] = [
     politicalLean: "center",
     reliability: "medium",
     language: "en",
-    rssUrl: "https://akipress.com/rss_news.php",
+    rssUrl: "https://akipress.com/rss",
   },
   {
     name: "The Astana Times",

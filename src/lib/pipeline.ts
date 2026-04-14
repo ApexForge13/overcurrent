@@ -366,10 +366,18 @@ export async function runVerifyPipeline(
     }
   }
 
+  // ── RSS SNIPPET MAP ─────────────────────────────────────────────────
+  // Preserve RSS snippets for use as fallback content when article fetch fails (403, paywall, etc.)
+  const rssSnippetMap = new Map<string, { snippet: string; title: string }>()
+
   // Add RSS results — use outlet registry for country/region
   for (const rss of rssResults) {
     if (rss.url && !seenUrls.has(rss.url)) {
       seenUrls.add(rss.url)
+      // Save snippet for fallback
+      if (rss.snippet && rss.snippet.length >= 50) {
+        rssSnippetMap.set(rss.url, { snippet: rss.snippet, title: rss.title })
+      }
       try {
         const domain = new URL(rss.url).hostname
         const info = getOutletInfo(domain)
@@ -627,7 +635,9 @@ export async function runVerifyPipeline(
   console.log(`[fetch] By region:`, JSON.stringify(fetchRegionBreakdown))
 
   const fetchedArticles = await parallelWithLimit(topSources, 5, async (source) => {
-    const article = await fetchArticle(source.url)
+    // Pass RSS snippet as fallback for when full fetch fails (403, paywall, timeout)
+    const snippetData = rssSnippetMap.get(source.url)
+    const article = await fetchArticle(source.url, snippetData?.snippet, snippetData?.title)
     return {
       ...source,
       content: article?.content ?? undefined,
@@ -636,7 +646,8 @@ export async function runVerifyPipeline(
 
   const fetchedCount = fetchedArticles.filter((a) => a.content).length
   const failedCount = topSources.length - fetchedCount
-  console.log(`[fetch] ${fetchedCount}/${topSources.length} fetched (${failedCount} failed)`)
+  const snippetFallbacks = rssSnippetMap.size
+  console.log(`[fetch] ${fetchedCount}/${topSources.length} fetched (${failedCount} failed). ${snippetFallbacks} RSS snippets available as fallbacks.`)
 
   onProgress('fetch', {
     phase: 'fetch',

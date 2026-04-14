@@ -955,8 +955,13 @@ export async function runVerifyPipeline(
         }
       }
 
-      await tx.source.createMany({
-        data: triageResult.sources.map((s: TriagedSource) => ({
+      const sourcesToInsert = triageResult.sources.map((s: TriagedSource) => {
+        let publishedAt: Date | null = null
+        if (s.publishedAt) {
+          const d = new Date(s.publishedAt)
+          publishedAt = isNaN(d.getTime()) ? null : d
+        }
+        return {
           storyId: story.id,
           url: s.url,
           title: s.title,
@@ -969,9 +974,18 @@ export async function runVerifyPipeline(
           reliability: s.reliability,
           summary: sourceSummaryMap.get(s.url) ??
             (s.isWireCopy ? `[Wire copy. Original: ${s.originalSource || 'unknown'}]` : null),
-          publishedAt: s.publishedAt ? new Date(s.publishedAt) : null,
-        })),
+          publishedAt,
+        }
       })
+
+      const invalidDateCount = triageResult.sources.filter(
+        (s: TriagedSource) => s.publishedAt && isNaN(new Date(s.publishedAt).getTime())
+      ).length
+      if (invalidDateCount > 0) {
+        console.log(`[Pipeline] Sanitized ${invalidDateCount} invalid publishedAt date(s) → null`)
+      }
+
+      await tx.source.createMany({ data: sourcesToInsert })
     }
 
     // Claims

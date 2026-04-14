@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
         consensusScore: true,
         totalCost: true,
         primaryCategory: true,
+        thePattern: true,
         status: true,
         createdAt: true,
       },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { CATEGORIES, CATEGORY_SLUGS, getCategoryColor } from "@/data/categories";
 import { createClient } from "@/lib/supabase/client";
@@ -12,6 +12,7 @@ interface StoryItem {
   synopsis: string;
   confidenceLevel: string;
   primaryCategory?: string;
+  thePattern?: string;
   sourceCount: number;
   countryCount: number;
   regionCount: number;
@@ -57,6 +58,18 @@ function confidenceColor(level: string): string {
   if (l === "LOW") return "var(--accent-red)";
   return "var(--text-tertiary)";
 }
+
+/** Build a tension hook from thePattern or fall back to source stats */
+function buildHook(story: StoryItem): string {
+  // Use thePattern if it exists and is punchy enough
+  if (story.thePattern && story.thePattern.length > 10 && story.thePattern.length < 280) {
+    return story.thePattern;
+  }
+  // Fallback: source stats tension line
+  return `${story.sourceCount} sources. ${story.countryCount} countries. ${story.consensusScore}% agree on what happened.`;
+}
+
+const SIDEBAR_THRESHOLD = 5;
 
 export default function HomePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -154,6 +167,15 @@ export default function HomePage() {
     } catch { setIsAnalyzing(false); }
   }
 
+  // Categories that actually have published stories
+  const populatedCategories = useMemo(() => {
+    const cats = new Set<string>();
+    for (const s of stories) {
+      if (s.primaryCategory) cats.add(s.primaryCategory);
+    }
+    return CATEGORY_SLUGS.filter(slug => slug !== 'undercurrent' && cats.has(slug));
+  }, [stories]);
+
   const filteredStories = categoryFilter === "all"
     ? stories
     : stories.filter((s) => s.primaryCategory === categoryFilter);
@@ -165,6 +187,7 @@ export default function HomePage() {
     : filteredStories;
   const featured = searchFiltered[0];
   const rest = searchFiltered.slice(1);
+  const showSidebar = stories.length >= SIDEBAR_THRESHOLD && rest.length > 0;
 
   return (
     <div className="max-w-[1200px] mx-auto px-6">
@@ -182,8 +205,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Category filter pills */}
-      {stories.length > 0 && (
+      {/* Category filter pills — only show populated categories */}
+      {stories.length > 0 && populatedCategories.length > 0 && (
         <div className="flex items-center gap-2 py-4 overflow-x-auto flex-nowrap" style={{ borderBottom: '1px solid var(--border-primary)' }}>
           <button
             onClick={() => setCategoryFilter("all")}
@@ -201,7 +224,7 @@ export default function HomePage() {
           >
             ALL
           </button>
-          {CATEGORY_SLUGS.filter(s => s !== 'undercurrent').map((slug) => (
+          {populatedCategories.map((slug) => (
             <button
               key={slug}
               onClick={() => setCategoryFilter(slug)}
@@ -248,18 +271,18 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Main content: newspaper layout */}
+      {/* Main content */}
       <div className="py-8">
         {stories.length === 0 && !isAnalyzing ? (
           <div className="py-20 text-center" style={{ color: 'var(--text-tertiary)' }}>
             <p style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: 600 }}>No stories yet</p>
-            <p className="mt-2 text-sm" style={{ fontFamily: 'var(--font-body)' }}>Click "+ new analysis" to cross-reference your first story.</p>
+            <p className="mt-2 text-sm" style={{ fontFamily: 'var(--font-body)' }}>Click &quot;+ new analysis&quot; to cross-reference your first story.</p>
           </div>
         ) : (
-          <div className="flex gap-12 flex-col lg:flex-row">
-            {/* Featured story — 60% */}
+          <div className={showSidebar ? "flex gap-12 flex-col lg:flex-row" : ""}>
+            {/* Featured story */}
             {featured && (
-              <div className="lg:w-[58%] relative">
+              <div className={showSidebar ? "lg:w-[58%] relative" : "relative"}>
                 {isAdmin && (
                   <button
                     onClick={() => handleDelete(featured.id, featured.headline)}
@@ -277,8 +300,19 @@ export default function HomePage() {
                     {"\u2715"}
                   </button>
                 )}
-                <a href={`/story/${featured.slug}`} className="block group">
+                <a
+                  href={`/story/${featured.slug}`}
+                  className="block group"
+                  style={{ padding: '16px 0', borderRadius: '4px', transition: 'background 150ms' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                >
                   <div className="flex items-center gap-3 mb-3">
+                    {featured.primaryCategory && (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: getCategoryColor(featured.primaryCategory) }}>
+                        {CATEGORIES[featured.primaryCategory as keyof typeof CATEGORIES]?.label.split(' ')[0] ?? featured.primaryCategory}
+                      </span>
+                    )}
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: confidenceColor(featured.confidenceLevel) }}>
                       {featured.confidenceLevel}
                     </span>
@@ -287,19 +321,31 @@ export default function HomePage() {
                     </span>
                   </div>
                   <h2
-                    className="group-hover:opacity-80 transition-opacity"
+                    className="transition-colors"
                     style={{
                       fontFamily: 'var(--font-display)',
-                      fontSize: '36px',
+                      fontSize: showSidebar ? '36px' : '42px',
                       fontWeight: 700,
                       lineHeight: 1.15,
                       letterSpacing: '-0.02em',
                       color: 'var(--text-primary)',
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent-blue)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
                   >
                     {featured.headline}
                   </h2>
-                  <p className="mt-4 line-clamp-3" style={{ fontFamily: 'var(--font-body)', fontSize: '16px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                  {/* Tension hook */}
+                  <p className="mt-3" style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '16px',
+                    lineHeight: 1.5,
+                    color: 'var(--accent-amber)',
+                    fontStyle: 'italic',
+                  }}>
+                    {buildHook(featured)}
+                  </p>
+                  <p className="mt-3 line-clamp-3" style={{ fontFamily: 'var(--font-body)', fontSize: '16px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
                     {featured.synopsis?.replace(/<[^>]*>/g, '').substring(0, 300)}
                   </p>
                   <div className="mt-4 flex items-center gap-4">
@@ -312,78 +358,43 @@ export default function HomePage() {
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
                       {timeAgo(featured.createdAt)}
                     </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--accent-blue)', marginLeft: 'auto' }}>
+                      Read full analysis &rarr;
+                    </span>
                   </div>
                 </a>
+
+                {/* Below-featured cards: when no sidebar, show remaining stories as full-width rows */}
+                {!showSidebar && rest.length > 0 && (
+                  <div className="mt-6" style={{ borderTop: '1px solid var(--border-primary)', paddingTop: '24px' }}>
+                    <div className="mb-4">
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: 'var(--text-tertiary)' }}>
+                        Latest analyses
+                      </span>
+                    </div>
+                    {rest.map((story) => (
+                      <StoryRow key={story.slug} story={story} isAdmin={isAdmin} onDelete={handleDelete} />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Story list — 40% */}
-            <div className="lg:w-[42%] lg:border-l lg:pl-8" style={{ borderColor: 'var(--border-primary)' }}>
-              <div className="mb-4">
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: 'var(--text-tertiary)' }}>
-                  Latest analyses
-                </span>
+            {/* Sidebar — only when 5+ stories */}
+            {showSidebar && (
+              <div className="lg:w-[42%] lg:border-l lg:pl-8" style={{ borderColor: 'var(--border-primary)' }}>
+                <div className="mb-4">
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: 'var(--text-tertiary)' }}>
+                    Latest analyses
+                  </span>
+                </div>
+                <div>
+                  {rest.map((story) => (
+                    <StoryRow key={story.slug} story={story} isAdmin={isAdmin} onDelete={handleDelete} />
+                  ))}
+                </div>
               </div>
-              <div>
-                {rest.map((story) => (
-                  <div
-                    key={story.slug}
-                    className="relative py-4 border-b"
-                    style={{ borderColor: 'var(--border-primary)' }}
-                  >
-                    {isAdmin && (
-                      <button
-                        onClick={() => handleDelete(story.id, story.headline)}
-                        title="Delete story"
-                        style={{
-                          position: 'absolute', top: '12px', right: 0,
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          fontFamily: 'var(--font-mono)', fontSize: '12px',
-                          color: 'var(--text-tertiary)', padding: '2px 6px',
-                          opacity: 0.4, transition: 'opacity 150ms, color 150ms',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-                      >
-                        {"\u2715"}
-                      </button>
-                    )}
-                    <a
-                      href={`/story/${story.slug}`}
-                      className="block group transition-colors"
-                    >
-                      <h3
-                        className="group-hover:opacity-70 transition-opacity pr-6"
-                        style={{
-                          fontFamily: 'var(--font-display)',
-                          fontSize: '18px',
-                          fontWeight: 600,
-                          lineHeight: 1.3,
-                          letterSpacing: '-0.01em',
-                          color: 'var(--text-primary)',
-                        }}
-                      >
-                        {story.headline}
-                      </h3>
-                      <div className="mt-2 flex items-center gap-3">
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' as const, color: confidenceColor(story.confidenceLevel) }}>
-                          {story.confidenceLevel}
-                        </span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                          {story.consensusScore}%
-                        </span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                          {story.sourceCount} sources
-                        </span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                          {timeAgo(story.createdAt)}
-                        </span>
-                      </div>
-                    </a>
-                  </div>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -439,6 +450,84 @@ export default function HomePage() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Reusable story row card — used in both sidebar and single-column layouts */
+function StoryRow({ story, isAdmin, onDelete }: { story: StoryItem; isAdmin: boolean; onDelete: (id: string, headline: string) => void }) {
+  return (
+    <div
+      className="relative py-4 border-b"
+      style={{ borderColor: 'var(--border-primary)' }}
+    >
+      {isAdmin && (
+        <button
+          onClick={() => onDelete(story.id, story.headline)}
+          title="Delete story"
+          style={{
+            position: 'absolute', top: '12px', right: 0,
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontFamily: 'var(--font-mono)', fontSize: '12px',
+            color: 'var(--text-tertiary)', padding: '2px 6px',
+            opacity: 0.4, transition: 'opacity 150ms, color 150ms',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+        >
+          {"\u2715"}
+        </button>
+      )}
+      <a
+        href={`/story/${story.slug}`}
+        className="block group"
+        style={{ padding: '4px 0', transition: 'background 150ms' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+      >
+        <h3
+          className="pr-6 transition-colors"
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '18px',
+            fontWeight: 600,
+            lineHeight: 1.3,
+            letterSpacing: '-0.01em',
+            color: 'var(--text-primary)',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent-blue)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        >
+          {story.headline}
+        </h3>
+        {/* Tension hook */}
+        <p className="mt-1 line-clamp-2" style={{
+          fontFamily: 'var(--font-body)',
+          fontSize: '13px',
+          lineHeight: 1.5,
+          color: 'var(--accent-amber)',
+          fontStyle: 'italic',
+        }}>
+          {buildHook(story)}
+        </p>
+        <div className="mt-2 flex items-center gap-3">
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' as const, color: confidenceColor(story.confidenceLevel) }}>
+            {story.confidenceLevel}
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+            {story.consensusScore}%
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+            {story.sourceCount} sources
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+            {timeAgo(story.createdAt)}
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-blue)', marginLeft: 'auto' }}>
+            &rarr;
+          </span>
+        </div>
+      </a>
     </div>
   );
 }

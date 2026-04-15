@@ -530,14 +530,18 @@ function CountryBorders({ globeRotation, activeRegions, borderStatuses }: Countr
     })
 
     // FILLS — color = how they reported it
+    // Exception: if border_status is 'original', the fill is also 'original'
+    // (the origin country can't reframe its own story)
     fillMeshes.forEach(({ mesh, regionId }) => {
       const mat = mesh.material as THREE.MeshBasicMaterial
       const regionData = activeRegions?.get(regionId)
       const active = regionData && isActiveStatus(regionData.status)
 
       if (active) {
-        mat.color.set(statusColor(regionData.status))
-        mat.opacity = normalizeStatus(regionData.status) === 'original' ? 0.28 : 0.14
+        const border = borderStatuses?.get(regionId)
+        const fillStatus = (border && normalizeStatus(border) === 'original') ? 'original' : regionData.status
+        mat.color.set(statusColor(fillStatus))
+        mat.opacity = normalizeStatus(fillStatus) === 'original' ? 0.28 : 0.14
       } else {
         mat.color.set(INACTIVE_COLOR)
         mat.opacity = 0.02
@@ -1235,24 +1239,18 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
     [allFlows, activeRegions]
   )
 
-  // Compute border_status from incoming flows — the flow type arriving at each
-  // region IS its border_status (how they RECEIVED the story). The region's own
-  // status (how they REPORTED) is the fill. This creates the visual diff.
+  // Build borderStatuses directly from the AI's border_status field on each region.
+  // The AI already sets this correctly (e.g., EU: border=original, status=reframed).
+  // No need to compute from flows — just read what's in the data.
   const borderStatuses = useMemo(() => {
     const result = new Map<string, string>()
-    for (const flow of allFlows) {
-      // The destination region's border color = the flow type arriving
-      if (!result.has(flow.to) || flow.type === 'contradicted') {
-        result.set(flow.to, flow.type)
+    for (const r of frame.regions) {
+      if (r.border_status) {
+        result.set(r.region_id, r.border_status)
       }
     }
-    // Origin region has border_status = 'original'
-    const origin = frame.regions.find(r => normalizeStatus(r.status) === 'original')
-    if (origin) {
-      result.set(origin.region_id, 'original')
-    }
     return result
-  }, [allFlows, frame.regions])
+  }, [frame.regions])
 
   // When frame changes, spawn arcs for new flows
   useEffect(() => {

@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import { slugify, regionList } from '@/lib/utils'
 import { searchGdeltGlobal, getRegionFromCountryName } from '@/ingestion/gdelt'
 import { scanRssFeeds, queryToKeywords } from '@/ingestion/rss'
+import { fetchGoogleNewsResults } from '@/ingestion/google-news'
 // searchReddit removed — Reddit is Stream 2 only (Discourse Gap)
 import { findOutletByDomain } from '@/data/outlets'
 import { fetchArticle } from '@/ingestion/article-fetcher'
@@ -314,18 +315,21 @@ export async function runVerifyPipeline(
   // fact survival, and propagation map.
   // Social media (Reddit/Twitter) is handled separately in Stream 2 below
   // and feeds only the Discourse Gap section.
-  const rssResults = await scanRssFeeds(query)
-
-  // GDELT is best-effort — 15s timeout, don't block pipeline on it
-  let allGdelt: Awaited<ReturnType<typeof searchGdeltGlobal>> = []
-  try {
-    allGdelt = await Promise.race([
+  // Run all three ingestion sources in parallel
+  const searchKeywords = queryToKeywords(query)
+  const [rssResults, allGdelt, googleNewsResults] = await Promise.all([
+    scanRssFeeds(query),
+    // GDELT is best-effort — 15s timeout
+    Promise.race([
       searchGdeltGlobal(query),
-      new Promise<typeof allGdelt>((resolve) => setTimeout(() => resolve([]), 15_000)),
-    ])
-  } catch {
-    // GDELT failed — continue with RSS only
-  }
+      new Promise<Awaited<ReturnType<typeof searchGdeltGlobal>>>((resolve) => setTimeout(() => resolve([]), 15_000)),
+    ]).catch(() => [] as Awaited<ReturnType<typeof searchGdeltGlobal>>),
+    // Google News across 6 languages
+    fetchGoogleNewsResults(query, searchKeywords.anchors).catch((err) => {
+      console.warn('[Google News] Failed:', err instanceof Error ? err.message : err)
+      return [] as Awaited<ReturnType<typeof fetchGoogleNewsResults>>
+    }),
+  ])
 
   // Deduplicate by URL only — let triage handle relevance filtering
   const seenUrls = new Set<string>()
@@ -398,6 +402,23 @@ export async function runVerifyPipeline(
       }
     }
   }
+
+  // Add Google News results — cross-language coverage from 6 feeds
+  for (const gn of googleNewsResults) {
+    if (gn.url && !seenUrls.has(gn.url)) {
+      seenUrls.add(gn.url)
+      const info = getOutletInfo(gn.domain)
+      rawSources.push({
+        url: gn.url,
+        title: gn.title,
+        domain: gn.domain,
+        sourcecountry: info.country,
+        knownRegion: info.region,
+        publishedAt: gn.publishedAt || '',
+      })
+    }
+  }
+  console.log(`[pipeline] Sources after merge: ${rawSources.length} total (RSS: ${rssResults.length}, GDELT: ${allGdelt.length}, Google News: ${googleNewsResults.length})`)
 
   // Reddit is excluded from Stream 1 — social media feeds Stream 2 (Discourse Gap) only.
 
@@ -489,6 +510,7 @@ export async function runVerifyPipeline(
         isWireCopy: false,
         originalSource: null,
         citesSource: null,
+        lowConfidence: true,
         publishedAt: rs.publishedAt || undefined,
       }
     })
@@ -594,20 +616,13 @@ export async function runVerifyPipeline(
       const candidates = dedupedSources
         .filter(rs => rs.knownRegion === region && !usedUrls.has(rs.url))
 
-      // Filter by topic relevance: require at least 1 anchor + 1 context keyword in title
+      // Filter by topic relevance: 1+ anchor OR 1+ keyword match (cast wide net for backfill)
       const relevant = candidates.filter(rs => {
         const lower = rs.title.toLowerCase()
-        if (backfillKeywords.anchors.length > 0 && backfillKeywords.context.length > 0) {
-          const hasAnchor = backfillKeywords.anchors.some(a => lower.includes(a))
-          const hasContext = backfillKeywords.context.some(c => lower.includes(c))
-          return hasAnchor && hasContext
-        }
-        // Fallback: at least 2 keyword matches
-        let hits = 0
-        for (const k of backfillKeywords.all) {
-          if (lower.includes(k)) { hits++; if (hits >= 2) return true }
-        }
-        return false
+        const hasAnchor = backfillKeywords.anchors.some(a => lower.includes(a))
+        if (hasAnchor) return true
+        // Fallback: at least 1 keyword match from the full list
+        return backfillKeywords.all.some(k => lower.includes(k))
       })
 
       const backfill = relevant
@@ -627,6 +642,7 @@ export async function runVerifyPipeline(
             isWireCopy: false,
             originalSource: null,
             citesSource: null,
+            lowConfidence: true,
             publishedAt: publishedAtMap.get(rs.url) || undefined,
           }
         })
@@ -699,10 +715,21 @@ export async function runVerifyPipeline(
   console.log(`[fetch] ${fetchedCount}/${topSources.length} fetched (${failedCount} failed). ${snippetFallbacks} RSS snippets available as fallbacks.`)
   console.log(`[fetch] Quality: ${qualityCounts.FULL} FULL, ${qualityCounts.PARTIAL} PARTIAL, ${qualityCounts.SNIPPET} SNIPPET, ${qualityCounts.FAILED} FAILED`)
 
+  // Drop snippet-only sources — they provide zero analytical value and can't be verified
+  const preSnippetCount = fetchedArticles.length
+  const substantiveArticles = fetchedArticles.filter(a => {
+    if (a.contentQuality === 'SNIPPET' || !a.content) return false
+    return true
+  })
+  const droppedSnippets = preSnippetCount - substantiveArticles.length
+  if (droppedSnippets > 0) {
+    console.log(`[fetch] Dropped ${droppedSnippets} snippet-only/failed sources (no full article available)`)
+  }
+
   onProgress('fetch', {
     phase: 'fetch',
-    message: `Fetched ${fetchedCount} articles`,
-    fetchedCount,
+    message: `Fetched ${substantiveArticles.length} substantive articles (dropped ${droppedSnippets} snippets)`,
+    fetchedCount: substantiveArticles.length,
   })
 
   // ── PHASE 4: ANALYSIS ────────────────────────────────────────────────
@@ -712,16 +739,14 @@ export async function runVerifyPipeline(
   for (const region of regionList) {
     sourcesByRegion.set(region, [])
   }
-  for (const source of fetchedArticles) {
+  for (const source of substantiveArticles) {
     const bucket = sourcesByRegion.get(source.region)
     if (bucket) {
       bucket.push({
         url: source.url,
         title: source.title,
         outlet: source.outlet,
-        content: source.contentQuality === 'SNIPPET'
-          ? `[SNIPPET ONLY — full article not available] ${source.content ?? ''}`
-          : source.content,
+        content: source.content,
         contentQuality: source.contentQuality,
       })
     }

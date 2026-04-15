@@ -52,6 +52,14 @@ function buildSystemPrompt(region: string, query: string): string {
 
 You are analyzing coverage from the ${region} region on the topic: "${query}"
 
+SOURCE QUALITY GUIDANCE:
+You will receive sources of varying relevance and quality. Some may be tangentially related, use RSS snippets only, or cover adjacent topics rather than the core story. This is intentional — we cast a wide net. YOUR job is to:
+1. Weight high-quality, directly relevant sources heavily in your analysis.
+2. Note but de-weight tangentially related sources — they provide context but shouldn't drive conclusions.
+3. Explicitly ignore sources that are clearly unrelated (flag them as excluded with a one-line reason).
+4. Never let a low-quality source inflate confidence scores. One verified Reuters report outweighs ten unverified blog posts.
+Sources marked [SNIPPET ONLY] have limited text — use them for corroboration but not as primary evidence.
+
 ${ANTI_HALLUCINATION_RULES}
 
 Analyze the provided sources and produce:

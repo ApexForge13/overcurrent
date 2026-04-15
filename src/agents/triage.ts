@@ -41,6 +41,7 @@ export interface TriagedSource {
   isWireCopy: boolean
   originalSource: string | null
   citesSource: string | null
+  lowConfidence: boolean
   publishedAt?: string // Merged from RSS/GDELT after triage — not AI-generated
 }
 
@@ -56,29 +57,28 @@ export interface TriageResult {
 // System prompt
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are a news source triage agent for Overcurrent, a coverage analysis platform. Given a list of raw article results about a topic, your job is:
-1. Remove duplicate URLs and near-duplicate articles (same story, same outlet)
-2. Identify each source's outlet name, type, country, region, political lean, and reliability
-3. Filter out irrelevant results that don't actually relate to the query
-4. Detect WIRE SYNDICATION: If an article is from AP, Reuters, or AFP wire service, mark isWireCopy: true and note the original source. 30 AP copies are NOT 30 independent sources.
-5. Suggest a primary category for this story from exactly one of these slugs: conflict, politics, economy, tech, labor, climate, health, society, trade
-   Additionally, suggest 1-2 secondary categories (from the same list) if the story spans multiple domains.
-   Example: A warehouse fire set by a worker protesting wages → primary: "labor", secondary: ["economy", "society"]
-   AI regulation in the EU → primary: "tech", secondary: ["politics"]
-6. Suggest a refined search query if the original seems too broad or too narrow
+const SYSTEM_PROMPT = `You are a news source triage agent for Overcurrent, a coverage analysis platform.
 
-IMPORTANT RULES:
-- Sources marked [KEYWORD MATCH] have titles matching story-specific keywords. You MUST include these unless clearly off-topic (e.g., same keyword used in a completely different context).
-- Sources marked [ANCHOR MATCH] have titles matching key entities (countries, people, organizations). These are VERY likely relevant — include them.
-- Sources NOT marked may still be relevant — include if they cover consequences, implications, or reactions to the story.
-- Keep as MANY unique outlets as possible. Do NOT over-filter. When in doubt, INCLUDE.
-- REGIONAL DIVERSITY IS MANDATORY. If the input contains sources from 5 regions, your output MUST contain sources from at least 4 of those regions. Do NOT filter out an entire region.
-- Include at least 3 sources from EVERY region that has ANY relevant articles.
-- Non-English articles ARE relevant if they cover the same topic. Include them with their original title.
-- If few sources seem directly relevant, include sources that are PARTIALLY relevant or cover related topics (reactions, implications, expert analysis, historical context).
+YOUR PHILOSOPHY: Triage is a RECALL filter, not a PRECISION filter. Your job is to cast a wide net. Include anything that MIGHT be relevant — the 4-model debate system will handle quality and relevance scoring. You are NOT the quality filter. The debate models are.
+
+Given a list of raw article results about a topic, your job is:
+1. Remove duplicate URLs and near-duplicate articles (same story, same outlet — keep the most comprehensive article)
+2. Identify each source's outlet name, type, country, region, political lean, and reliability
+3. Detect WIRE SYNDICATION: If an article is from AP, Reuters, or AFP wire service, mark isWireCopy: true and note the original source.
+4. Suggest a primary category from: conflict, politics, economy, tech, labor, climate, health, society, trade
+5. Suggest 1-2 secondary categories if the story spans multiple domains
+
+INCLUSION RULES (follow these exactly):
+- Your job is to INCLUDE sources, not exclude them.
+- A source is relevant if it mentions ANY entity, country, event, or consequence related to the story.
+- Partial relevance counts. A story about reactions to the event counts. A story about the same region or policy domain counts.
+- The ONLY sources you should exclude are those with ZERO connection — completely different topic, different region, different time period.
+- When in doubt, INCLUDE. Flag borderline sources as lowConfidence: true but still include them.
+- Sources marked [KEYWORD MATCH] or [ANCHOR MATCH] MUST be included.
+- Non-English articles covering the same entities are RELEVANT — include them with their original title.
+- REGIONAL DIVERSITY IS MANDATORY. Never filter out an entire region.
 - region MUST be exactly one of: "North America", "Europe", "Asia-Pacific", "Middle East & Africa", "Latin America", "South & Central Asia"
-- Track source provenance: if an article cites another outlet ("according to NYT..."), note it in citesSource.
-- One outlet publishing 10 articles about the same topic = 1 unique source, not 10. Dedup by outlet, keep the most comprehensive article from each.
+- Track source provenance: if an article cites another outlet, note it in citesSource.
 
 ${ANTI_HALLUCINATION_RULES}
 
@@ -101,7 +101,8 @@ Response shape:
       "reliability": "high | medium | low | mixed",
       "isWireCopy": false,
       "originalSource": null,
-      "citesSource": null
+      "citesSource": null,
+      "lowConfidence": false
     }
   ],
   "suggestedCategory": "string",
@@ -111,7 +112,7 @@ Response shape:
 
 CRITICAL: Your response must be ONLY a valid JSON object. No text before or after the JSON.
 No explanations. No commentary. No markdown code fences.
-Include ALL sources marked [KEYWORD MATCH] or [ANCHOR MATCH] unless clearly off-topic.
+INCLUDE everything that has ANY connection to the story. Only exclude total non-matches.
 Any text outside the JSON object will cause a system failure.`
 
 // ---------------------------------------------------------------------------
@@ -150,6 +151,7 @@ function autoPassSource(
     isWireCopy: outlet?.type === 'wire',
     originalSource: null,
     citesSource: null,
+    lowConfidence: false,
   }
 }
 
@@ -199,10 +201,10 @@ export async function triageSources(
     console.log(`[Triage]   ${region}: ${sources.length} sources`)
   }
 
-  // ── BUILD REGION-GROUPED BATCHES OF ~10 ──────────────────────────────
-  // 10 sources per batch keeps Haiku focused and reduces JSON parse failures.
-  // Each batch is homogeneous by region for better relevance scoring.
-  const BATCH_SIZE = 10
+  // ── BUILD REGION-GROUPED BATCHES OF 5 ───────────────────────────────
+  // Small batches prevent Haiku from pattern-matching "mostly junk" and
+  // doing bulk rejection. 5 sources per batch = higher per-source attention.
+  const BATCH_SIZE = 5
   const allTriagedSources: Record<string, unknown>[] = []
   let costUsd = 0
   let suggestedCategory = 'society'
@@ -217,8 +219,8 @@ export async function triageSources(
 
   const batches: TriageBatch[] = []
   for (const [region, sources] of byRegion) {
-    // Cap per region at 40 sources to avoid wasting triage calls on 100+ US articles
-    const capped = sources.slice(0, 40)
+    // Cap per region at 60 sources — with auto-pass, anchor matches skip Haiku anyway
+    const capped = sources.slice(0, 60)
     for (let i = 0; i < capped.length; i += BATCH_SIZE) {
       batches.push({ region, sources: capped.slice(i, i + BATCH_SIZE) })
     }
@@ -251,12 +253,14 @@ export async function triageSources(
       }
     }
 
-    if (anchorPassed.length > 0 || needsHaiku.length === 0) {
-      console.log(`[Triage] Batch ${bIdx + 1} (${region}): Auto-passed ${anchorPassed.length} anchor-matched sources, sending ${needsHaiku.length} to Haiku`)
+    if (needsHaiku.length === 0) {
+      console.log(`[Triage] Batch ${bIdx + 1} (${region}): auto-passed all ${anchorPassed.length} sources (anchor match)`)
+      continue
     }
 
-    // If entire batch was auto-passed, skip Haiku call
-    if (needsHaiku.length === 0) continue
+    if (anchorPassed.length > 0) {
+      console.log(`[Triage] Batch ${bIdx + 1} (${region}): auto-passed ${anchorPassed.length}, sending ${needsHaiku.length} to Haiku`)
+    }
 
     const slimBatch = needsHaiku.map(s => {
       const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
@@ -463,6 +467,7 @@ export async function triageSources(
       isWireCopy: Boolean(s.isWireCopy ?? false),
       originalSource: s.originalSource ? String(s.originalSource) : null,
       citesSource: s.citesSource ? String(s.citesSource) : null,
+      lowConfidence: Boolean(s.lowConfidence ?? false),
     })).filter(s => {
       // Filter out snippet-only sources that don't mention core query entities
       if (s.reliability === 'unknown' && s.politicalLean === 'unknown') {

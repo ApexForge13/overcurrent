@@ -83,6 +83,18 @@ export interface ModelCallResult {
   model: string
 }
 
+// ── Global model state — persists across calls within a pipeline run ──
+const globalModelState = {
+  geminiDisabled: false,
+  geminiDisabledReason: '',
+}
+
+/** Reset model state at the start of each pipeline run. */
+export function resetGlobalModelState(): void {
+  globalModelState.geminiDisabled = false
+  globalModelState.geminiDisabledReason = ''
+}
+
 /** Strip control characters that break JSON serialization in API request bodies.
  *  Preserves newlines, carriage returns, and tabs (valid in JSON strings). */
 function sanitizeForApi(text: string): string {
@@ -164,9 +176,27 @@ export async function callModel(options: ModelCallOptions): Promise<ModelCallRes
     outputTokens = response.usage?.completion_tokens ?? 0
 
   } else if (options.provider === 'google') {
+    // Fast-fail if Gemini billing cap already hit this run
+    if (globalModelState.geminiDisabled) {
+      throw new Error(`Gemini disabled: ${globalModelState.geminiDisabledReason}`)
+    }
+
     const client = getGoogle()
     const genModel = client.getGenerativeModel({ model, systemInstruction: system })
-    const response = await withRetry(() => genModel.generateContent(userMessage), retryLabel, retryDelay)
+    let geminiResponse
+    try {
+      geminiResponse = await withRetry(() => genModel.generateContent(userMessage), retryLabel, retryDelay)
+    } catch (geminiErr) {
+      // Detect billing cap — don't retry, disable for rest of run
+      const errMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr)
+      if (errMsg.includes('spending cap') || errMsg.includes('quota') || errMsg.includes('billing')) {
+        globalModelState.geminiDisabled = true
+        globalModelState.geminiDisabledReason = errMsg.substring(0, 120)
+        console.error(`[Gemini] Billing cap hit — disabling for remaining calls: ${errMsg.substring(0, 120)}`)
+      }
+      throw geminiErr
+    }
+    const response = geminiResponse
 
     text = response.response.text()
     inputTokens = response.response.usageMetadata?.promptTokenCount ?? 0

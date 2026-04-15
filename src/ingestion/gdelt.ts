@@ -102,7 +102,8 @@ function buildGdeltQuery(query: string): string {
     return result
   }
 
-  const result = bigrams.join(' OR ')
+  // GDELT requires OR'd terms to be wrapped in parentheses
+  const result = bigrams.length > 1 ? `(${bigrams.join(' OR ')})` : bigrams[0]
   console.log('[GDELT] Query:', result)
   return result
 }

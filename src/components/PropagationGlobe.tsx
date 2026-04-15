@@ -222,8 +222,13 @@ function createArcPoints(
   return points
 }
 
+function normalizeStatus(status: string): string {
+  // Synthesis may produce "Wire Copy", "No Coverage", etc. — normalize to snake_case keys
+  return status.toLowerCase().replace(/\s+/g, '_')
+}
+
 function statusColor(status: string): string {
-  return STATUS_COLORS[status] ?? STATUS_COLORS.silent
+  return STATUS_COLORS[normalizeStatus(status)] ?? STATUS_COLORS.silent
 }
 
 /* ------------------------------------------------------------------ */
@@ -487,10 +492,10 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
         const hasDual = !!secondaryStatus && secondaryStatus !== borderStatus
         if (hasDual) {
           // BORDER uses border_status color (how the story arrived)
-          mat.color.set(STATUS_COLORS[borderStatus] || '#8A8A9E')
+          mat.color.set(STATUS_COLORS[normalizeStatus(borderStatus)] || '#8A8A9E')
           mat.opacity = 0.85
         } else {
-          const sc = STATUS_COLORS[borderStatus]
+          const sc = STATUS_COLORS[normalizeStatus(borderStatus)]
           mat.color.set(sc && sc !== STATUS_COLORS.silent ? sc : '#8A8A9E')
           mat.opacity = 0.85
         }
@@ -523,7 +528,7 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
         const fillStatus = secondaryStatus && secondaryStatus !== regionData.status
           ? secondaryStatus
           : regionData.status
-        const fillColor = STATUS_COLORS[fillStatus] || '#2A2A3E'
+        const fillColor = STATUS_COLORS[normalizeStatus(fillStatus)] || '#2A2A3E'
         mat.color.set(fillColor)
         mat.opacity = secondaryStatus && secondaryStatus !== regionData.status ? 0.25 : 0.15
       } else {

@@ -68,8 +68,11 @@ function parseItem(item: string): GoogleNewsResult | null {
       }
     }
 
+    // Prefer sourceUrl (actual article) over link (opaque Google News redirect)
+    const resolvedUrl = sourceUrl && !sourceUrl.includes('news.google.com') ? sourceUrl : link
+
     return {
-      url: link,
+      url: resolvedUrl,
       title,
       domain,
       sourcecountry: '', // Google News doesn't provide this

@@ -6,6 +6,8 @@ import { scanRssFeeds, queryToKeywords } from '@/ingestion/rss'
 import { fetchGoogleNewsResults } from '@/ingestion/google-news'
 // searchReddit removed — Reddit is Stream 2 only (Discourse Gap)
 import { findOutletByDomain } from '@/data/outlets'
+import { isBlockedDomain } from '@/data/blocklist'
+import { resetGlobalModelState } from '@/lib/models'
 import { fetchArticle } from '@/ingestion/article-fetcher'
 import { triageSources } from '@/agents/triage'
 import { analyzeSilence } from '@/agents/silence'
@@ -305,8 +307,9 @@ export async function runVerifyPipeline(
   const startTime = Date.now()
   let totalCost = 0
 
-  // Reset cross-region model failure tracking for this run
+  // Reset cross-region model failure tracking and global state for this run
   resetModelFailureTracking()
+  resetGlobalModelState()
 
   // ── PHASE 1: SEARCH ──────────────────────────────────────────────────
 
@@ -419,6 +422,17 @@ export async function runVerifyPipeline(
     }
   }
   console.log(`[pipeline] Sources after merge: ${rawSources.length} total (RSS: ${rssResults.length}, GDELT: ${allGdelt.length}, Google News: ${googleNewsResults.length})`)
+
+  // Block syndication network domains (fake country-branded spam sites)
+  const preBlockCount = rawSources.length
+  const cleanedSources = rawSources.filter(s => !isBlockedDomain(s.url))
+  const blockedCount = preBlockCount - cleanedSources.length
+  if (blockedCount > 0) {
+    console.log(`[pipeline] Blocked ${blockedCount} sources from syndication networks`)
+  }
+  // Replace rawSources for subsequent processing
+  rawSources.length = 0
+  rawSources.push(...cleanedSources)
 
   // Reddit is excluded from Stream 1 — social media feeds Stream 2 (Discourse Gap) only.
 
@@ -739,7 +753,15 @@ export async function runVerifyPipeline(
   for (const region of regionList) {
     sourcesByRegion.set(region, [])
   }
+  let droppedUnknown = 0
   for (const source of substantiveArticles) {
+    // Drop sources with no identifiable region or outlet
+    if (!source.region || source.region === 'Unknown' || source.region === 'unknown' || source.region === '') {
+      if (!source.outlet || source.outlet === 'Unknown' || source.outlet === '') {
+        droppedUnknown++
+        continue
+      }
+    }
     const bucket = sourcesByRegion.get(source.region)
     if (bucket) {
       bucket.push({
@@ -750,6 +772,9 @@ export async function runVerifyPipeline(
         contentQuality: source.contentQuality,
       })
     }
+  }
+  if (droppedUnknown > 0) {
+    console.log(`[pipeline] Dropped ${droppedUnknown} sources with no identifiable region/outlet`)
   }
 
   // Build a brief summary of all sources for cross-region omission detection

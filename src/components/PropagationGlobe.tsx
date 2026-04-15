@@ -1845,4 +1845,60 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
           </span>
 
           {/* Speed selector */}
-         
+          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+            {([0.5, 1, 2] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => handleSpeedChange(s)}
+                style={{
+                  background:   speed === s ? '#2A9D8F' : 'none',
+                  border:       `1px solid ${speed === s ? '#2A9D8F' : '#2A2A2E'}`,
+                  borderRadius: '3px',
+                  color:        speed === s ? '#0A0A0B' : '#5C5A56',
+                  fontSize:     '9px',
+                  padding:      '3px 6px',
+                  cursor:       'pointer',
+                  fontFamily:   'var(--font-mono, monospace)',
+                  fontWeight:   speed === s ? 700 : 400,
+                }}
+              >
+                {s}x
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Frame tick marks */}
+        <div
+          style={{
+            display:        'flex',
+            justifyContent: 'space-between',
+            marginTop:      '6px',
+            paddingLeft:    '38px',
+            paddingRight:   '90px',
+          }}
+        >
+          {timeline.map((f, i) => (
+            <div
+              key={i}
+              title={f.label || `+${f.hour}h`}
+              onClick={() => {
+                setPlaying(false)
+                lastTimeRef.current = null
+                setFrameIdx(i)
+                setProgress(0)
+              }}
+              style={{
+                width:      '1px',
+                height:     i === frameIdx ? '8px' : '4px',
+                background: i === frameIdx ? '#2A9D8F' : '#2A2A2E',
+                transition: 'height 150ms ease, background 150ms ease',
+                cursor:     'pointer',
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}

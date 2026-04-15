@@ -521,7 +521,8 @@ function CountryBorders({ globeRotation, activeRegions, borderStatuses }: Countr
       if (active) {
         const received = borderStatuses?.get(regionId) || regionData.status
         mat.color.set(statusColor(received))
-        mat.opacity = 0.9
+        mat.opacity = 1.0
+        mat.linewidth = 2
       } else {
         mat.color.set(INACTIVE_COLOR)
         mat.opacity = INACTIVE_OPACITY
@@ -541,7 +542,8 @@ function CountryBorders({ globeRotation, activeRegions, borderStatuses }: Countr
         const border = borderStatuses?.get(regionId)
         const fillStatus = (border && normalizeStatus(border) === 'original') ? 'original' : regionData.status
         mat.color.set(statusColor(fillStatus))
-        mat.opacity = normalizeStatus(fillStatus) === 'original' ? 0.28 : 0.14
+        // Strong fills so color is visible even on large countries
+        mat.opacity = normalizeStatus(fillStatus) === 'original' ? 0.45 : 0.30
       } else {
         mat.color.set(INACTIVE_COLOR)
         mat.opacity = 0.02

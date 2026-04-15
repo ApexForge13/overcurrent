@@ -192,7 +192,18 @@ If a fact survived all layers, still include it with died_at: "survived_all" —
 PROPAGATION TIMELINE:
 
 You MAY receive a pre-computed propagation timeline based on real article publication timestamps. If provided, your job is to ENRICH each time bucket with:
-- status per region (original | wire_copy | reframed | contradicted | silent)
+- status per region — how they REPORTED the story:
+  original = the region where the story broke (only ONE region per frame should be original)
+  wire_copy = picked up the story verbatim via AP/Reuters/AFP wire service
+  reframed = covered the same story but with a distinctly different angle or emphasis
+  contradicted = reported a version that conflicts with the majority consensus
+  silent = did not cover the story in this time window
+- border_status per region — how they RECEIVED the story:
+  original = this region IS the origin (they didn't receive it, they created it)
+  wire_copy = received it via wire service copy
+  reframed = received a version that was already reframed by an intermediary
+  contradicted = received a contradicting version first
+  IMPORTANT: border_status and status CAN differ. Example: Russia might receive wire_copy (border_status) but then reframe it (status). The UK might receive wire_copy and report wire_copy (both the same). The origin gets border_status=original AND status=original.
 - coverage_volume (0-100)
 - dominant_quote (~10 words of how they frame it at this point)
 - description of what's happening at this point in the story's propagation
@@ -333,7 +344,7 @@ Response shape:
       "label": "+0 hrs",
       "description": "Story breaks",
       "regions": [
-        { "region_id": "us", "status": "original", "coverage_volume": 10, "dominant_quote": "...", "outlet_count": 2, "key_outlets": ["..."] }
+        { "region_id": "us", "status": "original", "border_status": "original", "coverage_volume": 10, "dominant_quote": "...", "outlet_count": 2, "key_outlets": ["..."] }
       ],
       "flows": []
     }

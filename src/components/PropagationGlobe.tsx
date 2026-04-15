@@ -411,9 +411,10 @@ interface CountryBordersProps {
   globeRotation:    React.MutableRefObject<number>
   activeRegions?:   Map<string, { status: string; border_status?: string }>
   secondaryStatuses?: Map<string, string>
+  borderStatuses?:  Map<string, string>  // Computed from flows: how each region RECEIVED the story
 }
 
-function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: CountryBordersProps) {
+function CountryBorders({ globeRotation, activeRegions, secondaryStatuses, borderStatuses }: CountryBordersProps) {
   const groupRef    = useRef<THREE.Group>(null)
   const [countryLines, setCountryLines] = useState<CountryLine[]>([])
   const [fillMeshes, setFillMeshes]     = useState<CountryFill[]>([])
@@ -473,36 +474,30 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
       .catch((err) => console.warn('Failed to load country borders:', err))
   }, [])
 
-  // Update line AND fill colors whenever activeRegions or secondaryStatuses changes.
-  // Priority: if a country has BOTH a primary and secondary status (dual-status),
-  // shift the border color toward the secondary (incoming-flow) status to surface
-  // contradictions visually — without needing separate glow ring objects.
+  // Update border and fill colors.
+  // BORDER = how the region RECEIVED the story (from borderStatuses, computed from flows)
+  // FILL   = how the region REPORTED the story (the region's own status)
+  // This creates visual differentiation: e.g., a country might receive wire_copy (blue border)
+  // but reframe it (orange fill).
   useEffect(() => {
     const hasActive = activeRegions && activeRegions.size > 0
 
     countryLines.forEach(({ line, regionId }) => {
-      const mat           = line.material as THREE.LineBasicMaterial
-      const regionData    = activeRegions?.get(regionId)
-      // Border lines use border_status (how the country RECEIVED the story)
-      // NOT fill_status (how they REPORTED it) — these are different concepts
-      const borderStatus  = regionData?.border_status ?? regionData?.status
-      const secondaryStatus = secondaryStatuses?.get(regionId)
+      const mat        = line.material as THREE.LineBasicMaterial
+      const regionData = activeRegions?.get(regionId)
 
-      if (borderStatus) {
-        const hasDual = !!secondaryStatus && secondaryStatus !== borderStatus
-        if (hasDual) {
-          // BORDER uses border_status color (how the story arrived)
-          mat.color.set(STATUS_COLORS[normalizeStatus(borderStatus)] || '#8A8A9E')
-          mat.opacity = 0.85
-        } else {
-          const sc = STATUS_COLORS[normalizeStatus(borderStatus)]
-          mat.color.set(sc && sc !== STATUS_COLORS.silent ? sc : '#8A8A9E')
-          mat.opacity = 0.85
-        }
+      if (regionData && regionData.status && normalizeStatus(regionData.status) !== 'silent') {
+        // Use flow-derived border_status; fall back to AI-provided border_status; fall back to status
+        const borderStatus = borderStatuses?.get(regionId) ?? regionData.border_status ?? regionData.status
+        const color = STATUS_COLORS[normalizeStatus(borderStatus)] || '#8A8A9E'
+        mat.color.set(color)
+        mat.opacity = 0.85
       } else if (regionId && hasActive) {
+        // Region exists but has no coverage in this frame
         mat.color.set('#8A8A9E')
         mat.opacity = 0.25
       } else if (!regionId) {
+        // Unmapped country
         mat.color.set('#4A4A5E')
         mat.opacity = 0.3
       } else {
@@ -512,32 +507,23 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses }: Cou
       mat.needsUpdate = true
     })
 
-    // Debug: log secondary statuses
-    if (secondaryStatuses && secondaryStatuses.size > 0) {
-      console.log('[Globe] Secondary statuses:', Object.fromEntries(secondaryStatuses))
-    }
-
     fillMeshes.forEach(({ mesh, regionId }) => {
       const mat        = mesh.material as THREE.MeshBasicMaterial
       const regionData = activeRegions?.get(regionId)
-      const secondaryStatus = secondaryStatuses?.get(regionId)
 
-      if (regionData && regionData.status !== 'silent') {
-        // Fill uses SECONDARY status if one exists (e.g., Iran is original but contradicted)
-        // Otherwise falls back to primary status
-        const fillStatus = secondaryStatus && secondaryStatus !== regionData.status
-          ? secondaryStatus
-          : regionData.status
-        const fillColor = STATUS_COLORS[normalizeStatus(fillStatus)] || '#2A2A3E'
+      if (regionData && normalizeStatus(regionData.status) !== 'silent') {
+        // Fill = the region's own status (how they REPORTED)
+        const fillColor = STATUS_COLORS[normalizeStatus(regionData.status)] || '#2A2A3E'
         mat.color.set(fillColor)
-        mat.opacity = secondaryStatus && secondaryStatus !== regionData.status ? 0.25 : 0.15
+        // More opaque for original, lighter for others
+        mat.opacity = normalizeStatus(regionData.status) === 'original' ? 0.25 : 0.15
       } else {
         mat.color.set('#2A2A3E')
         mat.opacity = 0.03
       }
       mat.needsUpdate = true
     })
-  }, [activeRegions, secondaryStatuses, countryLines, fillMeshes])
+  }, [activeRegions, secondaryStatuses, borderStatuses, countryLines, fillMeshes])
 
   useFrame(() => {
     if (groupRef.current) {
@@ -1170,6 +1156,25 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
     [allFlows, activeRegions]
   )
 
+  // Compute border_status from incoming flows — the flow type arriving at each
+  // region IS its border_status (how they RECEIVED the story). The region's own
+  // status (how they REPORTED) is the fill. This creates the visual diff.
+  const borderStatuses = useMemo(() => {
+    const result = new Map<string, string>()
+    for (const flow of allFlows) {
+      // The destination region's border color = the flow type arriving
+      if (!result.has(flow.to) || flow.type === 'contradicted') {
+        result.set(flow.to, flow.type)
+      }
+    }
+    // Origin region has border_status = 'original'
+    const origin = frame.regions.find(r => normalizeStatus(r.status) === 'original')
+    if (origin) {
+      result.set(origin.region_id, 'original')
+    }
+    return result
+  }, [allFlows, frame.regions])
+
   // When frame changes, spawn arcs for new flows
   useEffect(() => {
     const newFlows = allFlows.slice(0, MAX_ARCS)
@@ -1257,6 +1262,7 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
         globeRotation={globeRotationRef}
         activeRegions={activeRegions}
         secondaryStatuses={secondaryStatuses}
+        borderStatuses={borderStatuses}
       />
 
       <RegionMarkers

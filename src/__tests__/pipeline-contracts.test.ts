@@ -278,14 +278,14 @@ describe('filterByKeywordRelevance', () => {
     expect(result).toHaveLength(3)
   })
 
-  it('falls back to 1-keyword match when <3 posts pass strict', () => {
+  it('falls back to 1-keyword match when <3 posts pass strict (no anchors)', () => {
     const posts = [
-      makePost('Hungary election results'),      // 2 keywords
-      makePost('Orban spoke at a conference'),     // 1 keyword only
-      makePost('No relevant keywords at all'),     // 0 keywords
+      makePost('Hungary election results'),      // 2 keywords → strict pass
+      makePost('Orban spoke at a conference'),     // 1 keyword → fallback pass
+      makePost('No relevant keywords at all'),     // 0 keywords → filtered
     ]
     const result = filterByKeywordRelevance(posts, ['Hungary', 'election', 'Orban'])
-    // Only 1 post passes strict (< 3), so fallback to 1-keyword: "Hungary election" + "Orban"
+    // Only 1 passes strict (<3), so fallback to 1-keyword
     expect(result).toHaveLength(2)
   })
 

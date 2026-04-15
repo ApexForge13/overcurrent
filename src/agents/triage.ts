@@ -1,5 +1,28 @@
 import { callClaude, parseJSON, HAIKU } from '@/lib/anthropic'
 import { ANTI_HALLUCINATION_RULES, JSON_RULES } from './prompts'
+import { queryToKeywords } from '@/ingestion/rss'
+import { findOutletByDomain } from '@/data/outlets'
+
+/** Strip diacritics for matching (á → a, ö → o, etc.) */
+function stripDiacritics(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
+/**
+ * Pre-check: does this source title match any query keywords?
+ * Returns the number of keyword matches (anchors weighted 2x).
+ */
+function keywordRelevanceScore(title: string, anchors: string[], allKeywords: string[]): number {
+  const text = stripDiacritics(title.toLowerCase())
+  let score = 0
+  for (const a of anchors) {
+    if (text.includes(stripDiacritics(a))) score += 2  // Anchors are strong signal
+  }
+  for (const kw of allKeywords) {
+    if (!anchors.includes(kw) && text.includes(stripDiacritics(kw))) score += 1
+  }
+  return score
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,15 +68,16 @@ const SYSTEM_PROMPT = `You are a news source triage agent for Overcurrent, a cov
 6. Suggest a refined search query if the original seems too broad or too narrow
 
 IMPORTANT RULES:
-- NEVER return an empty sources array. You MUST return at least 30 sources.
-- Keep as MANY unique outlets as possible — 40-60 sources is ideal. Do NOT over-filter.
+- Sources marked [KEYWORD MATCH] have titles matching story-specific keywords. You MUST include these unless clearly off-topic (e.g., same keyword used in a completely different context).
+- Sources marked [ANCHOR MATCH] have titles matching key entities (countries, people, organizations). These are VERY likely relevant — include them.
+- Sources NOT marked may still be relevant — include if they cover consequences, implications, or reactions to the story.
+- Keep as MANY unique outlets as possible. Do NOT over-filter. When in doubt, INCLUDE.
 - REGIONAL DIVERSITY IS MANDATORY. If the input contains sources from 5 regions, your output MUST contain sources from at least 4 of those regions. Do NOT filter out an entire region.
 - Include at least 3 sources from EVERY region that has ANY relevant articles.
 - Non-English articles ARE relevant if they cover the same topic. Include them with their original title.
-- If few sources seem directly relevant, include sources that are PARTIALLY relevant or cover related topics.
+- If few sources seem directly relevant, include sources that are PARTIALLY relevant or cover related topics (reactions, implications, expert analysis, historical context).
 - region MUST be exactly one of: "North America", "Europe", "Asia-Pacific", "Middle East & Africa", "Latin America", "South & Central Asia"
 - Track source provenance: if an article cites another outlet ("according to NYT..."), note it in citesSource.
-- When in doubt about relevance, INCLUDE the source. Over-inclusion is better than missing coverage.
 - One outlet publishing 10 articles about the same topic = 1 unique source, not 10. Dedup by outlet, keep the most comprehensive article from each.
 
 ${ANTI_HALLUCINATION_RULES}
@@ -87,7 +111,7 @@ Response shape:
 
 CRITICAL: Your response must be ONLY a valid JSON object. No text before or after the JSON.
 No explanations. No commentary. No markdown code fences.
-If zero sources are relevant, return exactly: {"sources": []}
+Include ALL sources marked [KEYWORD MATCH] or [ANCHOR MATCH] unless clearly off-topic.
 Any text outside the JSON object will cause a system failure.`
 
 // ---------------------------------------------------------------------------
@@ -103,6 +127,30 @@ const OUTLET_ALIASES: Record<string, string> = {
 function normalizeOutletName(name: string): string {
   const lower = name.toLowerCase().trim()
   return OUTLET_ALIASES[lower] || name
+}
+
+// ---------------------------------------------------------------------------
+// Auto-pass: build a TriagedSource from raw data + outlet registry
+// ---------------------------------------------------------------------------
+
+function autoPassSource(
+  raw: { url: string; title: string; domain: string; sourcecountry: string; knownRegion?: string },
+): Record<string, unknown> {
+  const outlet = findOutletByDomain(raw.domain)
+  return {
+    url: raw.url,
+    title: raw.title,
+    outlet: outlet?.name ?? raw.domain.replace(/^www\./, ''),
+    outletType: outlet?.type ?? 'digital',
+    country: outlet?.country ?? raw.sourcecountry ?? '',
+    region: outlet?.region ?? raw.knownRegion ?? 'Unknown',
+    language: outlet?.language ?? 'en',
+    politicalLean: outlet?.politicalLean ?? 'unknown',
+    reliability: outlet?.reliability ?? 'unknown',
+    isWireCopy: outlet?.type === 'wire',
+    originalSource: null,
+    citesSource: null,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +179,20 @@ export async function triageSources(
     if (!byRegion.has(region)) byRegion.set(region, [])
     byRegion.get(region)!.push(s)
   }
+
+  // ── KEYWORD PRE-CHECK ──────────────────────────────────────────────────
+  // Extract anchor and context keywords from the query. Each source gets
+  // annotated with [ANCHOR MATCH] / [KEYWORD MATCH] before going to Haiku.
+  // This gives the model a strong prior and reduces nondeterministic filtering.
+  const queryKw = queryToKeywords(query)
+  let anchorMatches = 0
+  let keywordMatches = 0
+  for (const s of deduped) {
+    const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+    if (score >= 2) anchorMatches++
+    else if (score >= 1) keywordMatches++
+  }
+  console.log(`[Triage] Keyword pre-check: ${anchorMatches} anchor matches, ${keywordMatches} keyword matches out of ${deduped.length} sources`)
 
   console.log(`[Triage] Input: ${deduped.length} sources across ${byRegion.size} regions`)
   for (const [region, sources] of byRegion) {
@@ -169,14 +231,45 @@ export async function triageSources(
 
   for (let bIdx = 0; bIdx < batches.length; bIdx++) {
     const { region, sources: batch } = batches[bIdx]
-    const slimBatch = batch.map(s => ({
-      url: s.url,
-      title: s.title.substring(0, 120),
-      domain: s.domain,
-      country: s.sourcecountry,
-      region: s.knownRegion || '',
-    }))
-    const batchPrompt = `Query: ${query}\n\nRaw sources (batch ${bIdx + 1}/${batches.length}, region: ${region}, ${slimBatch.length} sources):\n${JSON.stringify(slimBatch)}\n\nRespond with JSON only. No explanations.`
+
+    // ── ANCHOR AUTO-PASS: score ≥ 2 → skip Haiku, go straight to results ──
+    const anchorPassed: typeof batch = []
+    const needsHaiku: typeof batch = []
+    for (const s of batch) {
+      const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+      if (score >= 2) {
+        anchorPassed.push(s)
+      } else {
+        needsHaiku.push(s)
+      }
+    }
+
+    // Auto-pass anchor-matched sources directly into results
+    if (anchorPassed.length > 0) {
+      for (const s of anchorPassed) {
+        allTriagedSources.push(autoPassSource(s))
+      }
+    }
+
+    if (anchorPassed.length > 0 || needsHaiku.length === 0) {
+      console.log(`[Triage] Batch ${bIdx + 1} (${region}): Auto-passed ${anchorPassed.length} anchor-matched sources, sending ${needsHaiku.length} to Haiku`)
+    }
+
+    // If entire batch was auto-passed, skip Haiku call
+    if (needsHaiku.length === 0) continue
+
+    const slimBatch = needsHaiku.map(s => {
+      const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+      const tag = score >= 1 ? ' [KEYWORD MATCH]' : ''
+      return {
+        url: s.url,
+        title: s.title.substring(0, 120) + tag,
+        domain: s.domain,
+        country: s.sourcecountry,
+        region: s.knownRegion || '',
+      }
+    })
+    const batchPrompt = `Query: ${query}\n\nRaw sources (batch ${bIdx + 1}/${batches.length}, region: ${region}, ${slimBatch.length} sources):\n${JSON.stringify(slimBatch)}\n\nRespond with JSON only. Include ALL [KEYWORD MATCH] sources.`
 
     let success = false
     for (let attempt = 0; attempt < 2 && !success; attempt++) {
@@ -194,7 +287,7 @@ export async function triageSources(
 
         const batchParsed = parseJSON<Record<string, unknown>>(result.text)
         if (batchParsed.sources && Array.isArray(batchParsed.sources)) {
-          console.log(`[Triage] Batch ${bIdx + 1} (${region}): ${(batchParsed.sources as unknown[]).length} sources returned`)
+          console.log(`[Triage] Batch ${bIdx + 1} (${region}): ${(batchParsed.sources as unknown[]).length} sources returned from Haiku`)
           allTriagedSources.push(...(batchParsed.sources as Record<string, unknown>[]))
         } else {
           console.warn(`[Triage] Batch ${bIdx + 1} (${region}): no sources array in response`)
@@ -208,7 +301,7 @@ export async function triageSources(
           console.warn(`[Triage] Batch ${bIdx + 1} (${region}) attempt 1 failed:`, err instanceof Error ? err.message : err)
         } else {
           console.error(`[Triage] Batch ${bIdx + 1} (${region}) failed after retry:`, err instanceof Error ? err.message : err)
-          failedBatchSources.push(...batch)
+          failedBatchSources.push(...needsHaiku)
         }
       }
     }
@@ -279,19 +372,43 @@ export async function triageSources(
 
     for (let bIdx = 0; bIdx < expandedBatches.length; bIdx++) {
       const { region, sources: batch } = expandedBatches[bIdx]
-      const slimBatch = batch.map(s => ({
-        url: s.url,
-        title: s.title.substring(0, 120),
-        domain: s.domain,
-        country: s.sourcecountry,
-        region: s.knownRegion || '',
-      }))
 
-      // Skip if all URLs already triaged
-      const untriaged = slimBatch.filter(s => !allTriagedSources.some(t => String(t.url) === s.url))
-      if (untriaged.length === 0) continue
+      // ── ANCHOR AUTO-PASS (expanded pass) ──
+      const anchorPassed: typeof batch = []
+      const needsHaiku: typeof batch = []
+      for (const s of batch) {
+        // Skip already-triaged URLs
+        if (allTriagedSources.some(t => String(t.url) === s.url)) continue
+        const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+        if (score >= 2) {
+          anchorPassed.push(s)
+        } else {
+          needsHaiku.push(s)
+        }
+      }
 
-      const batchPrompt = `Query: ${query}\n\nRaw sources (EXPANDED PASS batch ${bIdx + 1}/${expandedBatches.length}, region: ${region}, ${untriaged.length} sources):\n${JSON.stringify(untriaged)}\n\nRespond with JSON only. No explanations.`
+      if (anchorPassed.length > 0) {
+        for (const s of anchorPassed) {
+          allTriagedSources.push(autoPassSource(s))
+        }
+        console.log(`[Triage] Expanded batch ${bIdx + 1} (${region}): Auto-passed ${anchorPassed.length} anchor-matched sources, sending ${needsHaiku.length} to Haiku`)
+      }
+
+      if (needsHaiku.length === 0) continue
+
+      const slimBatch = needsHaiku.map(s => {
+        const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+        const tag = score >= 1 ? ' [KEYWORD MATCH]' : ''
+        return {
+          url: s.url,
+          title: s.title.substring(0, 120) + tag,
+          domain: s.domain,
+          country: s.sourcecountry,
+          region: s.knownRegion || '',
+        }
+      })
+
+      const batchPrompt = `Query: ${query}\n\nRaw sources (EXPANDED PASS batch ${bIdx + 1}/${expandedBatches.length}, region: ${region}, ${slimBatch.length} sources):\n${JSON.stringify(slimBatch)}\n\nRespond with JSON only. No explanations.`
 
       try {
         const result = await callClaude({
@@ -305,7 +422,7 @@ export async function triageSources(
         costUsd += result.costUsd
         const parsed = parseJSON<Record<string, unknown>>(result.text)
         if (parsed.sources && Array.isArray(parsed.sources)) {
-          console.log(`[Triage] Expanded batch ${bIdx + 1} (${region}): ${(parsed.sources as unknown[]).length} additional sources`)
+          console.log(`[Triage] Expanded batch ${bIdx + 1} (${region}): ${(parsed.sources as unknown[]).length} additional sources from Haiku`)
           allTriagedSources.push(...(parsed.sources as Record<string, unknown>[]))
         }
       } catch (err) {

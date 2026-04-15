@@ -100,6 +100,19 @@ export interface SynthesisResult {
     sortOrder: number
   }>
   confidenceCaveat?: string
+  briefing: {
+    missed: Array<{ finding: string; coverage: string; outlets: string[] }>
+    frames: Array<{ name: string; outlet_count: number; summary: string }>
+    fact_survival: {
+      on_scene: number; national: number; international: number
+      died_national: string; died_international: string
+    } | null
+    key_dispute: {
+      question: string; side_a: string; side_a_count: string
+      side_b: string; side_b_count: string; resolution: string
+    } | null
+    watch: string[]
+  }
   costUsd: number
 }
 
@@ -193,6 +206,23 @@ Set "hour" to the hoursSinceFirst value from each bucket.
 
 If NO pre-computed timeline is provided, create a best-estimate timeline with 5-8 steps spanning the story's likely duration. Use these region IDs: us, ca, mx, la, uk, eu, ru, tr, me, ir, il, af, in, cn, jp, kr, sea, au, pk
 
+THREE-TIER OUTPUT:
+
+You must produce THREE tiers of curated output:
+
+TIER 1 — LOBBY (for the hero section):
+- "the_pattern": Under 280 characters. The single most surprising insight. Written to be screenshotted and shared.
+- "summary": 3-4 sentences, under 100 words. A CONCLUSION, not a synopsis. Answers "what did we find?"
+
+TIER 2 — BRIEFING (the product — what 95% of readers see):
+- "briefing.missed": EXACTLY 3 items. The three most surprising findings that almost nobody reported. Each "finding" under 30 words.
+- "briefing.frames": EXACTLY 3 frames. The three most DIVERGENT framings. Pick for maximum contrast.
+- "briefing.fact_survival": Funnel numbers (on_scene, national, international) + one example fact that died at each boundary.
+- "briefing.key_dispute": The SINGLE most important unresolved disagreement. Side A, Side B, your resolution. Do NOT hedge. Give the reader your best assessment.
+- "briefing.watch": EXACTLY 3 forward-looking questions, each under 25 words.
+
+TIER 3 — VAULT: Everything below (claims, framing_split, discrepancies, omissions, buried_evidence, fact_survival, etc.)
+
 Response shape:
 {
   "headline": "string",
@@ -201,6 +231,26 @@ Response shape:
   "summary": "2-4 sentence plain English CONCLUSION. Not a synopsis. THE ANSWER to 'what did we find?' Written for a smart person in a hurry.",
   "the_pattern": "1-2 sentence shareable insight under 280 chars",
   "confidence_note": "string",
+  "briefing": {
+    "missed": [
+      { "finding": "string max 30 words", "coverage": "X of Y sources", "outlets": ["outlet names"] }
+    ],
+    "frames": [
+      { "name": "SHORT LABEL", "outlet_count": 35, "summary": "string max 40 words" }
+    ],
+    "fact_survival": {
+      "on_scene": 7, "national": 5, "international": 3,
+      "died_national": "string — the fact that died at national boundary",
+      "died_international": "string — the fact that died at international boundary"
+    },
+    "key_dispute": {
+      "question": "string",
+      "side_a": "string max 30 words", "side_a_count": "35+ outlets",
+      "side_b": "string max 30 words", "side_b_count": "8 outlets",
+      "resolution": "string max 25 words — your best assessment, no hedging"
+    },
+    "watch": ["string", "string", "string"]
+  },
   "claims": [
     {
       "claim": "string",
@@ -609,6 +659,37 @@ ${JSON.stringify(
     })),
   }))
 
+  // --- briefing (three-tier curated output) ---
+  const rawBriefing = parsed.briefing ?? {}
+  const briefing = {
+    missed: Array.isArray(rawBriefing.missed) ? rawBriefing.missed.map((m: any) => ({
+      finding: String(m.finding ?? ''),
+      coverage: String(m.coverage ?? ''),
+      outlets: Array.isArray(m.outlets) ? m.outlets.map(String) : [],
+    })).slice(0, 3) : [],
+    frames: Array.isArray(rawBriefing.frames) ? rawBriefing.frames.map((f: any) => ({
+      name: String(f.name ?? ''),
+      outlet_count: Number(f.outlet_count ?? 0),
+      summary: String(f.summary ?? ''),
+    })).slice(0, 3) : [],
+    fact_survival: rawBriefing.fact_survival ? {
+      on_scene: Number(rawBriefing.fact_survival.on_scene ?? 0),
+      national: Number(rawBriefing.fact_survival.national ?? 0),
+      international: Number(rawBriefing.fact_survival.international ?? 0),
+      died_national: String(rawBriefing.fact_survival.died_national ?? ''),
+      died_international: String(rawBriefing.fact_survival.died_international ?? ''),
+    } : null,
+    key_dispute: rawBriefing.key_dispute ? {
+      question: String(rawBriefing.key_dispute.question ?? ''),
+      side_a: String(rawBriefing.key_dispute.side_a ?? ''),
+      side_a_count: String(rawBriefing.key_dispute.side_a_count ?? ''),
+      side_b: String(rawBriefing.key_dispute.side_b ?? ''),
+      side_b_count: String(rawBriefing.key_dispute.side_b_count ?? ''),
+      resolution: String(rawBriefing.key_dispute.resolution ?? ''),
+    } : null,
+    watch: Array.isArray(rawBriefing.watch) ? rawBriefing.watch.map(String).slice(0, 3) : [],
+  }
+
   return {
     headline,
     confidenceLevel,
@@ -628,6 +709,7 @@ ${JSON.stringify(
     propagationTimeline,
     buriedEvidence,
     factSurvival,
+    briefing,
     costUsd,
   }
 }

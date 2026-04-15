@@ -35,6 +35,8 @@ interface TimelineFrame {
     from: string
     to: string
     type: string
+    fromType?: string
+    toType?: string
   }>
 }
 
@@ -926,32 +928,46 @@ function computeSecondaryStatuses(
 /*  Auto-generate flows from region data                               */
 /* ------------------------------------------------------------------ */
 
+const NO_FLOW_STATUSES = new Set(['no_coverage', 'silent', 'adjacent_coverage', 'displaced_coverage'])
+
 function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] {
-  // Include ALL regions with any coverage, even if status is missing or silent
-  const regions = frame.regions.filter((r) => r.coverage_volume > 0 || r.outlet_count > 0 || (r.status && r.status !== 'silent'))
+  // Filter out regions with no real coverage
+  const regions = frame.regions.filter((r) => {
+    const effectiveStatus = normalizeStatus(r.border_status ?? r.status)
+    if (NO_FLOW_STATUSES.has(effectiveStatus)) return false
+    return r.coverage_volume > 0 || r.outlet_count > 0
+  })
   if (regions.length < 2) return frame.flows || []
 
   // Use origin if available, otherwise use the first region (highest coverage) as hub
-  const origin = regions.find((r) => (r.border_status ?? r.status) === 'original') || regions[0]
+  const origin = regions.find((r) => normalizeStatus(r.border_status ?? r.status) === 'original') || regions[0]
 
   const flows: TimelineFrame['flows'] = [...(frame.flows || [])]
   const existingFlowKeys = new Set(flows.map((f) => `${f.from}-${f.to}`))
 
   // Flow from origin to every other active region
+  // fromType = origin's status (green), toType = destination's status
   for (const region of regions) {
     if (region.region_id === origin.region_id) continue
     const key = `${origin.region_id}-${region.region_id}`
     if (existingFlowKeys.has(key)) continue
-    const flowType = region.border_status ?? region.status
-    flows.push({ from: origin.region_id, to: region.region_id, type: flowType })
+    const fromStatus = normalizeStatus(origin.border_status ?? origin.status)
+    const toStatus = normalizeStatus(region.border_status ?? region.status)
+    flows.push({
+      from: origin.region_id,
+      to: region.region_id,
+      type: toStatus,
+      fromType: fromStatus,
+      toType: toStatus,
+    })
     existingFlowKeys.add(key)
   }
 
   // Cross-flows between non-origin regions with different statuses
   for (let i = 0; i < regions.length; i++) {
     for (let j = i + 1; j < regions.length; j++) {
-      const statusI = regions[i].border_status ?? regions[i].status
-      const statusJ = regions[j].border_status ?? regions[j].status
+      const statusI = normalizeStatus(regions[i].border_status ?? regions[i].status)
+      const statusJ = normalizeStatus(regions[j].border_status ?? regions[j].status)
       if (
         statusI !== statusJ &&
         statusI !== 'original' &&
@@ -961,8 +977,15 @@ function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] 
         if (existingFlowKeys.has(key)) continue
         const from = statusI === 'wire_copy' ? regions[i] : regions[j]
         const to   = statusI === 'wire_copy' ? regions[j] : regions[i]
-        const toStatus = to === regions[i] ? statusI : statusJ
-        flows.push({ from: from.region_id, to: to.region_id, type: toStatus })
+        const fromS = from === regions[i] ? statusI : statusJ
+        const toS = to === regions[i] ? statusI : statusJ
+        flows.push({
+          from: from.region_id,
+          to: to.region_id,
+          type: toS,
+          fromType: fromS,
+          toType: toS,
+        })
         existingFlowKeys.add(key)
       }
     }
@@ -977,8 +1000,9 @@ function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] 
 
 interface ArcEntry {
   id:         string
-
   color:      THREE.Color
+  fromColor?: THREE.Color
+  toColor?:   THREE.Color
   progress:   number
   age:        number
   allPoints:  THREE.Vector3[]
@@ -994,11 +1018,30 @@ function ArcLine({ arc }: { arc: ArcEntry }) {
   const matRef = useRef<THREE.MeshBasicMaterial>(null)
   const meshRef = useRef<THREE.Mesh>(null)
 
-  // Build full tube geometry once — no draw range animation
+  // Build tube geometry with gradient vertex colors
   const tube = useMemo(() => {
     const curve = new THREE.CatmullRomCurve3(arc.allPoints)
-    return new THREE.TubeGeometry(curve, 60, 0.012, 5, false)
-  }, [arc.allPoints])
+    const geo = new THREE.TubeGeometry(curve, 60, 0.008, 5, false)
+
+    // Add gradient vertex colors: fromColor → toColor along the tube
+    const fromColor = arc.fromColor ?? arc.color
+    const toColor = arc.toColor ?? arc.color
+    const count = geo.attributes.position.count
+    const colors = new Float32Array(count * 3)
+    const ringsPerSegment = 6  // radialSegments + 1
+    const totalRings = 61      // tubularSegments + 1
+
+    for (let i = 0; i < count; i++) {
+      const ring = Math.floor(i / ringsPerSegment)
+      const t = ring / (totalRings - 1)  // 0 at start, 1 at end
+      colors[i * 3]     = fromColor.r + (toColor.r - fromColor.r) * t
+      colors[i * 3 + 1] = fromColor.g + (toColor.g - fromColor.g) * t
+      colors[i * 3 + 2] = fromColor.b + (toColor.b - fromColor.b) * t
+    }
+
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    return geo
+  }, [arc.allPoints, arc.fromColor, arc.toColor, arc.color])
 
   useEffect(() => {
     return () => { tube.dispose() }
@@ -1022,9 +1065,9 @@ function ArcLine({ arc }: { arc: ArcEntry }) {
     <mesh ref={meshRef} geometry={tube} renderOrder={999} visible={false}>
       <meshBasicMaterial
         ref={matRef}
-        color={arc.color}
+        vertexColors
         transparent
-        opacity={1.0}
+        opacity={0.6}
         depthWrite={false}
         side={THREE.DoubleSide}
       />
@@ -1201,12 +1244,18 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       const start = latLngToVector3(fromCoords[0], fromCoords[1], GLOBE_RADIUS)
       const end   = latLngToVector3(toCoords[0],   toCoords[1],   GLOBE_RADIUS)
 
-      const color     = new THREE.Color(statusColor(normType))
+      const fromType = normalizeStatus(flow.fromType ?? flow.type)
+      const toType = normalizeStatus(flow.toType ?? flow.type)
+      const color     = new THREE.Color(statusColor(fromType))
+      const fromColor = new THREE.Color(statusColor(fromType))
+      const toColor   = new THREE.Color(statusColor(toType))
       const allPoints = createArcPoints(start, end, GLOBE_RADIUS, 80)
 
       const entry: ArcEntry = {
         id: key,
         color,
+        fromColor,
+        toColor,
         progress:   0,
         age:        0,
         allPoints,

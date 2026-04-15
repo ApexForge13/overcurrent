@@ -31,6 +31,10 @@ model Story {
   analysisSeconds   Int      @default(0)
   thePattern        String?
   framingSplit      String?   // JSON array
+  lobbyData         String?   // JSON — pattern + summary for hero section
+  briefingData      String?   // JSON — missed, frames, fact_survival, key_dispute, watch
+  vaultData         String?   // JSON — full claims, framings, discrepancies for deep dive
+  outletCount       Int       @default(0)
   sourcesFrom       DateTime?
   sourcesTo         DateTime?
   createdAt         DateTime @default(now())

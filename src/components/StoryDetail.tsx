@@ -10,6 +10,14 @@ import { BuriedEvidence } from "./BuriedEvidence";
 import { PropagationGlobeClient } from "./PropagationGlobeWrapper";
 import { FactSurvival } from "./FactSurvival";
 import { CostDisplay } from "./CostDisplay";
+import { Lobby } from "./Lobby";
+import { Briefing } from "./Briefing";
+import { BriefingMissed } from "./BriefingMissed";
+import { BriefingFrames } from "./BriefingFrames";
+import { BriefingFacts } from "./BriefingFacts";
+import { BriefingDispute } from "./BriefingDispute";
+import { BriefingWatch } from "./BriefingWatch";
+import { VaultToggle } from "./VaultToggle";
 
 /* ── Types ── */
 
@@ -29,7 +37,12 @@ interface StoryDetailProps {
     sourcesFrom?: string | Date | null;
     sourcesTo?: string | Date | null;
     primaryCategory?: string | null;
-    // New format fields (may not exist on old stories)
+    outletCount?: number;
+    // Three-tier architecture fields (may not exist on old stories)
+    lobbyData?: string | null;
+    briefingData?: string | null;
+    vaultData?: string | null;
+    // Legacy fields (still populated for backward compat)
     thePattern?: string | null;
     framingSplit?: string | null | Array<{
       frameName: string;
@@ -452,209 +465,171 @@ export function StoryDetail({ story }: StoryDetailProps) {
     );
   }
 
+  // ── Parse three-tier data (new stories have it; old stories fall back to legacy fields) ──
+  const lobbyParsed = (() => {
+    if (story.lobbyData) {
+      try { return JSON.parse(typeof story.lobbyData === 'string' ? story.lobbyData : JSON.stringify(story.lobbyData)); } catch { return null; }
+    }
+    return null;
+  })();
+
+  const briefingParsed = (() => {
+    if (story.briefingData) {
+      try { return JSON.parse(typeof story.briefingData === 'string' ? story.briefingData : JSON.stringify(story.briefingData)); } catch { return null; }
+    }
+    return null;
+  })();
+
+  const hasBriefing = briefingParsed && (
+    briefingParsed.missed?.length > 0 ||
+    briefingParsed.frames?.length > 0 ||
+    briefingParsed.key_dispute ||
+    briefingParsed.watch?.length > 0
+  );
+
+  const uniqueOutlets = new Set(story.sources.map(s => s.outlet)).size;
+
   return (
     <article className="story-article" style={{ maxWidth: "720px", margin: "0 auto", padding: "0 24px 80px" }}>
 
-      {/* DISCLAIMER */}
-      <div style={{ padding: "10px 0", borderBottom: "1px solid var(--border-primary)", fontSize: "12px", color: "var(--text-tertiary)", ...body }}>
-        Coverage analysis, not journalism. We could be wrong.
-      </div>
+      {/* ══════════════ LAYER 1: THE LOBBY ══════════════ */}
+      <Lobby
+        headline={story.headline}
+        pattern={lobbyParsed?.pattern || story.thePattern || ''}
+        summary={lobbyParsed?.summary || story.synopsis}
+        confidenceLevel={story.confidenceLevel}
+        confidenceScore={story.consensusScore}
+        category={story.primaryCategory || 'analysis'}
+        sourceCount={story.sourceCount}
+        outletCount={story.outletCount || uniqueOutlets}
+        countryCount={story.countryCount}
+        modelCount={modelCount}
+        publishedAt={story.publishedAt ? new Date(story.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+      />
 
-      {/* ═══════════════════════════════════════════════════════
-          ZONE 1 — THE STORY (above the fold, 60-second read)
-          ═══════════════════════════════════════════════════════ */}
-
-      <div style={{ marginTop: "32px" }}>
-        {/* Confidence bar */}
-        <div className="confidence-row" style={{ display: "flex", alignItems: "center", gap: "12px", ...mono }}>
-          <span style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: confidenceColor, whiteSpace: "nowrap" }}>
-            {story.confidenceLevel.replace(/_/g, " ")} CONFIDENCE
-          </span>
-          <span style={{ fontSize: "14px", letterSpacing: "1px", color: confidenceColor }}>{buildConfidenceBlocks(story.consensusScore)}</span>
-          <span style={{ fontSize: "13px", color: "var(--text-primary)" }}>{story.consensusScore}% of {story.sourceCount} sources</span>
-        </div>
-        {parsedNote.confidenceCaveat && (
-          <p className="text-xs font-mono mt-1" style={{ color: '#F4A261' }}>{parsedNote.confidenceCaveat}</p>
-        )}
-
-        {/* Category tag */}
-        {story.primaryCategory && (
-          <div style={{ marginTop: "20px" }}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: getCategoryColor(story.primaryCategory), border: `1px solid ${getCategoryColor(story.primaryCategory)}`, padding: "3px 10px" }}>
-              {story.primaryCategory.replace(/_/g, " ")}
-            </span>
-          </div>
-        )}
-
-        {/* Headline */}
-        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "36px", fontWeight: 700, lineHeight: 1.15, letterSpacing: "-0.02em", color: "var(--text-primary)", marginTop: story.primaryCategory ? "12px" : "20px" }}>
-          {story.headline}
-        </h1>
-
-        {/* Synopsis */}
-        <div style={{ marginTop: "16px", ...body, fontSize: "15px", lineHeight: 1.7, color: "var(--text-secondary, #a3a3a3)" }}
-          dangerouslySetInnerHTML={{ __html: `<p>${renderMarkdown(story.synopsis)}</p>` }}
-        />
-
-        {/* Stats row */}
-        <div style={{ marginTop: "16px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", ...mono, fontSize: "12px", color: "var(--text-tertiary)" }}>
-          <span>{story.sourceCount} articles from {new Set(story.sources.map(s => s.outlet)).size} outlets</span>
-          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <span>{story.countryCount} countries</span>
-          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <span>{story.regionCount} {story.regionCount === 1 ? "region" : "regions"}</span>
-          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <span>{modelCount} AI models</span>
-        </div>
-
-        {/* Model dots */}
-        <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", ...mono, fontSize: "12px", color: "var(--text-tertiary)" }}>
-          <span style={{ color: "#D4A574" }}>{"\u25CF"} Claude</span>
-          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <span style={{ color: "#74D4A5" }}>{"\u25CF"} GPT-5.4</span>
-          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <span style={{ color: "#74A5D4" }}>{"\u25CF"} Gemini</span>
-          <span style={{ color: "var(--border-primary)" }}>&middot;</span>
-          <span style={{ color: "#D47474" }}>{"\u25CF"} Grok</span>
-        </div>
-
-        {/* Publication timestamp */}
-        <div style={{ marginTop: "12px", ...mono, fontSize: "11px", color: "var(--text-tertiary)" }}>
-          Published {new Date(story.publishedAt || story.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
-          {story.publishedAt && story.createdAt && new Date(story.createdAt).getTime() !== new Date(story.publishedAt).getTime() && (
-            <span> · Last updated {new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+      {/* ══════════════ LAYER 2: THE BRIEFING ══════════════ */}
+      {hasBriefing ? (
+        <div style={{ marginTop: "48px" }}>
+          <BriefingMissed items={briefingParsed.missed || []} />
+          <BriefingFrames frames={briefingParsed.frames || []} />
+          {briefingParsed.fact_survival && (
+            <BriefingFacts
+              onScene={briefingParsed.fact_survival.on_scene}
+              national={briefingParsed.fact_survival.national}
+              international={briefingParsed.fact_survival.international}
+              diedNational={briefingParsed.fact_survival.died_national}
+              diedInternational={briefingParsed.fact_survival.died_international}
+            />
           )}
-        </div>
-        {(story.sourcesFrom || story.sourcesTo) && (
-          <div style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
-            Sources collected: {story.sourcesFrom ? new Date(story.sourcesFrom).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '?'}
-            {story.sourcesTo && story.sourcesFrom && new Date(story.sourcesTo).getTime() !== new Date(story.sourcesFrom).getTime()
-              ? `–${new Date(story.sourcesTo).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-              : story.sourcesFrom ? `, ${new Date(story.sourcesFrom).getFullYear()}` : ''}
-          </div>
-        )}
-      </div>
+          {briefingParsed.key_dispute && (
+            <BriefingDispute
+              question={briefingParsed.key_dispute.question}
+              sideA={briefingParsed.key_dispute.side_a}
+              sideACount={briefingParsed.key_dispute.side_a_count}
+              sideB={briefingParsed.key_dispute.side_b}
+              sideBCount={briefingParsed.key_dispute.side_b_count}
+              resolution={briefingParsed.key_dispute.resolution}
+            />
+          )}
+          <BriefingWatch questions={briefingParsed.watch || []} />
 
-      {/* ── THE PATTERN ── */}
-      {story.thePattern && (
-        <ThePattern pattern={story.thePattern} confidence={story.confidenceLevel.toUpperCase()} />
-      )}
-
-      {/* ── WHAT THE WORLD MISSED ── */}
-      {hasWorldMissed && (
-        <div style={{ marginTop: "32px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-            <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-red)" }}>
-              WHAT THE WORLD MISSED
-            </span>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-          </div>
-          <div style={{ borderLeft: "3px solid var(--accent-red)", paddingLeft: "16px" }}>
-            {topBuried.map((b: any, i: number) => (
-              <div key={`buried-${i}`} style={{ marginBottom: "16px" }}>
-                <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.6 }}>{b.fact}</p>
-                <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                  {b.notPickedUpBy && b.notPickedUpBy.length > 0
-                    ? `${story.sourceCount - 1} of ${story.sourceCount} outlets missed this. Reported by ${b.reportedBy}.`
-                    : `Reported by ${b.reportedBy}.`}
-                </p>
+          {/* Propagation Map in briefing layer */}
+          {propagationTimeline && propagationTimeline.length >= 3 && (
+            <div style={{ marginTop: "32px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+                  HOW THIS STORY TRAVELED
+                </span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
               </div>
-            ))}
-            {topOmissions.map((o, i) => (
-              <div key={`omit-${i}`} style={{ marginBottom: "16px" }}>
-                <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.6 }}>{o.missing}</p>
-                <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                  Present in: {o.presentIn}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── FRAMING AT A GLANCE (compact: 3 frames max, one sentence each) ── */}
-      {glanceFrames.length > 0 && (
-        <div style={{ marginTop: "32px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-            <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
-              HOW DIFFERENT OUTLETS FRAMED IT
-            </span>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-          </div>
-          {glanceFrames.map((frame, i) => (
-            <div key={i} style={{ display: "flex", gap: "12px", padding: "10px 0", borderBottom: "1px solid var(--border-primary)" }}>
-              <span style={{ ...mono, fontSize: "11px", fontWeight: 700, color: "var(--accent-purple)", minWidth: "80px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                {frame.frameName}
-              </span>
-              <p style={{ ...body, fontSize: "14px", color: "var(--text-secondary, #a3a3a3)", lineHeight: 1.5, flex: 1 }}>
-                {frame.ledWith}
-              </p>
+              <PropagationGlobeClient timeline={propagationTimeline} storyHeadline={story.headline} />
             </div>
-          ))}
-          {(framingSplitData.length > 3 || story.framings.length > 3) && (
-            <a href="#full-framing" style={{ ...mono, fontSize: "11px", color: "var(--accent-blue)", marginTop: "8px", display: "inline-block" }}>
-              See all {framingSplitData.length || story.framings.length} frames &darr;
-            </a>
+          )}
+        </div>
+      ) : (
+        /* ── LEGACY LAYOUT (for old stories without briefingData) ── */
+        <div style={{ marginTop: "48px" }}>
+          {/* WHAT THE WORLD MISSED (legacy) */}
+          {hasWorldMissed && (
+            <div style={{ marginTop: "32px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-red)" }}>
+                  WHAT THE WORLD MISSED
+                </span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+              </div>
+              <div style={{ borderLeft: "3px solid var(--accent-red)", paddingLeft: "16px" }}>
+                {topBuried.map((b: any, i: number) => (
+                  <div key={`buried-${i}`} style={{ marginBottom: "16px" }}>
+                    <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.6 }}>{b.fact}</p>
+                    <p style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+                      Reported by {b.reportedBy}.
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Fact Survival (legacy) */}
+          {factSurvivalItems && factSurvivalItems.length > 0 && (
+            <div style={{ marginTop: "32px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+                  FACT SURVIVAL
+                </span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+              </div>
+              <FactSurvival items={factSurvivalItems} />
+            </div>
+          )}
+
+          {/* Propagation Map (legacy) */}
+          {propagationTimeline && propagationTimeline.length >= 3 && (
+            <div style={{ marginTop: "32px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+                  HOW THIS STORY TRAVELED
+                </span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+              </div>
+              <PropagationGlobeClient timeline={propagationTimeline} storyHeadline={story.headline} />
+            </div>
           )}
         </div>
       )}
 
-      {/* ── FACT SURVIVAL (compact) ── */}
-      {factSurvivalItems && factSurvivalItems.length > 0 && (
-        <div style={{ marginTop: "32px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-            <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
-              FACT SURVIVAL
-            </span>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-          </div>
-          <FactSurvival items={factSurvivalItems} />
-        </div>
-      )}
-
-      {/* ── PROPAGATION MAP ── */}
-      {propagationTimeline && propagationTimeline.length >= 3 && (
-        <div style={{ marginTop: "32px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-            <span style={{ ...mono, fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
-              HOW THIS STORY TRAVELED
-            </span>
-            <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-          </div>
-          <PropagationGlobeClient timeline={propagationTimeline} storyHeadline={story.headline} />
-        </div>
-      )}
-
-      {/* ── SHAREABLE INSIGHTS (Zone 3 inline — between zones for scroll engagement) ── */}
-      {shareableStats.length > 0 && (
-        <div style={{ marginTop: "40px", padding: "20px 0", borderTop: "1px solid var(--border-primary)", borderBottom: "1px solid var(--border-primary)" }}>
-          {shareableStats.slice(0, 4).map((stat, i) => (
-            <p key={i} style={{ ...mono, fontSize: "13px", color: i === 0 ? "var(--accent-teal)" : "var(--text-secondary, #a3a3a3)", lineHeight: 1.6, marginBottom: i < shareableStats.length - 1 ? "8px" : 0 }}>
-              {stat}
-            </p>
-          ))}
-        </div>
-      )}
+      {/* ══════════════ LAYER 3: THE VAULT ══════════════ */}
+      <VaultToggle
+        claimCount={sortedClaims.length}
+        frameCount={framingSplitData.length || story.framings.length}
+        discrepancyCount={story.discrepancies.length}
+        sourceCount={story.sourceCount}
+      >
 
       {/* ═══════════════════════════════════════════════════════
-          ZONE 2 — THE EVIDENCE (deep readers, expandable)
+          VAULT CONTENT — Full evidence for deep readers
+          (Lobby + Briefing are rendered ABOVE VaultToggle)
           ═══════════════════════════════════════════════════════ */}
 
-      <div style={{ marginTop: "48px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
-          <div style={{ flex: 1, height: "2px", background: "var(--border-primary)" }} />
-          <span style={{ ...mono, fontSize: "13px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
-            FULL EVIDENCE
-          </span>
-          <div style={{ flex: 1, height: "2px", background: "var(--border-primary)" }} />
-        </div>
-        <p style={{ ...mono, fontSize: "11px", color: "var(--text-tertiary)", textAlign: "center", marginBottom: "24px" }}>
-          Complete analysis for deep readers
-        </p>
+      <div style={{ marginTop: "0" }}>
+        {/* Old Zone 1 fully removed — Lobby + Briefing handle it above */}
+      </div>
+
+      {/* Old Zone 1 (headline, stats, pattern) removed — now in Lobby component */}
+
+      {/* Old Zone 1 sections (world missed, framing, fact survival, map, shareable stats)
+          removed — now handled by Briefing components above VaultToggle */}
+
+      {/* ═══════════════════════════════════════════════════════
+          VAULT EVIDENCE (all sections collapsed by default)
+          ═══════════════════════════════════════════════════════ */}
+
+      <div style={{ marginTop: "24px" }}>
       </div>
 
       {/* ── KEY CLAIMS (show first 5, expand for rest) ── */}
@@ -836,7 +811,9 @@ export function StoryDetail({ story }: StoryDetailProps) {
         </>
       )}
 
-      {/* ── COST FOOTER ── */}
+      </VaultToggle>
+
+      {/* ── FOOTER ── */}
       <div style={{ marginTop: "64px", paddingTop: "24px", borderTop: "1px solid var(--border-primary)", display: "flex", alignItems: "center", justifyContent: "center", gap: "16px", ...mono, fontSize: "11px" }}>
         <a href="#" style={{ color: "var(--accent-purple)" }}>Share</a>
         <span style={{ color: "var(--text-tertiary)" }}>&middot;</span>

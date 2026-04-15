@@ -10,18 +10,25 @@ function stripDiacritics(text: string): string {
 
 /**
  * Pre-check: does this source title match any query keywords?
- * Returns the number of keyword matches (anchors weighted 2x).
+ * Returns { score, hasAnchor }.
+ * Anchors (entity names: countries, people, orgs) are weighted 2x.
+ * Generic context words (after, years, votes, party, wins) get +1 each.
+ * AUTO-PASS requires hasAnchor=true — generic-only matches must go through Haiku.
  */
-function keywordRelevanceScore(title: string, anchors: string[], allKeywords: string[]): number {
+function keywordRelevanceScore(title: string, anchors: string[], allKeywords: string[]): { score: number; hasAnchor: boolean } {
   const text = stripDiacritics(title.toLowerCase())
   let score = 0
+  let hasAnchor = false
   for (const a of anchors) {
-    if (text.includes(stripDiacritics(a))) score += 2  // Anchors are strong signal
+    if (text.includes(stripDiacritics(a))) {
+      score += 2  // Anchors are strong signal
+      hasAnchor = true
+    }
   }
   for (const kw of allKeywords) {
     if (!anchors.includes(kw) && text.includes(stripDiacritics(kw))) score += 1
   }
-  return score
+  return { score, hasAnchor }
 }
 
 // ---------------------------------------------------------------------------
@@ -189,12 +196,14 @@ export async function triageSources(
   const queryKw = queryToKeywords(query)
   let anchorMatches = 0
   let keywordMatches = 0
+  let genericOnlyMatches = 0
   for (const s of deduped) {
-    const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
-    if (score >= 2) anchorMatches++
+    const { score, hasAnchor } = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+    if (score >= 2 && hasAnchor) anchorMatches++
+    else if (score >= 2 && !hasAnchor) genericOnlyMatches++
     else if (score >= 1) keywordMatches++
   }
-  console.log(`[Triage] Keyword pre-check: ${anchorMatches} anchor matches, ${keywordMatches} keyword matches out of ${deduped.length} sources`)
+  console.log(`[Triage] Keyword pre-check: ${anchorMatches} anchor matches, ${keywordMatches} keyword-only, ${genericOnlyMatches} generic-only (will NOT auto-pass) out of ${deduped.length} sources`)
 
   console.log(`[Triage] Input: ${deduped.length} sources across ${byRegion.size} regions`)
   for (const [region, sources] of byRegion) {
@@ -234,12 +243,15 @@ export async function triageSources(
   for (let bIdx = 0; bIdx < batches.length; bIdx++) {
     const { region, sources: batch } = batches[bIdx]
 
-    // ── ANCHOR AUTO-PASS: score ≥ 2 → skip Haiku, go straight to results ──
+    // ── ANCHOR AUTO-PASS: score ≥ 2 AND has entity anchor → skip Haiku ──
+    // Generic keyword matches (score ≥ 2 but no anchor) MUST go through Haiku.
+    // This prevents "Fox News: man arrested after years on the run" from auto-passing
+    // on a Hungary story just because "after" and "years" are in the query.
     const anchorPassed: typeof batch = []
     const needsHaiku: typeof batch = []
     for (const s of batch) {
-      const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
-      if (score >= 2) {
+      const { score, hasAnchor } = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+      if (score >= 2 && hasAnchor) {
         anchorPassed.push(s)
       } else {
         needsHaiku.push(s)
@@ -263,8 +275,8 @@ export async function triageSources(
     }
 
     const slimBatch = needsHaiku.map(s => {
-      const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
-      const tag = score >= 1 ? ' [KEYWORD MATCH]' : ''
+      const { score, hasAnchor } = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+      const tag = hasAnchor ? ' [ANCHOR MATCH]' : score >= 1 ? ' [KEYWORD MATCH]' : ''
       return {
         url: s.url,
         title: s.title.substring(0, 120) + tag,
@@ -377,14 +389,14 @@ export async function triageSources(
     for (let bIdx = 0; bIdx < expandedBatches.length; bIdx++) {
       const { region, sources: batch } = expandedBatches[bIdx]
 
-      // ── ANCHOR AUTO-PASS (expanded pass) ──
+      // ── ANCHOR AUTO-PASS (expanded pass) — requires entity anchor ──
       const anchorPassed: typeof batch = []
       const needsHaiku: typeof batch = []
       for (const s of batch) {
         // Skip already-triaged URLs
         if (allTriagedSources.some(t => String(t.url) === s.url)) continue
-        const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
-        if (score >= 2) {
+        const { score, hasAnchor } = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+        if (score >= 2 && hasAnchor) {
           anchorPassed.push(s)
         } else {
           needsHaiku.push(s)
@@ -401,8 +413,8 @@ export async function triageSources(
       if (needsHaiku.length === 0) continue
 
       const slimBatch = needsHaiku.map(s => {
-        const score = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
-        const tag = score >= 1 ? ' [KEYWORD MATCH]' : ''
+        const { score, hasAnchor } = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
+        const tag = hasAnchor ? ' [ANCHOR MATCH]' : score >= 1 ? ' [KEYWORD MATCH]' : ''
         return {
           url: s.url,
           title: s.title.substring(0, 120) + tag,

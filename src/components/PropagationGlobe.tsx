@@ -963,31 +963,48 @@ function generateFlowsFromRegions(frame: TimelineFrame): TimelineFrame['flows'] 
     existingFlowKeys.add(key)
   }
 
-  // Cross-flows between non-origin regions with different statuses
+  // Cross-flows between ALL non-origin active regions.
+  // Previous version required different statuses, which blocked flows when
+  // most regions share the same status (e.g., all wire_copy). The visual
+  // should show the web of information propagation between all active regions.
   for (let i = 0; i < regions.length; i++) {
+    if (regions[i].region_id === origin.region_id) continue
     for (let j = i + 1; j < regions.length; j++) {
+      if (regions[j].region_id === origin.region_id) continue
       const statusI = normalizeStatus(regions[i].border_status ?? regions[i].status)
       const statusJ = normalizeStatus(regions[j].border_status ?? regions[j].status)
-      if (
-        statusI !== statusJ &&
-        statusI !== 'original' &&
-        statusJ !== 'original'
-      ) {
-        const key = `${regions[i].region_id}-${regions[j].region_id}`
-        if (existingFlowKeys.has(key)) continue
-        const from = statusI === 'wire_copy' ? regions[i] : regions[j]
-        const to   = statusI === 'wire_copy' ? regions[j] : regions[i]
-        const fromS = from === regions[i] ? statusI : statusJ
-        const toS = to === regions[i] ? statusI : statusJ
-        flows.push({
-          from: from.region_id,
-          to: to.region_id,
-          type: toS,
-          fromType: fromS,
-          toType: toS,
-        })
-        existingFlowKeys.add(key)
+
+      // Determine flow direction: wire_copy → reframed, or higher volume → lower
+      const key = `${regions[i].region_id}-${regions[j].region_id}`
+      const reverseKey = `${regions[j].region_id}-${regions[i].region_id}`
+      if (existingFlowKeys.has(key) || existingFlowKeys.has(reverseKey)) continue
+
+      // Direction: wire_copy sources flow toward reframed/contradicted destinations.
+      // If same status, higher coverage_volume is the "from" (it spread the story further).
+      let from = regions[i]
+      let to = regions[j]
+      if (statusI === statusJ) {
+        // Same status — higher volume → lower volume
+        if (regions[j].coverage_volume > regions[i].coverage_volume) {
+          from = regions[j]
+          to = regions[i]
+        }
+      } else if (statusJ === 'wire_copy' && statusI !== 'wire_copy') {
+        from = regions[j]
+        to = regions[i]
       }
+      // else default: i → j (wire_copy or first listed flows to second)
+
+      const fromS = normalizeStatus(from.border_status ?? from.status)
+      const toS = normalizeStatus(to.border_status ?? to.status)
+      flows.push({
+        from: from.region_id,
+        to: to.region_id,
+        type: toS,
+        fromType: fromS,
+        toType: toS,
+      })
+      existingFlowKeys.add(`${from.region_id}-${to.region_id}`)
     }
   }
 
@@ -1828,60 +1845,4 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
           </span>
 
           {/* Speed selector */}
-          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-            {([0.5, 1, 2] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => handleSpeedChange(s)}
-                style={{
-                  background:   speed === s ? '#2A9D8F' : 'none',
-                  border:       `1px solid ${speed === s ? '#2A9D8F' : '#2A2A2E'}`,
-                  borderRadius: '3px',
-                  color:        speed === s ? '#0A0A0B' : '#5C5A56',
-                  fontSize:     '9px',
-                  padding:      '3px 6px',
-                  cursor:       'pointer',
-                  fontFamily:   'var(--font-mono, monospace)',
-                  fontWeight:   speed === s ? 700 : 400,
-                }}
-              >
-                {s}x
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Frame tick marks */}
-        <div
-          style={{
-            display:        'flex',
-            justifyContent: 'space-between',
-            marginTop:      '6px',
-            paddingLeft:    '38px',
-            paddingRight:   '90px',
-          }}
-        >
-          {timeline.map((f, i) => (
-            <div
-              key={i}
-              title={f.label || `+${f.hour}h`}
-              onClick={() => {
-                setPlaying(false)
-                lastTimeRef.current = null
-                setFrameIdx(i)
-                setProgress(0)
-              }}
-              style={{
-                width:      '1px',
-                height:     i === frameIdx ? '8px' : '4px',
-                background: i === frameIdx ? '#2A9D8F' : '#2A2A2E',
-                transition: 'height 150ms ease, background 150ms ease',
-                cursor:     'pointer',
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
+         

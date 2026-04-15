@@ -128,20 +128,22 @@ function buildUrl(query: string, maxrecords: number = 250): string {
  */
 async function fetchGdeltQuery(query: string, maxrecords: number = 250): Promise<GdeltResult[]> {
   const url = buildUrl(query, maxrecords)
-  const delays = [0, 3000, 8000]
+  // GDELT rate-limits aggressively. 3s/8s delays weren't enough — every attempt
+  // was returning 429. Use 10s/20s/30s backoff to actually wait out the window.
+  const delays = [0, 10_000, 20_000, 30_000]
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < delays.length; attempt++) {
     if (delays[attempt] > 0) {
-      console.log(`[GDELT] Retry ${attempt} after ${delays[attempt]}ms...`)
+      console.log(`[GDELT] Retry ${attempt} after ${delays[attempt] / 1000}s...`)
       await new Promise(r => setTimeout(r, delays[attempt]))
     }
 
     try {
-      const response = await fetchWithTimeout(url, 20_000)
+      const response = await fetchWithTimeout(url, 25_000)
 
-      // 429 = rate limited — retryable
+      // 429 = rate limited — retryable with longer backoff
       if (response.status === 429) {
-        console.warn(`[GDELT] Rate limited (429) on attempt ${attempt + 1}. Query: ${query}`)
+        console.warn(`[GDELT] Rate limited (429) on attempt ${attempt + 1}/${delays.length}. Query: ${query}`)
         continue
       }
 
@@ -161,7 +163,7 @@ async function fetchGdeltQuery(query: string, maxrecords: number = 250): Promise
       // GDELT sometimes returns HTML error pages
       if (text.trimStart().startsWith('<')) {
         console.warn(`[GDELT] Received HTML instead of JSON on attempt ${attempt + 1}. Query may be malformed.`)
-        if (attempt < 2) continue
+        if (attempt < delays.length - 1) continue
         return []
       }
 

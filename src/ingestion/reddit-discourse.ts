@@ -37,10 +37,11 @@ export function filterByKeywordRelevance(
     return { total, anchorHits }
   }
 
-  // Strict pass: 2+ total keyword matches AND at least 1 anchor
+  // Strict pass: (2+ keyword matches AND 1+ anchor) OR (1+ anchor with 1+ keyword)
+  // Anchors are high-signal (entity names like "Orbán", "Hungary") — 1 anchor + 1 keyword is enough
   const strictPosts = posts.filter(post => {
     const { total, anchorHits } = scorePost(post)
-    const pass = total >= 2 && anchorHits >= 1
+    const pass = (total >= 2 && anchorHits >= 1) || (anchorHits >= 1 && total >= 1)
     if (!pass && total >= 1) {
       console.log(`[Reddit] FILTERED OUT (strict): "${post.content.substring(0, 80)}..." — ${total} keywords, ${anchorHits} anchors`)
     }
@@ -49,10 +50,10 @@ export function filterByKeywordRelevance(
 
   if (strictPosts.length >= 3) return strictPosts
 
-  // Fallback: 1+ keyword match, but STILL require at least 1 anchor if anchors exist
+  // Fallback: 1+ anchor match is sufficient (anchors ARE the story identifier)
   const fallbackPosts = posts.filter(post => {
     const { total, anchorHits } = scorePost(post)
-    const pass = hasAnchors ? (total >= 1 && anchorHits >= 1) : total >= 1
+    const pass = hasAnchors ? anchorHits >= 1 : total >= 1
     if (!pass) {
       console.log(`[Reddit] FILTERED OUT (fallback): "${post.content.substring(0, 80)}..." — ${total} keywords, ${anchorHits} anchors`)
     }

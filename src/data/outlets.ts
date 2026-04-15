@@ -5072,6 +5072,93 @@ export const outlets: OutletInfo[] = [
     language: "en",
     rssUrl: "https://news.google.com/rss/search?q=when:24h+allinurl:globalsecurity.org",
   },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Missing outlets — previously showing as "unknown" in pipeline output
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // --- North America ---
+  { name: "Foreign Affairs", domain: "foreignaffairs.com", country: "US", region: "North America", type: "digital", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "Foreign Policy", domain: "foreignpolicy.com", country: "US", region: "North America", type: "digital", politicalLean: "center-left", reliability: "high", language: "en" },
+  { name: "The Intercept", domain: "theintercept.com", country: "US", region: "North America", type: "digital", politicalLean: "left", reliability: "medium", language: "en" },
+  { name: "ProPublica", domain: "propublica.org", country: "US", region: "North America", type: "digital", politicalLean: "center-left", reliability: "high", language: "en" },
+  { name: "The Daily Beast", domain: "thedailybeast.com", country: "US", region: "North America", type: "digital", politicalLean: "center-left", reliability: "medium", language: "en" },
+  { name: "Newsweek", domain: "newsweek.com", country: "US", region: "North America", type: "digital", politicalLean: "center", reliability: "medium", language: "en" },
+  { name: "The Hill", domain: "thehill.com", country: "US", region: "North America", type: "digital", politicalLean: "center", reliability: "medium", language: "en" },
+  { name: "Politico", domain: "politico.com", country: "US", region: "North America", type: "digital", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "Axios", domain: "axios.com", country: "US", region: "North America", type: "digital", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "Vox", domain: "vox.com", country: "US", region: "North America", type: "digital", politicalLean: "center-left", reliability: "medium", language: "en" },
+  { name: "Slate", domain: "slate.com", country: "US", region: "North America", type: "digital", politicalLean: "center-left", reliability: "medium", language: "en" },
+  { name: "National Review", domain: "nationalreview.com", country: "US", region: "North America", type: "digital", politicalLean: "right", reliability: "medium", language: "en" },
+  { name: "The Federalist", domain: "thefederalist.com", country: "US", region: "North America", type: "digital", politicalLean: "right", reliability: "low", language: "en" },
+  { name: "Mother Jones", domain: "motherjones.com", country: "US", region: "North America", type: "digital", politicalLean: "left", reliability: "medium", language: "en" },
+  { name: "Radio-Canada", domain: "radio-canada.ca", country: "CA", region: "North America", type: "broadcaster", politicalLean: "center", reliability: "high", language: "fr" },
+  { name: "Radio-Canada (ICI)", domain: "ici.radio-canada.ca", country: "CA", region: "North America", type: "broadcaster", politicalLean: "center", reliability: "high", language: "fr" },
+  { name: "Global News (Canada)", domain: "globalnews.ca", country: "CA", region: "North America", type: "broadcaster", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "The Globe and Mail", domain: "theglobeandmail.com", country: "CA", region: "North America", type: "newspaper", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "National Post", domain: "nationalpost.com", country: "CA", region: "North America", type: "newspaper", politicalLean: "center-right", reliability: "medium", language: "en" },
+
+  // --- Europe ---
+  { name: "Mediapart", domain: "mediapart.fr", country: "FR", region: "Europe", type: "digital", politicalLean: "left", reliability: "high", language: "fr" },
+  { name: "Les Echos", domain: "lesechos.fr", country: "FR", region: "Europe", type: "newspaper", politicalLean: "center-right", reliability: "high", language: "fr" },
+  { name: "Le Monde Diplomatique", domain: "monde-diplomatique.fr", country: "FR", region: "Europe", type: "newspaper", politicalLean: "left", reliability: "high", language: "fr" },
+  { name: "Libération", domain: "liberation.fr", country: "FR", region: "Europe", type: "newspaper", politicalLean: "left", reliability: "medium", language: "fr" },
+  { name: "Le Figaro", domain: "lefigaro.fr", country: "FR", region: "Europe", type: "newspaper", politicalLean: "center-right", reliability: "high", language: "fr" },
+  { name: "France 24", domain: "france24.com", country: "FR", region: "Europe", type: "broadcaster", politicalLean: "center", reliability: "high", language: "fr" },
+  { name: "Politico Europe", domain: "politico.eu", country: "BE", region: "Europe", type: "digital", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "Euronews", domain: "euronews.com", country: "FR", region: "Europe", type: "broadcaster", politicalLean: "center", reliability: "medium", language: "en" },
+  { name: "EUobserver", domain: "euobserver.com", country: "BE", region: "Europe", type: "digital", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "Der Standard", domain: "derstandard.at", country: "AT", region: "Europe", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "de" },
+  { name: "Die Presse", domain: "diepresse.com", country: "AT", region: "Europe", type: "newspaper", politicalLean: "center-right", reliability: "high", language: "de" },
+  { name: "Süddeutsche Zeitung", domain: "sueddeutsche.de", country: "DE", region: "Europe", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "de" },
+  { name: "FAZ", domain: "faz.net", country: "DE", region: "Europe", type: "newspaper", politicalLean: "center-right", reliability: "high", language: "de" },
+  { name: "Tagesschau", domain: "tagesschau.de", country: "DE", region: "Europe", type: "broadcaster", politicalLean: "center", reliability: "high", language: "de" },
+  { name: "NOS", domain: "nos.nl", country: "NL", region: "Europe", type: "broadcaster", politicalLean: "center", reliability: "high", language: "nl" },
+  { name: "El País", domain: "elpais.com", country: "ES", region: "Europe", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "es" },
+  { name: "Corriere della Sera", domain: "corriere.it", country: "IT", region: "Europe", type: "newspaper", politicalLean: "center", reliability: "high", language: "it" },
+  { name: "La Repubblica", domain: "repubblica.it", country: "IT", region: "Europe", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "it" },
+  { name: "Gazeta Wyborcza", domain: "wyborcza.pl", country: "PL", region: "Europe", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "pl" },
+  { name: "TVP World", domain: "tvpworld.com", country: "PL", region: "Europe", type: "broadcaster", politicalLean: "center", reliability: "medium", language: "en" },
+  { name: "Index.hu", domain: "index.hu", country: "HU", region: "Europe", type: "digital", politicalLean: "center", reliability: "medium", language: "hu" },
+  { name: "Telex", domain: "telex.hu", country: "HU", region: "Europe", type: "digital", politicalLean: "center-left", reliability: "medium", language: "hu" },
+  { name: "444.hu", domain: "444.hu", country: "HU", region: "Europe", type: "digital", politicalLean: "center-left", reliability: "medium", language: "hu" },
+  { name: "Magyar Nemzet", domain: "magyarnemzet.hu", country: "HU", region: "Europe", type: "newspaper", politicalLean: "center-right", reliability: "low", language: "hu" },
+  { name: "HVG", domain: "hvg.hu", country: "HU", region: "Europe", type: "digital", politicalLean: "center-left", reliability: "medium", language: "hu" },
+  { name: "RTÉ", domain: "rte.ie", country: "IE", region: "Europe", type: "broadcaster", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "Swiss Info", domain: "swissinfo.ch", country: "CH", region: "Europe", type: "broadcaster", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "TASS", domain: "tass.com", country: "RU", region: "Europe", type: "wire", politicalLean: "state-controlled", reliability: "low", language: "en" },
+  { name: "RIA Novosti", domain: "ria.ru", country: "RU", region: "Europe", type: "state", politicalLean: "state-controlled", reliability: "low", language: "ru" },
+
+  // --- Middle East & Africa ---
+  { name: "Middle East Eye", domain: "middleeasteye.net", country: "GB", region: "Middle East & Africa", type: "digital", politicalLean: "center-left", reliability: "medium", language: "en" },
+  { name: "The National (UAE)", domain: "thenationalnews.com", country: "AE", region: "Middle East & Africa", type: "newspaper", politicalLean: "center", reliability: "medium", language: "en" },
+  { name: "Daily Maverick", domain: "dailymaverick.co.za", country: "ZA", region: "Middle East & Africa", type: "digital", politicalLean: "center-left", reliability: "high", language: "en" },
+  { name: "Mail & Guardian", domain: "mg.co.za", country: "ZA", region: "Middle East & Africa", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "en" },
+  { name: "The East African", domain: "theeastafrican.co.ke", country: "KE", region: "Middle East & Africa", type: "newspaper", politicalLean: "center", reliability: "medium", language: "en" },
+
+  // --- Asia-Pacific ---
+  { name: "Nikkei Asia", domain: "asia.nikkei.com", country: "JP", region: "Asia-Pacific", type: "newspaper", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "The Straits Times", domain: "straitstimes.com", country: "SG", region: "Asia-Pacific", type: "newspaper", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "Channel NewsAsia", domain: "channelnewsasia.com", country: "SG", region: "Asia-Pacific", type: "broadcaster", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "South China Morning Post", domain: "scmp.com", country: "HK", region: "Asia-Pacific", type: "newspaper", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "The Diplomat", domain: "thediplomat.com", country: "JP", region: "Asia-Pacific", type: "digital", politicalLean: "center", reliability: "high", language: "en" },
+  { name: "ABC News (Australia)", domain: "abc.net.au", country: "AU", region: "Asia-Pacific", type: "broadcaster", politicalLean: "center", reliability: "high", language: "en" },
+
+  // --- South & Central Asia ---
+  { name: "The Hindu", domain: "thehindu.com", country: "IN", region: "South & Central Asia", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "en" },
+  { name: "Hindustan Times", domain: "hindustantimes.com", country: "IN", region: "South & Central Asia", type: "newspaper", politicalLean: "center-right", reliability: "medium", language: "en" },
+  { name: "NDTV", domain: "ndtv.com", country: "IN", region: "South & Central Asia", type: "broadcaster", politicalLean: "center-left", reliability: "high", language: "en" },
+  { name: "Dawn", domain: "dawn.com", country: "PK", region: "South & Central Asia", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "en" },
+  { name: "The News International", domain: "thenews.com.pk", country: "PK", region: "South & Central Asia", type: "newspaper", politicalLean: "center", reliability: "medium", language: "en" },
+
+  // --- Latin America ---
+  { name: "La Nación (Argentina)", domain: "lanacion.com.ar", country: "AR", region: "Latin America", type: "newspaper", politicalLean: "center-right", reliability: "high", language: "es" },
+  { name: "Clarín", domain: "clarin.com", country: "AR", region: "Latin America", type: "newspaper", politicalLean: "center-right", reliability: "medium", language: "es" },
+  { name: "Folha de S.Paulo", domain: "folha.uol.com.br", country: "BR", region: "Latin America", type: "newspaper", politicalLean: "center-left", reliability: "high", language: "pt" },
+  { name: "O Globo", domain: "oglobo.globo.com", country: "BR", region: "Latin America", type: "newspaper", politicalLean: "center", reliability: "high", language: "pt" },
+  { name: "Infobae", domain: "infobae.com", country: "AR", region: "Latin America", type: "digital", politicalLean: "center", reliability: "medium", language: "es" },
+  { name: "El Universal (Mexico)", domain: "eluniversal.com.mx", country: "MX", region: "Latin America", type: "newspaper", politicalLean: "center", reliability: "medium", language: "es" },
+  { name: "Merco Press", domain: "en.mercopress.com", country: "UY", region: "Latin America", type: "digital", politicalLean: "center", reliability: "medium", language: "en" },
 ]
 
 // ─── Helper functions ────────────────────────────────────────────────────────

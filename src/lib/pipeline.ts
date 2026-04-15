@@ -59,17 +59,49 @@ function gdeltSeenDateToISO(seendate: string): string {
 /** Map country code → globe region ID */
 function mapCountryToRegionId(country: string): string {
   const map: Record<string, string> = {
+    // North America
     US: 'us', CA: 'ca', MX: 'mx',
+    // UK & Ireland
     GB: 'uk', IE: 'uk',
+    // Europe (comprehensive — was missing HU, PL, RO, AT, CZ, etc.)
     FR: 'eu', DE: 'eu', IT: 'eu', ES: 'eu', NL: 'eu', SE: 'eu', NO: 'eu', BE: 'eu',
-    RU: 'ru', TR: 'tr', IR: 'ir', IL: 'il',
-    SA: 'me', QA: 'me', AE: 'me',
-    KE: 'af', ZA: 'af', NG: 'af',
-    IN: 'in', PK: 'pk', BD: 'in', LK: 'in', NP: 'in',
-    CN: 'cn', JP: 'jp', KR: 'kr',
-    SG: 'sea', TH: 'sea', HK: 'cn', TW: 'cn',
-    AU: 'au',
+    AT: 'eu', CH: 'eu', PL: 'eu', CZ: 'eu', SK: 'eu', HU: 'eu', RO: 'eu', BG: 'eu',
+    HR: 'eu', RS: 'eu', SI: 'eu', BA: 'eu', ME: 'eu', MK: 'eu', AL: 'eu', XK: 'eu',
+    GR: 'eu', PT: 'eu', DK: 'eu', FI: 'eu', EE: 'eu', LV: 'eu', LT: 'eu',
+    LU: 'eu', MT: 'eu', CY: 'eu', IS: 'eu', UA: 'eu', BY: 'eu', MD: 'eu',
+    // Russia
+    RU: 'ru',
+    // Turkey
+    TR: 'tr',
+    // Iran
+    IR: 'ir',
+    // Israel & Palestine
+    IL: 'il', PS: 'il',
+    // Middle East
+    SA: 'me', QA: 'me', AE: 'me', KW: 'me', BH: 'me', OM: 'me', YE: 'me',
+    IQ: 'me', SY: 'me', JO: 'me', LB: 'me', EG: 'me',
+    // Africa
+    KE: 'af', ZA: 'af', NG: 'af', GH: 'af', ET: 'af', TZ: 'af', UG: 'af',
+    SD: 'af', LY: 'af', TN: 'af', DZ: 'af', MA: 'af', SN: 'af', CM: 'af',
+    CI: 'af', CD: 'af', AO: 'af', MZ: 'af', ZW: 'af', RW: 'af', SO: 'af',
+    // South & Central Asia
+    IN: 'in', PK: 'pk', BD: 'in', LK: 'in', NP: 'in', AF: 'pk',
+    // East Asia
+    CN: 'cn', JP: 'jp', KR: 'kr', KP: 'kr', MN: 'cn',
+    // Southeast Asia & Oceania
+    SG: 'sea', TH: 'sea', MY: 'sea', ID: 'sea', PH: 'sea', VN: 'sea', MM: 'sea',
+    KH: 'sea', LA: 'sea', HK: 'cn', TW: 'cn',
+    AU: 'au', NZ: 'au',
+    // Latin America & Caribbean
     BR: 'la', AR: 'la', CO: 'la', CL: 'la', PE: 'la', VE: 'la', UY: 'la',
+    EC: 'la', BO: 'la', PY: 'la', GY: 'la', SR: 'la',
+    PA: 'la', CR: 'la', NI: 'la', HN: 'la', SV: 'la', GT: 'la', BZ: 'la',
+    CU: 'la', DO: 'la', HT: 'la', JM: 'la', TT: 'la', PR: 'la',
+  }
+  // Default to 'eu' for European-looking codes, otherwise 'us'
+  // This is a fallback — any country code not listed logs a warning
+  if (!map[country]) {
+    console.warn(`[timeline] Unmapped country code: ${country} — defaulting to 'us'`)
   }
   return map[country] || 'us'
 }
@@ -275,11 +307,17 @@ function buildTimelineFromClassifications(
     }))
 
     const originRegions = regionsInFrame.filter(r => r.border_status === 'original')
-    const flows: Array<{ from: string; to: string; type: string }> = []
+    const flows: Array<{ from: string; to: string; type: string; fromType?: string; toType?: string }> = []
     for (const origin of originRegions) {
       for (const r of regionsInFrame) {
         if (r.region_id === origin.region_id) continue
-        flows.push({ from: origin.region_id, to: r.region_id, type: r.status })
+        flows.push({
+          from: origin.region_id,
+          to: r.region_id,
+          type: r.status,
+          fromType: 'original',
+          toType: r.border_status || r.status,
+        })
       }
     }
 

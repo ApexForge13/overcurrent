@@ -485,24 +485,19 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses, borde
     countryLines.forEach(({ line, regionId }) => {
       const mat        = line.material as THREE.LineBasicMaterial
       const regionData = activeRegions?.get(regionId)
+      const normStatus = regionData ? normalizeStatus(regionData.status) : ''
+      const isActive   = regionData && normStatus && normStatus !== 'silent' && normStatus !== 'no_coverage'
 
-      if (regionData && regionData.status && normalizeStatus(regionData.status) !== 'silent') {
-        // Use flow-derived border_status; fall back to AI-provided border_status; fall back to status
+      if (isActive) {
+        // Active region: border = how they RECEIVED (from flows)
         const borderStatus = borderStatuses?.get(regionId) ?? regionData.border_status ?? regionData.status
-        const color = STATUS_COLORS[normalizeStatus(borderStatus)] || '#8A8A9E'
+        const color = STATUS_COLORS[normalizeStatus(borderStatus)] || '#2A9D8F'
         mat.color.set(color)
-        mat.opacity = 0.85
-      } else if (regionId && hasActive) {
-        // Region exists but has no coverage in this frame
-        mat.color.set('#8A8A9E')
-        mat.opacity = 0.25
-      } else if (!regionId) {
-        // Unmapped country
-        mat.color.set('#4A4A5E')
-        mat.opacity = 0.3
+        mat.opacity = 0.9
       } else {
-        mat.color.set('#8A8A9E')
-        mat.opacity = 0.6
+        // Inactive: nearly invisible dark border — NOT black lines
+        mat.color.set('#1A1A2E')
+        mat.opacity = 0.08
       }
       mat.needsUpdate = true
     })
@@ -510,16 +505,26 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses, borde
     fillMeshes.forEach(({ mesh, regionId }) => {
       const mat        = mesh.material as THREE.MeshBasicMaterial
       const regionData = activeRegions?.get(regionId)
+      const normStatus = regionData ? normalizeStatus(regionData.status) : ''
+      const isActive   = regionData && normStatus && normStatus !== 'silent' && normStatus !== 'no_coverage'
 
-      if (regionData && normalizeStatus(regionData.status) !== 'silent') {
+      if (isActive) {
         // Fill = the region's own status (how they REPORTED)
-        const fillColor = STATUS_COLORS[normalizeStatus(regionData.status)] || '#2A2A3E'
+        const fillColor = STATUS_COLORS[normStatus] || '#2A2A3E'
         mat.color.set(fillColor)
-        // More opaque for original, lighter for others
-        mat.opacity = normalizeStatus(regionData.status) === 'original' ? 0.25 : 0.15
+        // Opacity by status type: original brightest, others progressively dimmer
+        const opacityMap: Record<string, number> = {
+          original: 0.3,
+          reframed: 0.2,
+          contradicted: 0.25,
+          wire_copy: 0.12,
+          adjacent_coverage: 0.06,
+        }
+        mat.opacity = opacityMap[normStatus] ?? 0.1
       } else {
+        // Inactive country: very subtle dark fill, almost invisible
         mat.color.set('#2A2A3E')
-        mat.opacity = 0.03
+        mat.opacity = 0.02
       }
       mat.needsUpdate = true
     })
@@ -1185,6 +1190,10 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       if (processedFlows.current.has(key)) return
       processedFlows.current.add(key)
 
+      // Skip silent/empty flows — they'd render as invisible black arcs
+      const normType = normalizeStatus(flow.type || '')
+      if (!normType || normType === 'silent' || normType === 'no_coverage') return
+
       const fromCoords = REGION_COORDS[flow.from]
       const toCoords   = REGION_COORDS[flow.to]
       if (!fromCoords || !toCoords) return
@@ -1192,7 +1201,7 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       const start = latLngToVector3(fromCoords[0], fromCoords[1], GLOBE_RADIUS)
       const end   = latLngToVector3(toCoords[0],   toCoords[1],   GLOBE_RADIUS)
 
-      const color     = new THREE.Color(statusColor(flow.type))
+      const color     = new THREE.Color(statusColor(normType))
       const allPoints = createArcPoints(start, end, GLOBE_RADIUS, 80)
 
       const entry: ArcEntry = {

@@ -95,16 +95,28 @@ const REGION_LABELS: Record<string, string> = {
   pk:  'Pakistan',
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// THE FIVE COLORS — the only colors that matter on this map
+// ═══════════════════════════════════════════════════════════════════════
+// Green  = ORIGINAL — the country where the story broke
+// Blue   = WIRE COPY — picked up the story verbatim via wire service
+// Yellow = REFRAMED — told the same story with a different angle
+// Red    = CONTRADICTED — reported a version that conflicts with the majority
+// Grey   = NO COVERAGE — didn't cover the story at all
 const STATUS_COLORS: Record<string, string> = {
-  original:            '#2A9D8F',
-  wire_copy:           '#378ADD',
-  reframed:            '#F4A261',
-  contradicted:        '#E24B4A',
-  silent:              '#2A2A2E',
-  no_coverage:         '#1A1A1E',
-  adjacent_coverage:   '#3D3D44',
-  displaced_coverage:  '#2D2D33',
+  original:            '#2A9D8F',   // Green
+  wire_copy:           '#378ADD',   // Blue
+  reframed:            '#F4A261',   // Yellow/Amber
+  contradicted:        '#E24B4A',   // Red
+  silent:              '#2A2A2E',   // Dark grey (invisible)
+  no_coverage:         '#2A2A2E',   // Same as silent
+  adjacent_coverage:   '#2A2A2E',   // Same as silent
+  displaced_coverage:  '#2A2A2E',   // Same as silent
 }
+
+// Invisible = opacity near zero, not a different shade of grey
+const INACTIVE_COLOR = '#1A1A2E'
+const INACTIVE_OPACITY = 0.06
 
 const STATUS_LABELS: Record<string, string> = {
   original:            'Original',
@@ -224,13 +236,29 @@ function createArcPoints(
   return points
 }
 
+/** Normalize any status string to a STATUS_COLORS key. Dead simple. */
 function normalizeStatus(status: string): string {
-  // Synthesis may produce "Wire Copy", "No Coverage", etc. — normalize to snake_case keys
-  return status.toLowerCase().replace(/\s+/g, '_')
+  if (!status) return 'silent'
+  const s = status.toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_')
+  if (s in STATUS_COLORS) return s
+  // Handle common variants
+  if (s.includes('wire') || s.includes('copy')) return 'wire_copy'
+  if (s.includes('refram')) return 'reframed'
+  if (s.includes('contra')) return 'contradicted'
+  if (s.includes('origin')) return 'original'
+  if (s.includes('silent') || s.includes('no_') || s.includes('adjacent') || s.includes('displace')) return 'silent'
+  return 'silent'
 }
 
+/** Get the hex color for any status string. Always returns a valid color. */
 function statusColor(status: string): string {
-  return STATUS_COLORS[normalizeStatus(status)] ?? STATUS_COLORS.silent
+  return STATUS_COLORS[normalizeStatus(status)] || STATUS_COLORS.silent
+}
+
+/** Is this status "active" (should show color on the map)? */
+function isActiveStatus(status: string): boolean {
+  const n = normalizeStatus(status)
+  return n === 'original' || n === 'wire_copy' || n === 'reframed' || n === 'contradicted'
 }
 
 /* ------------------------------------------------------------------ */
@@ -412,11 +440,11 @@ function createCountryFillMesh(ring: number[][], status: string | null): THREE.M
 interface CountryBordersProps {
   globeRotation:    React.MutableRefObject<number>
   activeRegions?:   Map<string, { status: string; border_status?: string }>
-  secondaryStatuses?: Map<string, string>
-  borderStatuses?:  Map<string, string>  // Computed from flows: how each region RECEIVED the story
+  /** How each region RECEIVED the story — computed from flows */
+  borderStatuses?:  Map<string, string>
 }
 
-function CountryBorders({ globeRotation, activeRegions, secondaryStatuses, borderStatuses }: CountryBordersProps) {
+function CountryBorders({ globeRotation, activeRegions, borderStatuses }: CountryBordersProps) {
   const groupRef    = useRef<THREE.Group>(null)
   const [countryLines, setCountryLines] = useState<CountryLine[]>([])
   const [fillMeshes, setFillMeshes]     = useState<CountryFill[]>([])
@@ -476,61 +504,47 @@ function CountryBorders({ globeRotation, activeRegions, secondaryStatuses, borde
       .catch((err) => console.warn('Failed to load country borders:', err))
   }, [])
 
-  // Update border and fill colors.
-  // BORDER = how the region RECEIVED the story (from borderStatuses, computed from flows)
-  // FILL   = how the region REPORTED the story (the region's own status)
-  // This creates visual differentiation: e.g., a country might receive wire_copy (blue border)
-  // but reframe it (orange fill).
+  // ═══════════════════════════════════════════════════════════════════
+  // THE FOUR RULES — the entire color system
+  // Rule 1: BORDER = how they RECEIVED the story (borderStatuses map)
+  // Rule 2: FILL   = how they REPORTED the story (region's own status)
+  // Rule 3: Inactive countries = nearly invisible
+  // Rule 4: Only 4 active colors: green, blue, yellow, red
+  // ═══════════════════════════════════════════════════════════════════
   useEffect(() => {
-    const hasActive = activeRegions && activeRegions.size > 0
-
+    // BORDERS — color = how they received it
     countryLines.forEach(({ line, regionId }) => {
-      const mat        = line.material as THREE.LineBasicMaterial
+      const mat = line.material as THREE.LineBasicMaterial
       const regionData = activeRegions?.get(regionId)
-      const normStatus = regionData ? normalizeStatus(regionData.status) : ''
-      const isActive   = regionData && normStatus && normStatus !== 'silent' && normStatus !== 'no_coverage'
+      const active = regionData && isActiveStatus(regionData.status)
 
-      if (isActive) {
-        // Active region: border = how they RECEIVED (from flows)
-        const borderStatus = borderStatuses?.get(regionId) ?? regionData.border_status ?? regionData.status
-        const color = STATUS_COLORS[normalizeStatus(borderStatus)] || '#2A9D8F'
-        mat.color.set(color)
+      if (active) {
+        const received = borderStatuses?.get(regionId) || regionData.status
+        mat.color.set(statusColor(received))
         mat.opacity = 0.9
       } else {
-        // Inactive: nearly invisible dark border — NOT black lines
-        mat.color.set('#1A1A2E')
-        mat.opacity = 0.08
+        mat.color.set(INACTIVE_COLOR)
+        mat.opacity = INACTIVE_OPACITY
       }
       mat.needsUpdate = true
     })
 
+    // FILLS — color = how they reported it
     fillMeshes.forEach(({ mesh, regionId }) => {
-      const mat        = mesh.material as THREE.MeshBasicMaterial
+      const mat = mesh.material as THREE.MeshBasicMaterial
       const regionData = activeRegions?.get(regionId)
-      const normStatus = regionData ? normalizeStatus(regionData.status) : ''
-      const isActive   = regionData && normStatus && normStatus !== 'silent' && normStatus !== 'no_coverage'
+      const active = regionData && isActiveStatus(regionData.status)
 
-      if (isActive) {
-        // Fill = the region's own status (how they REPORTED)
-        const fillColor = STATUS_COLORS[normStatus] || '#2A2A3E'
-        mat.color.set(fillColor)
-        // Opacity by status type: original brightest, others progressively dimmer
-        const opacityMap: Record<string, number> = {
-          original: 0.3,
-          reframed: 0.2,
-          contradicted: 0.25,
-          wire_copy: 0.12,
-          adjacent_coverage: 0.06,
-        }
-        mat.opacity = opacityMap[normStatus] ?? 0.1
+      if (active) {
+        mat.color.set(statusColor(regionData.status))
+        mat.opacity = normalizeStatus(regionData.status) === 'original' ? 0.28 : 0.14
       } else {
-        // Inactive country: very subtle dark fill, almost invisible
-        mat.color.set('#2A2A3E')
+        mat.color.set(INACTIVE_COLOR)
         mat.opacity = 0.02
       }
       mat.needsUpdate = true
     })
-  }, [activeRegions, secondaryStatuses, borderStatuses, countryLines, fillMeshes])
+  }, [activeRegions, borderStatuses, countryLines, fillMeshes])
 
   useFrame(() => {
     if (groupRef.current) {
@@ -1336,7 +1350,6 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
       <CountryBorders
         globeRotation={globeRotationRef}
         activeRegions={activeRegions}
-        secondaryStatuses={secondaryStatuses}
         borderStatuses={borderStatuses}
       />
 

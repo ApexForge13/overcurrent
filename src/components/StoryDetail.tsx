@@ -521,25 +521,6 @@ export function StoryDetail({ story }: StoryDetailProps) {
               diedInternational={briefingParsed.fact_survival.died_international}
             />
           )}
-          {/* ── WHAT THE PUBLIC CAUGHT — full discourse section in briefing ── */}
-          {story.discourseGap && (
-            <div style={{ marginTop: '48px' }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
-                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-purple)" }}>
-                  WHAT THE PUBLIC CAUGHT
-                </span>
-                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-              </div>
-              {briefingParsed.bridges?.toDiscourse && (
-                <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", fontStyle: "italic", color: "var(--text-secondary)", marginBottom: "16px", lineHeight: 1.5 }}>
-                  {briefingParsed.bridges.toDiscourse}
-                </p>
-              )}
-              <DiscourseGap gap={story.discourseGap} posts={story.discourseSnapshots?.[0]?.posts} />
-            </div>
-          )}
-
           {briefingParsed.key_dispute && (
             <BriefingDispute
               question={briefingParsed.key_dispute.question}
@@ -551,6 +532,20 @@ export function StoryDetail({ story }: StoryDetailProps) {
             />
           )}
           <BriefingWatch questions={briefingParsed.watch || []} />
+
+          {/* ── WHAT THE PUBLIC CAUGHT — last briefing section before vault ── */}
+          {story.discourseGap && (
+            <div style={{ marginTop: '48px' }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-purple)" }}>
+                  WHAT THE PUBLIC CAUGHT
+                </span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+              </div>
+              <DiscourseGap gap={story.discourseGap} posts={story.discourseSnapshots?.[0]?.posts} />
+            </div>
+          )}
 
           {/* Propagation Map in briefing layer */}
           {propagationTimeline && propagationTimeline.length >= 3 && (

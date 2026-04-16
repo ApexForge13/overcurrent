@@ -98,25 +98,26 @@ const REGION_LABELS: Record<string, string> = {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// THE FIVE COLORS — the only colors that matter on this map
+// THREE TIERS of visual treatment:
+//   Tier 1: NEVER MAPPED       → INACTIVE_COLOR, near-invisible wireframe
+//   Tier 2: MAPPED, NO COVERAGE → muted gray, VISIBLE (absence is a finding)
+//   Tier 3: ACTIVE COVERAGE    → full color per status
 // ═══════════════════════════════════════════════════════════════════════
-// Green  = ORIGINAL — the country where the story broke
-// Blue   = WIRE COPY — picked up the story verbatim via wire service
-// Yellow = REFRAMED — told the same story with a different angle
-// Red    = CONTRADICTED — reported a version that conflicts with the majority
-// Grey   = NO COVERAGE — didn't cover the story at all
 const STATUS_COLORS: Record<string, string> = {
-  original:            '#2A9D8F',   // Green
-  wire_copy:           '#378ADD',   // Blue
-  reframed:            '#F4A261',   // Yellow/Amber
-  contradicted:        '#E24B4A',   // Red
-  silent:              '#2A2A2E',   // Dark grey (invisible)
-  no_coverage:         '#2A2A2E',   // Same as silent
-  adjacent_coverage:   '#2A2A2E',   // Same as silent
-  displaced_coverage:  '#2A2A2E',   // Same as silent
+  // Tier 3 — active coverage
+  original:           '#2A9D8F',  // teal-green
+  wire_copy:          '#378ADD',  // blue
+  reframed:           '#F4A261',  // amber
+  contradicted:       '#E24B4A',  // red
+  adjacent_coverage:  '#8B5CF6',  // purple — tangential/sidelong coverage
+  displaced_coverage: '#EC4899',  // pink — covered something else instead
+
+  // Tier 2 — mapped but silent (VISIBLE muted gray — a finding of absence)
+  no_coverage:        '#6B6B78',  // medium gray
+  silent:             '#6B6B78',  // alias to no_coverage gray
 }
 
-// Invisible = opacity near zero, not a different shade of grey
+// Tier 1 — never mapped (outside our analysis scope)
 const INACTIVE_COLOR = '#1A1A2E'
 const INACTIVE_OPACITY = 0.06
 
@@ -125,9 +126,9 @@ const STATUS_LABELS: Record<string, string> = {
   wire_copy:           'Wire Copy',
   reframed:            'Reframed',
   contradicted:        'Contradicted',
-  no_coverage:         'No Coverage',
   adjacent_coverage:   'Adjacent Coverage',
   displaced_coverage:  'Displaced',
+  no_coverage:         'No Coverage',
 }
 
 const MAX_ARCS = 50
@@ -258,9 +259,37 @@ function statusColor(status: string): string {
 }
 
 /** Is this status "active" (should show color on the map)? */
-function isActiveStatus(status: string): boolean {
+/**
+ * Status represents active substantive coverage of the story.
+ * These countries get full color fills (Tier 3).
+ */
+function hasSubstantiveCoverage(status: string): boolean {
   const n = normalizeStatus(status)
-  return n === 'original' || n === 'wire_copy' || n === 'reframed' || n === 'contradicted'
+  return (
+    n === 'original' ||
+    n === 'wire_copy' ||
+    n === 'reframed' ||
+    n === 'contradicted' ||
+    n === 'adjacent_coverage' ||
+    n === 'displaced_coverage'
+  )
+}
+
+/**
+ * Status represents a country that was analyzed and found to have no
+ * substantive coverage. These countries get muted gray fills (Tier 2).
+ */
+function isMappedSilent(status: string): boolean {
+  const n = normalizeStatus(status)
+  return n === 'no_coverage' || n === 'silent'
+}
+
+/**
+ * Any classification status — active or silent. Tier 2 or Tier 3.
+ * Anything NOT classified is Tier 1 (never mapped, near-invisible).
+ */
+function isClassified(status: string): boolean {
+  return hasSubstantiveCoverage(status) || isMappedSilent(status)
 }
 
 /* ------------------------------------------------------------------ */
@@ -519,46 +548,55 @@ function CountryBorders({ globeRotation, activeRegions, borderStatuses }: Countr
       const debugEntries: string[] = []
       activeRegions.forEach((data, rid) => {
         const norm = normalizeStatus(data.status)
-        const active = isActiveStatus(data.status)
+        const tier = hasSubstantiveCoverage(data.status) ? 'T3' : isMappedSilent(data.status) ? 'T2' : 'T1'
         const border = borderStatuses?.get(rid) || data.status
-        debugEntries.push(`${rid}: status=${data.status}(${norm}) border=${border} active=${active}`)
+        debugEntries.push(`${rid}: status=${data.status}(${norm}) border=${border} ${tier}`)
       })
       console.log('[Globe] Region data:', debugEntries.join(' | '))
     }
 
-    // BORDERS — color = how they received it
+    // BORDERS — three-tier treatment
     countryLines.forEach(({ line, regionId }) => {
       const mat = line.material as THREE.LineBasicMaterial
       const regionData = activeRegions?.get(regionId)
-      const active = regionData && isActiveStatus(regionData.status)
 
-      if (active) {
+      if (regionData && hasSubstantiveCoverage(regionData.status)) {
+        // Tier 3: active coverage — border = how they RECEIVED
         const received = borderStatuses?.get(regionId) || regionData.status
         mat.color.set(statusColor(received))
-        mat.opacity = 1.0
+        mat.opacity = 0.85
         mat.linewidth = 2
+      } else if (regionData && isMappedSilent(regionData.status)) {
+        // Tier 2: mapped but silent — visible muted gray
+        mat.color.set(STATUS_COLORS.no_coverage)
+        mat.opacity = 0.35
       } else {
+        // Tier 1: never mapped — near-invisible wireframe
         mat.color.set(INACTIVE_COLOR)
         mat.opacity = INACTIVE_OPACITY
       }
       mat.needsUpdate = true
     })
 
-    // FILLS — color = how they reported it
-    // Exception: if border_status is 'original', the fill is also 'original'
-    // (the origin country can't reframe its own story)
+    // FILLS — three-tier treatment
     fillMeshes.forEach(({ mesh, regionId }) => {
       const mat = mesh.material as THREE.MeshBasicMaterial
       const regionData = activeRegions?.get(regionId)
-      const active = regionData && isActiveStatus(regionData.status)
 
-      if (active) {
+      if (regionData && hasSubstantiveCoverage(regionData.status)) {
+        // Tier 3: active coverage — fill = how they REPORTED
+        // Exception: if border_status is 'original', fill is also 'original'
+        // (origin country can't reframe its own story)
         const border = borderStatuses?.get(regionId)
         const fillStatus = (border && normalizeStatus(border) === 'original') ? 'original' : regionData.status
         mat.color.set(statusColor(fillStatus))
-        // Strong fills so color is visible even on large countries
-        mat.opacity = normalizeStatus(fillStatus) === 'original' ? 0.45 : 0.30
+        mat.opacity = normalizeStatus(fillStatus) === 'original' ? 0.55 : 0.40
+      } else if (regionData && isMappedSilent(regionData.status)) {
+        // Tier 2: mapped but silent — visible muted gray fill (absence is a finding)
+        mat.color.set(STATUS_COLORS.no_coverage)
+        mat.opacity = 0.18
       } else {
+        // Tier 1: never mapped — essentially invisible
         mat.color.set(INACTIVE_COLOR)
         mat.opacity = 0.02
       }
@@ -1728,12 +1766,20 @@ export function PropagationGlobe({ timeline, storyHeadline }: PropagationGlobePr
           pointerEvents: 'none',
         }}
       >
-        {Object.entries(STATUS_LABELS).map(([key, label]) => (
-          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-            <span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', background: statusColor(key), flexShrink: 0 }} />
-            <span style={{ fontSize: '9px', color: '#5C5A56', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
-          </div>
-        ))}
+        {Object.entries(STATUS_LABELS).map(([key, label]) => {
+          const isSilent = key === 'no_coverage' || key === 'silent'
+          return (
+            <div key={key}>
+              {isSilent && (
+                <div style={{ height: '1px', background: '#2A2A2E', marginTop: '4px', marginBottom: '4px', opacity: 0.6 }} />
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', opacity: isSilent ? 0.7 : 1 }}>
+                <span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', background: statusColor(key), flexShrink: 0 }} />
+                <span style={{ fontSize: '9px', color: '#5C5A56', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+              </div>
+            </div>
+          )
+        })}
         <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #2A2A2E' }}>
           <div style={{ fontSize: '8px', color: '#4A4A56', lineHeight: 1.5 }}>
             <span style={{ color: '#6A6A7E' }}>Border</span> = how they received the story

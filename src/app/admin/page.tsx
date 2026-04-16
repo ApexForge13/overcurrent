@@ -34,6 +34,7 @@ export default function AdminDashboard() {
   const [actionInFlight, setActionInFlight] = useState<string | null>(null)
   const [mapStatus, setMapStatus] = useState<Record<string, string>>({})
   const [socialStatus, setSocialStatus] = useState<Record<string, string>>({})
+  const [reanalysisStatus, setReanalysisStatus] = useState<Record<string, string>>({})
   const [carouselSlides, setCarouselSlides] = useState<Record<string, Array<{ slide: number; filename: string; dataUrl: string }>>>({})
   const [carouselLoading, setCarouselLoading] = useState<Record<string, boolean>>({})
   const [analyzeMode, setAnalyzeMode] = useState<'verify' | 'undercurrent'>('verify')
@@ -131,6 +132,53 @@ export default function AdminDashboard() {
       }
     } catch {
       setSocialStatus(prev => ({ ...prev, [storyId]: 'failed' }))
+    }
+  }
+
+  async function reanalyzeStory(storyId: string) {
+    if (!confirm('Re-analyze this story? This will fetch fresh sources, run the full 4-model debate, and merge new findings. Estimated cost: $5-8. Estimated time: 15-25 min.')) return
+    setReanalysisStatus(prev => ({ ...prev, [storyId]: 'running...' }))
+    try {
+      const resp = await fetch(`/api/admin/stories/${storyId}/reanalyze`, { method: 'POST' })
+      if (!resp.ok || !resp.body) {
+        setReanalysisStatus(prev => ({ ...prev, [storyId]: `error: HTTP ${resp.status}` }))
+        return
+      }
+
+      // Consume SSE stream
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let finished = false
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6))
+            if (data.event === 'progress') {
+              const msg = data.message || data.pipelineEvent || data.phase || 'running'
+              setReanalysisStatus(prev => ({ ...prev, [storyId]: `running: ${msg}` }))
+            } else if (data.event === 'complete') {
+              finished = true
+              setReanalysisStatus(prev => ({ ...prev, [storyId]: `v${data.versionNumber} ready for review` }))
+            } else if (data.event === 'error') {
+              finished = true
+              setReanalysisStatus(prev => ({ ...prev, [storyId]: `error: ${data.message}` }))
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+      if (!finished) {
+        setReanalysisStatus(prev => ({ ...prev, [storyId]: 'stream ended unexpectedly' }))
+      }
+    } catch {
+      setReanalysisStatus(prev => ({ ...prev, [storyId]: 'failed' }))
     }
   }
 
@@ -388,6 +436,13 @@ export default function AdminDashboard() {
                     >
                       {socialStatus[story.id]?.startsWith('generating') ? 'generating...' : 'Regen Social'}
                     </button>
+                    <button
+                      onClick={() => reanalyzeStory(story.id)}
+                      disabled={reanalysisStatus[story.id]?.startsWith('running')}
+                      className="px-3 py-1.5 text-sm font-mono rounded bg-accent-teal/20 text-accent-teal hover:bg-accent-teal/30 transition-colors disabled:opacity-50"
+                    >
+                      {reanalysisStatus[story.id] || 'Re-Analyze'}
+                    </button>
                   </div>
                 </div>
                 {mapStatus[story.id] && !mapStatus[story.id].startsWith('regenerating') && (
@@ -398,6 +453,14 @@ export default function AdminDashboard() {
                 {socialStatus[story.id] && !socialStatus[story.id].startsWith('generating') && (
                   <p className="text-xs font-mono mt-1" style={{ color: socialStatus[story.id].startsWith('done') ? 'var(--accent-green)' : 'var(--accent-red)' }}>
                     {socialStatus[story.id]}
+                  </p>
+                )}
+                {reanalysisStatus[story.id] && !reanalysisStatus[story.id].startsWith('running') && (
+                  <p className="text-xs font-mono mt-1" style={{ color: reanalysisStatus[story.id].startsWith('v') ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                    {reanalysisStatus[story.id]}
+                    {reanalysisStatus[story.id].includes('ready for review') && (
+                      <a href={`/admin/stories/${story.id}/review`} className="ml-2 underline">Review &rarr;</a>
+                    )}
                   </p>
                 )}
               </div>

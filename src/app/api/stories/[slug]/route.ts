@@ -16,6 +16,7 @@ export async function GET(
       framings: true,
       silences: true,
       followUps: { orderBy: { sortOrder: 'asc' } },
+      versions: { orderBy: { versionNumber: 'desc' as const } },
     },
   })
 

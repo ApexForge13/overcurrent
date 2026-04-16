@@ -86,6 +86,7 @@ export default async function StoryPage({
       debateRounds: true,
       discourseGap: true,
       discourseSnapshots: { include: { posts: true } },
+      versions: { orderBy: { versionNumber: 'desc' as const } },
     },
   });
 

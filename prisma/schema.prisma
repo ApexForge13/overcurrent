@@ -37,6 +37,11 @@ model Story {
   outletCount       Int       @default(0)
   sourcesFrom       DateTime?
   sourcesTo         DateTime?
+  // ── Re-analysis versioning ──
+  currentVersion      Int       @default(1)
+  lastReanalyzed      DateTime?
+  isOngoing           Boolean   @default(false)
+  reanalysisStatus    String?   // null | queued | running | review | published
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   sources           Source[]
@@ -52,6 +57,7 @@ model Story {
   socialDrafts    SocialDraft[]
   discourseSnapshots  DiscourseSnapshot[]
   discourseGap        DiscourseGap?
+  versions          StoryVersion[]
 
   @@index([status, createdAt])
   @@index([primaryCategory])
@@ -74,52 +80,63 @@ model Source {
   summary         String?
   publishedAt     DateTime?
   fetchedAt       DateTime @default(now())
+  addedInVersion  Int      @default(1)
 
   @@index([storyId])
 }
 
 model Claim {
-  id              String  @id @default(cuid())
-  storyId         String
-  story           Story   @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  claim           String
-  confidence      String
-  consensusPct    Int     @default(0)
-  supportedBy     String
-  contradictedBy  String
-  notes           String?
-  sortOrder       Int     @default(0)
+  id                    String  @id @default(cuid())
+  storyId               String
+  story                 Story   @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  claim                 String
+  confidence            String
+  consensusPct          Int     @default(0)
+  supportedBy           String
+  contradictedBy        String
+  notes                 String?
+  sortOrder             Int     @default(0)
+  addedInVersion        Int     @default(1)
+  status                String  @default("active") // active | contradicted | corroborated | retracted
+  contradictedInVersion Int?
+  contradictionNote     String?
 }
 
 model Discrepancy {
-  id         String @id @default(cuid())
-  storyId    String
-  story      Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  issue      String
-  sideA      String
-  sideB      String
-  sourcesA   String
-  sourcesB   String
-  assessment String?
+  id             String @id @default(cuid())
+  storyId        String
+  story          Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  issue          String
+  sideA          String
+  sideB          String
+  sourcesA       String
+  sourcesB       String
+  assessment     String?
+  addedInVersion Int    @default(1)
+  status         String @default("active") // active | resolved | retracted
 }
 
 model Omission {
-  id           String @id @default(cuid())
-  storyId      String
-  story        Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  outletRegion String
-  missing      String
-  presentIn    String
-  significance String?
+  id             String @id @default(cuid())
+  storyId        String
+  story          Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  outletRegion   String
+  missing        String
+  presentIn      String
+  significance   String?
+  addedInVersion Int    @default(1)
+  status         String @default("active") // active | resolved | retracted
 }
 
 model FramingAnalysis {
-  id           String  @id @default(cuid())
-  storyId      String
-  story        Story   @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  region       String
-  framing      String
-  contrastWith String?
+  id             String  @id @default(cuid())
+  storyId        String
+  story          Story   @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  region         String
+  framing        String
+  contrastWith   String?
+  addedInVersion Int     @default(1)
+  status         String  @default("active") // active | superseded | retracted
 }
 
 model RegionalSilence {
@@ -175,6 +192,25 @@ model SocialDraft {
 
   @@index([storyId])
   @@index([status])
+}
+
+model StoryVersion {
+  id                  String   @id @default(cuid())
+  storyId             String
+  story               Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  versionNumber       Int
+  status              String   @default("pending") // pending | approved | rejected
+  newSourceCount      Int      @default(0)
+  newClaimsAdded      Int      @default(0)
+  claimsContradicted  Int      @default(0)
+  claimsCorroborated  Int      @default(0)
+  changesSummary      String?
+  rawSynthesis        String?  // Full archived synthesis JSON
+  costUsd             Float    @default(0)
+  createdAt           DateTime @default(now())
+
+  @@unique([storyId, versionNumber])
+  @@index([storyId])
 }
 
 // ═══════════════════════════════════════

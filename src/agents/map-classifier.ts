@@ -137,6 +137,28 @@ export async function classifyMapRegions(
   const coveredRegions = new Set(regionSummary.map(r => r.region_id))
   const uncoveredRegions = ALL_REGION_IDS.filter(r => !coveredRegions.has(r))
 
+  // Pre-compute classification hints from data
+  const stateMediaRegions = regionSummary
+    .filter(r => r.has_state_media)
+    .map(r => r.region_id)
+
+  const regionsWithContrast = story.framings
+    .filter(f => f.contrastWith && f.contrastWith.trim().length > 10)
+    .map(f => f.region)
+
+  const regionsInDiscrepancies = new Set<string>()
+  for (const d of story.discrepancies) {
+    // Regions mentioned in side B (dissenting) are likely reframed or contradicted
+    const allSources = `${d.sourcesA} ${d.sourcesB}`.toLowerCase()
+    for (const r of regionSummary) {
+      for (const outlet of r.outlets) {
+        if (allSources.includes(outlet.toLowerCase())) {
+          regionsInDiscrepancies.add(r.region_id)
+        }
+      }
+    }
+  }
+
   const userPrompt = `STORY: ${story.headline}
 Synopsis: ${story.synopsis || 'N/A'}
 
@@ -155,7 +177,14 @@ ${JSON.stringify(story.discrepancies.map(d => ({ issue: d.issue, sideA: d.sideA,
 KEY CLAIMS:
 ${JSON.stringify(story.claims.slice(0, 8).map(c => ({ claim: c.claim, confidence: c.confidence, supportedBy: c.supportedBy, contradictedBy: c.contradictedBy })), null, 2)}
 
-Classify EVERY region — both those WITH sources and those WITHOUT. For regions without sources, use border_status="no_coverage" and fill_status as no_coverage, adjacent_coverage, or displaced_coverage. Set outlet_count=0 and outlets=[] for uncovered regions.`
+MANDATORY CLASSIFICATION HINTS (do NOT ignore these):
+- Regions with STATE MEDIA outlets [${stateMediaRegions.join(', ')}]: These MUST be classified as fill_status="reframed" or "contradicted" — state media ALWAYS applies editorial framing. NEVER classify state media regions as "wire_copy".
+- Regions with CONTRASTING framings in the synthesis: [${regionsWithContrast.join(', ')}] — These have distinct editorial angles. Classify as "reframed" not "wire_copy".
+- Regions involved in DISCREPANCIES: [${[...regionsInDiscrepancies].join(', ')}] — outlets from these regions disagree on key claims. At least one side should be "reframed" or "contradicted".
+- The MAJORITY of regions should NOT be wire_copy. Wire copy means running AP/Reuters verbatim with zero editorial additions. Most outlets add headlines, context, commentary — that's "reframed". Only classify as wire_copy if the outlet literally ran wire text unchanged.
+- Expect: 1 original, 3-6 reframed, 1-3 contradicted, rest wire_copy or no_coverage. If your output has >10 wire_copy, you're being too lazy — go back and differentiate.
+
+Classify EVERY region — both those WITH sources and those WITHOUT.`
 
   const result = await callClaude({
     model: HAIKU,

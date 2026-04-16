@@ -92,7 +92,15 @@ const display: React.CSSProperties = { fontFamily: "var(--font-display)" }
 
 export function DiscourseGap({ gap, posts }: DiscourseGapProps) {
   const surfacedFirst = parseJsonArray(gap.publicSurfacedFirst)
-  const mediaIgnored = parseJsonArray(gap.mediaIgnoredByPublic) as string[]
+  // mediaIgnored items may be strings OR objects — normalize to strings
+  const mediaIgnored = parseJsonArray(gap.mediaIgnoredByPublic).map(item => {
+    if (typeof item === 'string') return item
+    if (typeof item === 'object' && item !== null) {
+      const obj = item as Record<string, unknown>
+      return String(obj.insight || obj.finding || obj.text || JSON.stringify(item))
+    }
+    return String(item)
+  })
   const directionColor = getDirectionColor(gap.gapDirection)
   const mediaColor = getFramingColor(gap.mediaDominantFrame)
   const publicColor = getFramingColor(gap.publicDominantFrame)
@@ -162,7 +170,7 @@ export function DiscourseGap({ gap, posts }: DiscourseGapProps) {
 
       {/* ── 3. GAP SUMMARY ── */}
       <p style={{ ...body, fontSize: "14px", fontStyle: "italic", lineHeight: 1.7, color: "var(--text-secondary)", marginTop: "16px", paddingBottom: "16px", borderBottom: "1px solid var(--border-primary)" }}>
-        {gap.gapSummary}
+        {typeof gap.gapSummary === 'string' ? gap.gapSummary : ''}
       </p>
 
       {/* ── Arrow legend ── */}
@@ -250,7 +258,7 @@ export function DiscourseGap({ gap, posts }: DiscourseGapProps) {
             THE COUNTER-NARRATIVE
           </p>
           <p style={{ ...body, fontSize: "14px", lineHeight: 1.7, color: "var(--text-secondary)", fontStyle: "italic" }}>
-            {gap.publicCounterNarrative}
+            {typeof gap.publicCounterNarrative === 'string' ? gap.publicCounterNarrative : JSON.stringify(gap.publicCounterNarrative)}
           </p>
         </div>
       )}

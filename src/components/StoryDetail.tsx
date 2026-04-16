@@ -521,6 +521,25 @@ export function StoryDetail({ story }: StoryDetailProps) {
               diedInternational={briefingParsed.fact_survival.died_international}
             />
           )}
+          {/* ── WHAT THE PUBLIC CAUGHT — full discourse section in briefing ── */}
+          {story.discourseGap && (
+            <div style={{ marginTop: '48px' }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-purple)" }}>
+                  WHAT THE PUBLIC CAUGHT
+                </span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+              </div>
+              {briefingParsed.bridges?.toDiscourse && (
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", fontStyle: "italic", color: "var(--text-secondary)", marginBottom: "16px", lineHeight: 1.5 }}>
+                  {briefingParsed.bridges.toDiscourse}
+                </p>
+              )}
+              <DiscourseGap gap={story.discourseGap} posts={story.discourseSnapshots?.[0]?.posts} />
+            </div>
+          )}
+
           {briefingParsed.key_dispute && (
             <BriefingDispute
               question={briefingParsed.key_dispute.question}
@@ -584,6 +603,20 @@ export function StoryDetail({ story }: StoryDetailProps) {
                 <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
               </div>
               <FactSurvival items={factSurvivalItems} />
+            </div>
+          )}
+
+          {/* Discourse (legacy — also shown in briefing for new stories) */}
+          {story.discourseGap && (
+            <div style={{ marginTop: "32px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-purple)" }}>
+                  WHAT THE PUBLIC CAUGHT
+                </span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+              </div>
+              <DiscourseGap gap={story.discourseGap} posts={story.discourseSnapshots?.[0]?.posts} />
             </div>
           )}
 
@@ -783,33 +816,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
         </CollapsibleSection>
       )}
 
-      {/* ═══════════════════════════════════════════════════════
-          DISCOURSE GAP (separate data stream — social media)
-          ═══════════════════════════════════════════════════════ */}
-      {story.discourseGap && (
-        <>
-          <div style={{ marginTop: '48px', marginBottom: '24px' }}>
-            <div style={{ height: '2px', background: 'linear-gradient(to right, transparent, var(--accent-purple), transparent)' }} />
-            <div style={{ textAlign: 'center', marginTop: '16px', marginBottom: '4px' }}>
-              <span style={{ ...mono, fontSize: '13px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent-purple)' }}>
-                DISCOURSE GAP — Media vs. Public
-              </span>
-            </div>
-            <p style={{ ...mono, fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'center', lineHeight: 1.4 }}>
-              How news coverage compares to public discussion on Reddit and Twitter/X
-            </p>
-            <div style={{ height: '2px', background: 'linear-gradient(to right, transparent, var(--accent-purple), transparent)', marginTop: '16px' }} />
-          </div>
-          <div style={{ padding: '10px 16px', marginBottom: '20px', border: '1px solid var(--border-primary)', background: 'var(--bg-secondary)' }}>
-            <p style={{ ...mono, fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
-              The analysis above is based exclusively on published news outlets.
-              This section draws from a separate data stream — public social media (Reddit, X/Twitter).
-              The two streams are analyzed independently and never cross-contaminate.
-            </p>
-          </div>
-          <DiscourseGap gap={story.discourseGap} posts={story.discourseSnapshots?.[0]?.posts} />
-        </>
-      )}
+      {/* Discourse section moved to briefing layer above */}
 
       </VaultToggle>
 

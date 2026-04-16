@@ -12,6 +12,8 @@ type TopoFeatureFn = (
   object: unknown
 ) => { features: Array<{ id?: string | number; geometry: { type: string; coordinates: number[][][][] | number[][][] } }> }
 const topoFeature = (topojsonClient as unknown as { feature: TopoFeatureFn }).feature
+import { numericIdToIso2 } from '@/lib/topojson-iso2'
+import { expandRegionKey } from '@/lib/map-regions'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -380,12 +382,12 @@ function getRegionForCountryId(id: string | number): string {
 
 interface CountryLine {
   line:     THREE.Line
-  regionId: string
+  regionId: string   // Now stores ISO2 country code (e.g. 'HU', 'US', 'DE')
 }
 
 interface CountryFill {
   mesh:     THREE.Mesh
-  regionId: string
+  regionId: string   // Now stores ISO2 country code
 }
 
 /** Skip rings that cross the antimeridian — their flat 2D triangulation breaks on the sphere. */
@@ -466,8 +468,8 @@ function CountryBorders({ globeRotation, activeRegions, borderStatuses }: Countr
           const geom = feat.geometry
           if (!geom) continue
 
-          // Use TopoJSON feature ID (ISO 3166-1 numeric) for exact country-to-region mapping
-          const regionId = getRegionForCountryId(feat.id ?? '')
+          // Map TopoJSON numeric ID → ISO alpha-2 country code
+          const regionId = numericIdToIso2(feat.id ?? '') ?? ''
 
           // Outer ring only — Polygon gives one ring, MultiPolygon gives one per sub-polygon
           const rings: number[][][] =
@@ -828,13 +830,25 @@ function RegionMarkers({
   const meshMap    = useRef<Map<string, THREE.Mesh>>(new Map())
   const pulsePhase = useRef<Map<string, number>>(new Map())
 
+  // Helper: find the first active country in a region's expansion to determine
+  // the region marker's color/status
+  const findRegionData = useCallback((regionId: string) => {
+    // Try the region key directly first (works for single-country keys like 'us' → 'US')
+    const countries = expandRegionKey(regionId)
+    for (const iso2 of countries) {
+      const data = activeRegions.get(iso2)
+      if (data && normalizeStatus(data.status) !== 'silent') return data
+    }
+    return null
+  }, [activeRegions])
+
   useFrame((_, delta) => {
     if (groupRef.current) {
       groupRef.current.rotation.y = globeRotationRef.current
     }
 
     meshMap.current.forEach((mesh, regionId) => {
-      const data     = activeRegions.get(regionId)
+      const data     = findRegionData(regionId)
       const isActive = !!data
       const color    = new THREE.Color(statusColor(data?.border_status ?? data?.status ?? 'silent'))
 
@@ -849,7 +863,7 @@ function RegionMarkers({
         const brightness = 0.7 + Math.sin(phase) * 0.3
         mat.color.copy(color).multiplyScalar(brightness)
         mat.opacity = 0.9
-        const baseScale = (data?.border_status ?? data?.status) === 'original' ? 1.6 : 1.1
+        const baseScale = normalizeStatus(data?.border_status ?? data?.status ?? '') === 'original' ? 1.6 : 1.1
         mesh.scale.setScalar(baseScale + Math.sin(phase) * 0.1)
       } else {
         mat.color.set('#333340')
@@ -909,6 +923,16 @@ function TacticalMarkerLayer({
   const entries     = useMemo(() => Object.entries(REGION_COORDS), [])
   const activeCount = activeRegions.size
 
+  // Helper: find active data for a hybrid region key by checking its expanded countries
+  const findRegionData = useCallback((regionId: string) => {
+    const countries = expandRegionKey(regionId)
+    for (const iso2 of countries) {
+      const data = activeRegions.get(iso2)
+      if (data && normalizeStatus(data.status) !== 'silent') return data
+    }
+    return undefined
+  }, [activeRegions])
+
   return (
     <group ref={groupRef}>
       {entries.map(([regionId, [lat, lng]]) => (
@@ -917,7 +941,7 @@ function TacticalMarkerLayer({
           regionId={regionId}
           lat={lat}
           lng={lng}
-          data={activeRegions.get(regionId)}
+          data={findRegionData(regionId)}
           activeCount={activeCount}
           globeRotation={globeRotation}
         />
@@ -942,14 +966,14 @@ function computeSecondaryStatuses(
 ): Map<string, string> {
   const result = new Map<string, string>()
   for (const flow of flows) {
-    const destRegion   = flow.to
-    const primaryStatus = activeRegions.get(destRegion)?.status
-    // Only show secondary ring when the incoming flow type differs from
-    // the destination's own status — that's a genuine dual-status situation.
-    if (primaryStatus && flow.type !== primaryStatus) {
-      // Prefer contradiction over reframe if multiple flows arrive
-      if (!result.has(destRegion) || flow.type === 'contradicted') {
-        result.set(destRegion, flow.type)
+    // Expand flow destination (hybrid key) into ISO2 countries
+    const destCountries = expandRegionKey(flow.to)
+    for (const iso2 of destCountries) {
+      const primaryStatus = activeRegions.get(iso2)?.status
+      if (primaryStatus && flow.type !== primaryStatus) {
+        if (!result.has(iso2) || flow.type === 'contradicted') {
+          result.set(iso2, flow.type)
+        }
       }
     }
   }
@@ -1238,12 +1262,40 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
   const arcsGroupRef   = useRef<THREE.Group>(null)
 
   const frame = timeline[currentFrameIdx]
-  const activeRegions = useMemo(
-    () => new Map(frame.regions.map((r) => [r.region_id, r])),
-    [frame]
-  )
+
+  // ── CORE FIX: Expand region_id keys into per-country ISO2 maps ──
+  // The timeline uses hybrid keys (eu, la, us, hu). The renderer colors
+  // per-country polygons keyed by ISO2. Expand regional keys here so every
+  // country polygon can look itself up directly.
+  // Country-specific keys (hu, us, tr) override regional defaults (eu, la).
+  const activeRegions = useMemo(() => {
+    const map = new Map<string, typeof frame.regions[0]>()
+
+    // Pass 1: expand regional (multi-country) keys
+    for (const r of frame.regions) {
+      const countries = expandRegionKey(r.region_id)
+      if (countries.length > 1) {
+        // Regional key → fan out to all member countries
+        for (const iso2 of countries) {
+          map.set(iso2, r)
+        }
+      }
+    }
+
+    // Pass 2: country-level keys override regional defaults
+    for (const r of frame.regions) {
+      const countries = expandRegionKey(r.region_id)
+      if (countries.length === 1) {
+        map.set(countries[0], r)
+      }
+    }
+
+    return map
+  }, [frame])
 
   // Auto-generate flows from region data, supplementing any AI-provided flows
+  // (flows still use hybrid region_id keys for arc endpoints — that's fine
+  // because REGION_COORDS maps hybrid keys to lat/lng)
   const allFlows = useMemo(() => generateFlowsFromRegions(frame), [frame])
 
   // Compute dual-status map: for each destination region, record the incoming
@@ -1253,15 +1305,23 @@ function Scene({ timeline, currentFrameIdx, playing, globeRotationRef }: ScenePr
     [allFlows, activeRegions]
   )
 
-  // Build borderStatuses directly from the AI's border_status field on each region.
-  // The AI already sets this correctly (e.g., EU: border=original, status=reframed).
-  // No need to compute from flows — just read what's in the data.
+  // Expand border_status from timeline into per-country ISO2 map.
+  // Country-level border_status overrides regional.
   const borderStatuses = useMemo(() => {
     const result = new Map<string, string>()
+    // Pass 1: regional
     for (const r of frame.regions) {
-      if (r.border_status) {
-        result.set(r.region_id, r.border_status)
+      if (!r.border_status) continue
+      const countries = expandRegionKey(r.region_id)
+      if (countries.length > 1) {
+        for (const iso2 of countries) result.set(iso2, r.border_status)
       }
+    }
+    // Pass 2: country-level overrides
+    for (const r of frame.regions) {
+      if (!r.border_status) continue
+      const countries = expandRegionKey(r.region_id)
+      if (countries.length === 1) result.set(countries[0], r.border_status)
     }
     return result
   }, [frame.regions])

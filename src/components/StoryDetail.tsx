@@ -514,7 +514,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
       {hasBriefing ? (
         <div style={{ marginTop: "48px" }}>
 
-          {/* 1. PROPAGATION MAP — visual hook at top of briefing */}
+          {/* 1. PROPAGATION MAP */}
           {propagationTimeline && propagationTimeline.length >= 3 && (
             <div style={{ marginTop: "0" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
@@ -672,7 +672,8 @@ export function StoryDetail({ story }: StoryDetailProps) {
           )}
 
           {/* Propagation Map (legacy) */}
-          {propagationTimeline && propagationTimeline.length >= 3 && (
+          {/* Propagation map temporarily hidden */}
+          {false && propagationTimeline && propagationTimeline.length >= 3 && (
             <div style={{ marginTop: "32px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
                 <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />

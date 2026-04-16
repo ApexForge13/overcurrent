@@ -94,6 +94,9 @@ interface StoryDetailProps {
       whatWasLost: string;
       significance: string;
     }>;
+    // Versioning fields
+    currentVersion?: number;
+    lastReanalyzed?: string | Date | null;
     // Standard relations
     claims: Array<{
       claim: string;
@@ -103,6 +106,10 @@ interface StoryDetailProps {
       contradictedBy: string;
       notes: string | null;
       sortOrder: number;
+      addedInVersion?: number;
+      status?: string;
+      contradictionNote?: string | null;
+      contradictedInVersion?: number | null;
     }>;
     discrepancies: Array<{
       issue: string;
@@ -438,11 +445,32 @@ export function StoryDetail({ story }: StoryDetailProps) {
     const weightedLabel = weightedSupport !== supporters.length
       ? ` (weighted: ${weightedSupport.toFixed(1)}${wireCopyCount > 0 ? ` · ${wireCopyCount} wire` : ''})` : '';
 
+    const isContradicted = claim.status === 'contradicted';
+
     return (
-      <div key={i} style={{ padding: "16px 0", borderBottom: "1px solid var(--border-primary)", display: "flex", alignItems: "flex-start", gap: "12px" }}>
+      <div key={i} style={{ padding: "16px 0", borderBottom: "1px solid var(--border-primary)", display: "flex", alignItems: "flex-start", gap: "12px", ...(isContradicted ? { borderLeft: '3px solid var(--accent-amber)', paddingLeft: '12px' } : {}) }}>
         <span style={{ ...mono, fontSize: "14px", color: iconColor, flexShrink: 0, width: "20px", textAlign: "center" }}>{icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.5 }}>{claim.claim}</p>
+          <div>
+            {claim.addedInVersion && claim.addedInVersion > 1 && (
+              <span style={{ ...mono, fontSize: '9px', fontWeight: 700, color: 'var(--accent-teal)', padding: '1px 4px', border: '1px solid var(--accent-teal)', borderRadius: '2px', marginRight: '6px' }}>
+                NEW v{claim.addedInVersion}
+              </span>
+            )}
+            {isContradicted && (
+              <span style={{ ...mono, fontSize: '9px', fontWeight: 700, color: 'var(--accent-amber)', padding: '1px 4px', border: '1px solid var(--accent-amber)', borderRadius: '2px', marginRight: '6px' }}>
+                UPDATED
+              </span>
+            )}
+          </div>
+          <p style={{ ...body, fontSize: "15px", color: "var(--text-primary)", lineHeight: 1.5, ...(isContradicted ? { textDecoration: 'line-through', opacity: 0.7 } : {}) }}>{claim.claim}</p>
+          {isContradicted && claim.contradictionNote && (
+            <div style={{ marginTop: '8px', padding: '8px 12px', borderLeft: '2px solid var(--accent-amber)', background: 'rgba(244, 162, 97, 0.05)' }}>
+              <p style={{ ...mono, fontSize: '11px', color: 'var(--accent-amber)' }}>
+                Contradicted: {claim.contradictionNote}
+              </p>
+            </div>
+          )}
           <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
             <div style={{ width: "80px", height: "3px", background: "var(--border-primary)" }}>
               <div style={{ width: `${Math.max(0, Math.min(100, displayPct))}%`, height: "100%", background: iconColor }} />
@@ -507,6 +535,20 @@ export function StoryDetail({ story }: StoryDetailProps) {
         publishedAt={story.publishedAt ? new Date(story.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
       />
 
+      {/* Version banner */}
+      {story.currentVersion && story.currentVersion > 1 && story.lastReanalyzed && (
+        <div style={{ marginTop: '16px', padding: '12px 16px', border: '1px solid var(--accent-teal)', borderRadius: '6px', background: 'rgba(42, 157, 143, 0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ ...mono, fontSize: '10px', fontWeight: 700, color: 'var(--accent-teal)', padding: '2px 6px', border: '1px solid var(--accent-teal)', borderRadius: '3px' }}>
+              v{story.currentVersion}
+            </span>
+            <span style={{ ...mono, fontSize: '11px', color: 'var(--text-tertiary)' }}>
+              UPDATED {new Date(story.lastReanalyzed).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ══════════════ LAYER 2: THE BRIEFING ══════════════
           Order: Map → Missed → Died → Dispute → Frames → Public → Watch
           Each section connected by a story-specific bridge line.
@@ -514,8 +556,12 @@ export function StoryDetail({ story }: StoryDetailProps) {
       {hasBriefing ? (
         <div style={{ marginTop: "48px" }}>
 
-          {/* 1. PROPAGATION MAP */}
-          {propagationTimeline && propagationTimeline.length >= 3 && (
+          {/* 1. PROPAGATION MAP — TEMPORARILY HIDDEN
+               Known issues: wrong epicenter classification (Japan instead of Hungary),
+               only yellow/blue flow lines (classification bug), data pipeline issue.
+               Need to build a testing environment and fix the underlying data pipeline
+               before re-enabling. Also removing dual-color lines from the plan. */}
+          {false && propagationTimeline && propagationTimeline.length >= 3 && (
             <div style={{ marginTop: "0" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
                 <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />

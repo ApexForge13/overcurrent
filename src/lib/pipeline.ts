@@ -1309,7 +1309,7 @@ export async function runVerifyPipeline(
     }
 
     return story
-  })
+  }, { timeout: 30000 })  // 30s timeout — 257+ sources can take >5s to insert
 
   // Social draft generation removed — drafts are written manually in Claude chat
   // Keeping social-drafts.ts agent file for potential future re-integration

@@ -266,16 +266,16 @@ describe('filterByKeywordRelevance', () => {
     expect(result[0].content).toContain('Hungary')
   })
 
-  it('rejects posts matching only 1 keyword (strict mode, 3+ passing)', () => {
+  it('accepts posts with 1+ keyword match when no anchors (loosened filter)', () => {
     const posts = [
       makePost('Hungary election results show shift in power'),
       makePost('Hungary Orban coalition collapses after election'),
       makePost('The election in Hungary was historic for Europe'),
-      makePost('Orban mentioned in unrelated context about cooking'),  // only 1 keyword
+      makePost('Orban mentioned in unrelated context about cooking'),  // 1 keyword — now passes
     ]
     const result = filterByKeywordRelevance(posts, ['Hungary', 'election', 'Orban'])
-    // First 3 posts match 2+ keywords, 4th only matches "Orban"
-    expect(result).toHaveLength(3)
+    // Without explicit anchors, anchorHits=total, so 1 keyword+1 anchor match passes
+    expect(result).toHaveLength(4)
   })
 
   it('falls back to 1-keyword match when <3 posts pass strict (no anchors)', () => {

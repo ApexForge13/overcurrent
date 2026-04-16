@@ -112,6 +112,15 @@ export interface SynthesisResult {
       side_b: string; side_b_count: string; resolution: string
     } | null
     watch: string[]
+    bridges: {
+      toMissed: string; toFrames: string; toDied: string
+      toDiscourse: string; toDispute: string; toWatch: string
+    } | null
+    discourse: {
+      gap_score: number; media_framing: string; public_framing: string
+      social_found_first: Array<{ finding: string; platform: string; engagement: string }>
+      media_ignored: string[]
+    } | null
   }
   costUsd: number
 }
@@ -231,6 +240,8 @@ TIER 2 — BRIEFING (the product — what 95% of readers see):
 - "briefing.fact_survival": Funnel numbers (on_scene, national, international) + one example fact that died at each boundary.
 - "briefing.key_dispute": The SINGLE most important unresolved disagreement. Side A, Side B, your resolution. Do NOT hedge. Give the reader your best assessment.
 - "briefing.watch": EXACTLY 3 forward-looking questions, each under 25 words.
+- "briefing.bridges": 6 narrative connector sentences, one before each section. These must be SPECIFIC to the story content, not generic. They connect each section to the next, making the briefing read as a continuous narrative. Example: "291 outlets covered the result. Almost none explained the system that produced it."
+- "briefing.discourse": A condensed summary of the media vs public discourse gap (if discourse data is available). Include gap_score (0-100), media_framing, public_framing, social_found_first (max 3), and media_ignored (max 3).
 
 TIER 3 — VAULT: Everything below (claims, framing_split, discrepancies, omissions, buried_evidence, fact_survival, etc.)
 
@@ -260,7 +271,22 @@ Response shape:
       "side_b": "string max 30 words", "side_b_count": "8 outlets",
       "resolution": "string max 25 words — your best assessment, no hedging"
     },
-    "watch": ["string", "string", "string"]
+    "watch": ["string", "string", "string"],
+    "bridges": {
+      "to_missed": "string — connects summary to What The World Missed",
+      "to_frames": "string — connects missed to framing",
+      "to_died": "string — connects framing to fact survival",
+      "to_discourse": "string — connects fact survival to public discourse",
+      "to_dispute": "string — connects discourse to key dispute",
+      "to_watch": "string — connects dispute to what to watch"
+    },
+    "discourse": {
+      "gap_score": 42,
+      "media_framing": "string — 2-line summary of media framing",
+      "public_framing": "string — 2-line summary of public framing",
+      "social_found_first": [{ "finding": "string", "platform": "Reddit", "engagement": "39K upvotes" }],
+      "media_ignored": ["string — one-liner the public skipped"]
+    }
   },
   "claims": [
     {
@@ -699,6 +725,29 @@ ${JSON.stringify(
       resolution: String(rawBriefing.key_dispute.resolution ?? ''),
     } : null,
     watch: Array.isArray(rawBriefing.watch) ? rawBriefing.watch.map(String).slice(0, 3) : [],
+    bridges: rawBriefing.bridges ? {
+      toMissed: String(rawBriefing.bridges.to_missed ?? ''),
+      toFrames: String(rawBriefing.bridges.to_frames ?? ''),
+      toDied: String(rawBriefing.bridges.to_died ?? ''),
+      toDiscourse: String(rawBriefing.bridges.to_discourse ?? ''),
+      toDispute: String(rawBriefing.bridges.to_dispute ?? ''),
+      toWatch: String(rawBriefing.bridges.to_watch ?? ''),
+    } : null,
+    discourse: rawBriefing.discourse ? {
+      gap_score: Number(rawBriefing.discourse.gap_score ?? 0),
+      media_framing: String(rawBriefing.discourse.media_framing ?? ''),
+      public_framing: String(rawBriefing.discourse.public_framing ?? ''),
+      social_found_first: Array.isArray(rawBriefing.discourse.social_found_first)
+        ? rawBriefing.discourse.social_found_first.map((s: any) => ({
+            finding: String(s.finding ?? ''),
+            platform: String(s.platform ?? 'Reddit'),
+            engagement: String(s.engagement ?? ''),
+          })).slice(0, 3)
+        : [],
+      media_ignored: Array.isArray(rawBriefing.discourse.media_ignored)
+        ? rawBriefing.discourse.media_ignored.map(String).slice(0, 3)
+        : [],
+    } : null,
   }
 
   return {

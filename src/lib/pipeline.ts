@@ -8,6 +8,7 @@ import { fetchGoogleNewsResults } from '@/ingestion/google-news'
 import { findOutletByDomain } from '@/data/outlets'
 import { isBlockedDomain } from '@/data/blocklist'
 import { resetGlobalModelState } from '@/lib/models'
+import { normalizeCountryCode, inferRegionFromCountryCode } from '@/lib/country-codes'
 import { fetchArticle } from '@/ingestion/article-fetcher'
 import { triageSources } from '@/agents/triage'
 import { analyzeSilence } from '@/agents/silence'
@@ -56,19 +57,24 @@ function gdeltSeenDateToISO(seendate: string): string {
   }
 }
 
-/** Map country code → globe region ID */
-function mapCountryToRegionId(country: string): string {
-  const map: Record<string, string> = {
+/** Map country code OR full country name → globe region ID.
+ *  Haiku triage sometimes returns full names ("United States") instead of ISO codes ("US").
+ *  This handles both. */
+function mapCountryToRegionId(country: string): string | null {
+  if (!country || !country.trim()) return 'us'  // empty string = unknown, default to us
+
+  const ISO_MAP: Record<string, string> = {
     // North America
     US: 'us', CA: 'ca', MX: 'mx',
     // UK & Ireland
     GB: 'uk', IE: 'uk',
-    // Europe (comprehensive — was missing HU, PL, RO, AT, CZ, etc.)
+    // Europe
     FR: 'eu', DE: 'eu', IT: 'eu', ES: 'eu', NL: 'eu', SE: 'eu', NO: 'eu', BE: 'eu',
     AT: 'eu', CH: 'eu', PL: 'eu', CZ: 'eu', SK: 'eu', HU: 'eu', RO: 'eu', BG: 'eu',
     HR: 'eu', RS: 'eu', SI: 'eu', BA: 'eu', ME: 'eu', MK: 'eu', AL: 'eu', XK: 'eu',
     GR: 'eu', PT: 'eu', DK: 'eu', FI: 'eu', EE: 'eu', LV: 'eu', LT: 'eu',
     LU: 'eu', MT: 'eu', CY: 'eu', IS: 'eu', UA: 'eu', BY: 'eu', MD: 'eu',
+    AM: 'eu', GE: 'eu', AZ: 'eu',
     // Russia
     RU: 'ru',
     // Turkey
@@ -86,24 +92,76 @@ function mapCountryToRegionId(country: string): string {
     CI: 'af', CD: 'af', AO: 'af', MZ: 'af', ZW: 'af', RW: 'af', SO: 'af',
     // South & Central Asia
     IN: 'in', PK: 'pk', BD: 'in', LK: 'in', NP: 'in', AF: 'pk',
+    KG: 'in', KZ: 'in', TJ: 'in', UZ: 'in', TM: 'in', MV: 'in',
     // East Asia
     CN: 'cn', JP: 'jp', KR: 'kr', KP: 'kr', MN: 'cn',
     // Southeast Asia & Oceania
     SG: 'sea', TH: 'sea', MY: 'sea', ID: 'sea', PH: 'sea', VN: 'sea', MM: 'sea',
-    KH: 'sea', LA: 'sea', HK: 'cn', TW: 'cn',
-    AU: 'au', NZ: 'au',
+    KH: 'sea', LA: 'sea', BN: 'sea', HK: 'cn', TW: 'cn',
+    AU: 'au', NZ: 'au', FJ: 'au', PG: 'au',
     // Latin America & Caribbean
     BR: 'la', AR: 'la', CO: 'la', CL: 'la', PE: 'la', VE: 'la', UY: 'la',
     EC: 'la', BO: 'la', PY: 'la', GY: 'la', SR: 'la',
     PA: 'la', CR: 'la', NI: 'la', HN: 'la', SV: 'la', GT: 'la', BZ: 'la',
-    CU: 'la', DO: 'la', HT: 'la', JM: 'la', TT: 'la', PR: 'la',
+    CU: 'la', DO: 'la', HT: 'la', JM: 'la', TT: 'la', PR: 'la', BB: 'la',
   }
-  // Default to 'eu' for European-looking codes, otherwise 'us'
-  // This is a fallback — any country code not listed logs a warning
-  if (!map[country]) {
-    console.warn(`[timeline] Unmapped country code: ${country} — defaulting to 'us'`)
+
+  // Full country name → region ID (Haiku sometimes returns these instead of ISO codes)
+  const NAME_MAP: Record<string, string> = {
+    'united states': 'us', 'united states of america': 'us', 'usa': 'us', 'america': 'us',
+    'canada': 'ca', 'mexico': 'mx',
+    'united kingdom': 'uk', 'uk': 'uk', 'great britain': 'uk', 'england': 'uk', 'ireland': 'uk',
+    'france': 'eu', 'germany': 'eu', 'italy': 'eu', 'spain': 'eu', 'netherlands': 'eu',
+    'sweden': 'eu', 'norway': 'eu', 'belgium': 'eu', 'austria': 'eu', 'switzerland': 'eu',
+    'poland': 'eu', 'czech republic': 'eu', 'czechia': 'eu', 'slovakia': 'eu', 'slovak republic': 'eu',
+    'hungary': 'eu', 'romania': 'eu', 'bulgaria': 'eu', 'croatia': 'eu', 'serbia': 'eu',
+    'slovenia': 'eu', 'bosnia': 'eu', 'bosnia and herzegovina': 'eu', 'montenegro': 'eu',
+    'north macedonia': 'eu', 'macedonia': 'eu', 'albania': 'eu', 'kosovo': 'eu',
+    'greece': 'eu', 'portugal': 'eu', 'denmark': 'eu', 'finland': 'eu',
+    'estonia': 'eu', 'latvia': 'eu', 'lithuania': 'eu', 'ukraine': 'eu', 'belarus': 'eu',
+    'moldova': 'eu', 'armenia': 'eu', 'georgia': 'eu', 'azerbaijan': 'eu',
+    'luxembourg': 'eu', 'malta': 'eu', 'cyprus': 'eu', 'iceland': 'eu',
+    'russia': 'ru', 'russian federation': 'ru',
+    'turkey': 'tr', 'türkiye': 'tr',
+    'iran': 'ir',
+    'israel': 'il', 'palestine': 'il',
+    'saudi arabia': 'me', 'qatar': 'me', 'uae': 'me', 'united arab emirates': 'me',
+    'kuwait': 'me', 'bahrain': 'me', 'oman': 'me', 'yemen': 'me',
+    'iraq': 'me', 'syria': 'me', 'jordan': 'me', 'lebanon': 'me', 'egypt': 'me',
+    'kenya': 'af', 'south africa': 'af', 'nigeria': 'af', 'ghana': 'af',
+    'ethiopia': 'af', 'tanzania': 'af', 'uganda': 'af', 'sudan': 'af',
+    'libya': 'af', 'tunisia': 'af', 'algeria': 'af', 'morocco': 'af',
+    'india': 'in', 'pakistan': 'pk', 'bangladesh': 'in', 'sri lanka': 'in',
+    'nepal': 'in', 'afghanistan': 'pk', 'kyrgyzstan': 'in', 'maldives': 'in',
+    'china': 'cn', 'japan': 'jp', 'south korea': 'kr', 'north korea': 'kr', 'korea': 'kr',
+    'singapore': 'sea', 'thailand': 'sea', 'malaysia': 'sea', 'indonesia': 'sea',
+    'philippines': 'sea', 'vietnam': 'sea', 'myanmar': 'sea', 'cambodia': 'sea',
+    'brunei': 'sea', 'hong kong': 'cn', 'taiwan': 'cn',
+    'australia': 'au', 'new zealand': 'au', 'fiji': 'au',
+    'brazil': 'la', 'argentina': 'la', 'colombia': 'la', 'chile': 'la',
+    'peru': 'la', 'venezuela': 'la', 'uruguay': 'la', 'ecuador': 'la',
+    'bolivia': 'la', 'paraguay': 'la', 'cuba': 'la', 'barbados': 'la',
+    'trinidad': 'la', 'trinidad and tobago': 'la', 'jamaica': 'la',
+    'dominican republic': 'la', 'haiti': 'la', 'puerto rico': 'la',
   }
-  return map[country] || 'us'
+
+  // Normalize to ISO code first (handles "United States" → "US", "Latvia" → "LV", etc.)
+  const normalized = normalizeCountryCode(country)
+  if (normalized && ISO_MAP[normalized]) return ISO_MAP[normalized]
+
+  // Try raw ISO code (uppercase)
+  const upper = country.toUpperCase().trim()
+  if (ISO_MAP[upper]) return ISO_MAP[upper]
+
+  // Try full country name (lowercase)
+  const lower = country.toLowerCase().trim()
+  if (NAME_MAP[lower]) return NAME_MAP[lower]
+
+  // NEVER default to 'us' — exclude unmapped sources from map instead
+  if (country.trim()) {
+    console.warn(`[timeline] Unmapped country: "${country}" — excluding from map`)
+  }
+  return null
 }
 
 /** Format timeline label based on span duration */
@@ -154,6 +212,7 @@ function buildTimelineBuckets(
     const regionMap = new Map<string, { outlets: Set<string>; country: string }>()
     for (const a of withDates) {
       const rid = mapCountryToRegionId(a.country)
+      if (!rid) continue  // Skip unmapped countries — don't default to US
       if (!regionMap.has(rid)) regionMap.set(rid, { outlets: new Set(), country: a.country })
       regionMap.get(rid)!.outlets.add(a.outlet)
     }
@@ -184,6 +243,7 @@ function buildTimelineBuckets(
     const regionMap = new Map<string, { outlets: Set<string>; country: string }>()
     for (const a of articlesUpTo) {
       const rid = mapCountryToRegionId(a.country)
+      if (!rid) continue  // Skip unmapped countries
       if (!regionMap.has(rid)) regionMap.set(rid, { outlets: new Set(), country: a.country })
       regionMap.get(rid)!.outlets.add(a.outlet)
     }
@@ -792,10 +852,16 @@ export async function runVerifyPipeline(
     sourcesByRegion.set(region, [])
   }
   let droppedUnknown = 0
+  let inferredRegions = 0
   for (const source of substantiveArticles) {
-    // Drop sources with no identifiable region or outlet
+    // Try to infer missing region from country code
     if (!source.region || source.region === 'Unknown' || source.region === 'unknown' || source.region === '') {
-      if (!source.outlet || source.outlet === 'Unknown' || source.outlet === '') {
+      const isoCode = normalizeCountryCode(source.country)
+      const inferred = inferRegionFromCountryCode(isoCode)
+      if (inferred) {
+        source.region = inferred
+        inferredRegions++
+      } else if (!source.outlet || source.outlet === 'Unknown' || source.outlet === '') {
         droppedUnknown++
         continue
       }
@@ -810,6 +876,9 @@ export async function runVerifyPipeline(
         contentQuality: source.contentQuality,
       })
     }
+  }
+  if (inferredRegions > 0) {
+    console.log(`[pipeline] Inferred region for ${inferredRegions} sources from country code`)
   }
   if (droppedUnknown > 0) {
     console.log(`[pipeline] Dropped ${droppedUnknown} sources with no identifiable region/outlet`)

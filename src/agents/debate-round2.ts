@@ -127,7 +127,7 @@ ${sourceText}`
     tier: 'deep',
     system: buildSystemPrompt(region, query),
     userMessage: userPrompt,
-    maxTokens: 8192,
+    maxTokens: 12288,
     agentType: 'debate_r2',
     region,
     storyId,
@@ -137,17 +137,37 @@ ${sourceText}`
   try {
     analysis = parseJSON<Round2Analysis>(result.text)
   } catch (err) {
-    console.warn(`[Debate R2] ${model.name} parse failed for ${region}. Raw:`, result.text.substring(0, 300))
-    // Return empty analysis so the debate continues without this model's R2
-    analysis = {
-      model_name: model.name,
-      region,
-      confirmations: [],
-      challenges: [],
-      corrections: [],
-      additions: [],
-      concessions: [],
-      provenance_flags: [],
+    // Check if truncated (doesn't end with })
+    const trimmed = result.text.trim()
+    if (trimmed.length > 100 && !trimmed.endsWith('}')) {
+      console.warn(`[Debate R2] ${model.name} output truncated for ${region} — attempting salvage`)
+      // Try to close unclosed JSON structures
+      let salvage = trimmed
+      let braces = 0, brackets = 0
+      for (const c of salvage) {
+        if (c === '{') braces++; if (c === '}') braces--
+        if (c === '[') brackets++; if (c === ']') brackets--
+      }
+      while (brackets > 0) { salvage += ']'; brackets-- }
+      while (braces > 0) { salvage += '}'; braces-- }
+      try {
+        analysis = parseJSON<Round2Analysis>(salvage)
+        console.log(`[Debate R2] Salvaged truncated ${model.name} output for ${region}`)
+      } catch {
+        console.warn(`[Debate R2] ${model.name} salvage failed for ${region}. Raw:`, result.text.substring(0, 300))
+        analysis = {
+          model_name: model.name, region,
+          confirmations: [], challenges: [], corrections: [],
+          additions: [], concessions: [], provenance_flags: [],
+        }
+      }
+    } else {
+      console.warn(`[Debate R2] ${model.name} parse failed for ${region}. Raw:`, result.text.substring(0, 300))
+      analysis = {
+        model_name: model.name, region,
+        confirmations: [], challenges: [], corrections: [],
+        additions: [], concessions: [], provenance_flags: [],
+      }
     }
   }
   analysis.model_name = model.name

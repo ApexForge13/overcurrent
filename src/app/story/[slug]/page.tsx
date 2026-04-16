@@ -121,7 +121,7 @@ export default async function StoryPage({
         {/* ReAnalyzeButton hidden from public — admin only via /admin */}
       </div>
       <StoryPaywallWrapper slug={slug}>
-        <StoryDetail story={story} />
+        <StoryDetail story={JSON.parse(JSON.stringify(story))} />
       </StoryPaywallWrapper>
 
       {/* More Analyses */}

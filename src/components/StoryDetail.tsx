@@ -507,11 +507,45 @@ export function StoryDetail({ story }: StoryDetailProps) {
         publishedAt={story.publishedAt ? new Date(story.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
       />
 
-      {/* ══════════════ LAYER 2: THE BRIEFING ══════════════ */}
+      {/* ══════════════ LAYER 2: THE BRIEFING ══════════════
+          Order: Map → Missed → Died → Dispute → Frames → Public → Watch
+          Each section connected by a story-specific bridge line.
+          ══════════════════════════════════════════════════════ */}
       {hasBriefing ? (
         <div style={{ marginTop: "48px" }}>
+
+          {/* 1. PROPAGATION MAP — visual hook at top of briefing */}
+          {propagationTimeline && propagationTimeline.length >= 3 && (
+            <div style={{ marginTop: "0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+                  HOW THIS STORY TRAVELED
+                </span>
+                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
+              </div>
+              <PropagationGlobeClient timeline={propagationTimeline} storyHeadline={story.headline} />
+            </div>
+          )}
+
+          {/* Bridge: Map → Missed */}
+          {briefingParsed.bridges?.toMissed && (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", fontStyle: "italic", color: "var(--text-secondary)", margin: "32px 0", lineHeight: 1.6, maxWidth: "640px" }}>
+              {briefingParsed.bridges.toMissed}
+            </p>
+          )}
+
+          {/* 2. WHAT THE WORLD MISSED */}
           <BriefingMissed items={briefingParsed.missed || []} />
-          <BriefingFrames frames={briefingParsed.frames || []} />
+
+          {/* Bridge: Missed → Died */}
+          {briefingParsed.bridges?.toDied && (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", fontStyle: "italic", color: "var(--text-secondary)", margin: "32px 0", lineHeight: 1.6, maxWidth: "640px" }}>
+              {briefingParsed.bridges.toDied}
+            </p>
+          )}
+
+          {/* 3. WHAT DIED */}
           {briefingParsed.fact_survival && (
             <BriefingFacts
               onScene={briefingParsed.fact_survival.on_scene}
@@ -521,6 +555,15 @@ export function StoryDetail({ story }: StoryDetailProps) {
               diedInternational={briefingParsed.fact_survival.died_international}
             />
           )}
+
+          {/* Bridge: Died → Dispute */}
+          {briefingParsed.bridges?.toDispute && (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", fontStyle: "italic", color: "var(--text-secondary)", margin: "32px 0", lineHeight: 1.6, maxWidth: "640px" }}>
+              {briefingParsed.bridges.toDispute}
+            </p>
+          )}
+
+          {/* 4. THE KEY DISPUTE */}
           {briefingParsed.key_dispute && (
             <BriefingDispute
               question={briefingParsed.key_dispute.question}
@@ -531,11 +574,27 @@ export function StoryDetail({ story }: StoryDetailProps) {
               resolution={briefingParsed.key_dispute.resolution}
             />
           )}
-          <BriefingWatch questions={briefingParsed.watch || []} />
 
-          {/* ── WHAT THE PUBLIC CAUGHT — last briefing section before vault ── */}
+          {/* Bridge: Dispute → Frames */}
+          {briefingParsed.bridges?.toFrames && (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", fontStyle: "italic", color: "var(--text-secondary)", margin: "32px 0", lineHeight: 1.6, maxWidth: "640px" }}>
+              {briefingParsed.bridges.toFrames}
+            </p>
+          )}
+
+          {/* 5. HOW THEY FRAMED IT */}
+          <BriefingFrames frames={briefingParsed.frames || []} />
+
+          {/* Bridge: Frames → Public */}
+          {briefingParsed.bridges?.toDiscourse && (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", fontStyle: "italic", color: "var(--text-secondary)", margin: "32px 0", lineHeight: 1.6, maxWidth: "640px" }}>
+              {briefingParsed.bridges.toDiscourse}
+            </p>
+          )}
+
+          {/* 6. WHAT THE PUBLIC CAUGHT */}
           {story.discourseGap && (
-            <div style={{ marginTop: '48px' }}>
+            <div style={{ marginTop: '32px' }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
                 <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-purple)" }}>
@@ -547,19 +606,16 @@ export function StoryDetail({ story }: StoryDetailProps) {
             </div>
           )}
 
-          {/* Propagation Map in briefing layer */}
-          {propagationTimeline && propagationTimeline.length >= 3 && (
-            <div style={{ marginTop: "32px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
-                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
-                  HOW THIS STORY TRAVELED
-                </span>
-                <div style={{ flex: 1, height: "1px", background: "var(--border-primary)" }} />
-              </div>
-              <PropagationGlobeClient timeline={propagationTimeline} storyHeadline={story.headline} />
-            </div>
+          {/* Bridge: Public → Watch */}
+          {briefingParsed.bridges?.toWatch && (
+            <p style={{ fontFamily: "var(--font-body)", fontSize: "15px", fontStyle: "italic", color: "var(--text-secondary)", margin: "32px 0", lineHeight: 1.6, maxWidth: "640px" }}>
+              {briefingParsed.bridges.toWatch}
+            </p>
           )}
+
+          {/* 7. WHAT TO WATCH */}
+          <BriefingWatch questions={briefingParsed.watch || []} />
+
         </div>
       ) : (
         /* ── LEGACY LAYOUT (for old stories without briefingData) ── */

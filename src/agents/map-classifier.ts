@@ -1,5 +1,6 @@
 import { callClaude, parseJSON, HAIKU } from '@/lib/anthropic'
 import { JSON_RULES } from './prompts'
+import { normalizeCountryCode } from '@/lib/country-codes'
 
 export interface CountryClassification {
   country_code: string
@@ -71,17 +72,34 @@ export function countryToRegionId(country: string): string {
     US: 'us', CA: 'ca', MX: 'mx', GB: 'uk', IE: 'uk',
     FR: 'eu', DE: 'eu', IT: 'eu', ES: 'eu', NL: 'eu', SE: 'eu', NO: 'eu', BE: 'eu',
     CH: 'eu', CZ: 'eu', DK: 'eu', FI: 'eu', GR: 'eu', HU: 'eu', PL: 'eu', PT: 'eu', UA: 'eu',
+    AT: 'eu', LU: 'eu', MT: 'eu', CY: 'eu', IS: 'eu', SK: 'eu', SI: 'eu', HR: 'eu',
+    RS: 'eu', BA: 'eu', ME: 'eu', MK: 'eu', AL: 'eu', XK: 'eu', MD: 'eu', BY: 'eu',
+    LT: 'eu', LV: 'eu', EE: 'eu', RO: 'eu', BG: 'eu', GE: 'eu', AM: 'eu', AZ: 'eu',
     RU: 'ru', TR: 'tr', IR: 'ir', IL: 'il',
-    SA: 'me', QA: 'me', AE: 'me', EG: 'me',
-    KE: 'af', ZA: 'af', NG: 'af', GH: 'af', ET: 'af', TZ: 'af',
-    IN: 'in', PK: 'pk', BD: 'in', LK: 'in', NP: 'in', AF: 'in',
-    CN: 'cn', JP: 'jp', KR: 'kr', HK: 'cn', TW: 'cn',
-    SG: 'sea', TH: 'sea', ID: 'sea', MY: 'sea', PH: 'sea', VN: 'sea',
-    AU: 'au', NZ: 'au',
+    SA: 'me', QA: 'me', AE: 'me', EG: 'me', JO: 'me', LB: 'me', IQ: 'me', SY: 'me',
+    KW: 'me', BH: 'me', OM: 'me', YE: 'me', PS: 'me',
+    KE: 'af', ZA: 'af', NG: 'af', GH: 'af', ET: 'af', TZ: 'af', UG: 'af',
+    CM: 'af', SN: 'af', RW: 'af', ZW: 'af', ZM: 'af', MZ: 'af', SD: 'af',
+    LY: 'af', TN: 'af', DZ: 'af', MA: 'af', SO: 'af', ML: 'af',
+    IN: 'in', PK: 'pk', BD: 'in', LK: 'in', NP: 'in', AF: 'in', MV: 'in',
+    KZ: 'in', KG: 'in', UZ: 'in', TJ: 'in', TM: 'in',
+    CN: 'cn', JP: 'jp', KR: 'kr', HK: 'cn', TW: 'cn', MN: 'cn',
+    SG: 'sea', TH: 'sea', ID: 'sea', MY: 'sea', PH: 'sea', VN: 'sea', MM: 'sea',
+    KH: 'sea', LA: 'sea', BN: 'sea',
+    AU: 'au', NZ: 'au', FJ: 'au', PG: 'au',
     BR: 'la', AR: 'la', CO: 'la', CL: 'la', PE: 'la', VE: 'la', UY: 'la',
-    KZ: 'in', KG: 'in',
+    EC: 'la', BO: 'la', PY: 'la', PA: 'la', CR: 'la', GT: 'la', HN: 'la',
+    SV: 'la', NI: 'la', CU: 'la', DO: 'la', JM: 'la', TT: 'la', PR: 'la', BB: 'la',
   }
-  return map[country] || 'us'
+  // Normalize: handle full country names, lowercase codes, etc.
+  const upper = country?.toUpperCase().trim()
+  if (upper && map[upper]) return map[upper]
+
+  // Try normalizing full country name → ISO code
+  const normalized = normalizeCountryCode(country)
+  if (normalized && map[normalized]) return map[normalized]
+
+  return 'us'
 }
 
 export async function classifyMapRegions(

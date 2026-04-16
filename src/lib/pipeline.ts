@@ -61,7 +61,7 @@ function gdeltSeenDateToISO(seendate: string): string {
  *  Haiku triage sometimes returns full names ("United States") instead of ISO codes ("US").
  *  This handles both. */
 function mapCountryToRegionId(country: string): string | null {
-  if (!country || !country.trim()) return 'us'  // empty string = unknown, default to us
+  if (!country || !country.trim()) return null  // empty = unknown, exclude from map
 
   const ISO_MAP: Record<string, string> = {
     // North America

@@ -512,6 +512,18 @@ function CountryBorders({ globeRotation, activeRegions, borderStatuses }: Countr
   // Rule 4: Only 4 active colors: green, blue, yellow, red
   // ═══════════════════════════════════════════════════════════════════
   useEffect(() => {
+    // Debug: log what data each active region has
+    if (activeRegions && activeRegions.size > 0) {
+      const debugEntries: string[] = []
+      activeRegions.forEach((data, rid) => {
+        const norm = normalizeStatus(data.status)
+        const active = isActiveStatus(data.status)
+        const border = borderStatuses?.get(rid) || data.status
+        debugEntries.push(`${rid}: status=${data.status}(${norm}) border=${border} active=${active}`)
+      })
+      console.log('[Globe] Region data:', debugEntries.join(' | '))
+    }
+
     // BORDERS — color = how they received it
     countryLines.forEach(({ line, regionId }) => {
       const mat = line.material as THREE.LineBasicMaterial

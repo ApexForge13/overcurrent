@@ -159,14 +159,15 @@ export async function classifyMapRegions(
     }
   }
 
-  const userPrompt = `STORY: ${story.headline}
+  // ── BATCH CLASSIFICATION: 5 regions per call for more attention per region ──
+  const allRegionIds = [...new Set([...regionSummary.map(r => r.region_id), ...uncoveredRegions])]
+  const BATCH_SIZE = 5
+  const allClassifications: CountryClassification[] = []
+  let totalCost = 0
+
+  // Context shared across all batches
+  const sharedContext = `STORY: ${story.headline}
 Synopsis: ${story.synopsis || 'N/A'}
-
-SOURCES BY REGION (${regionSummary.length} regions, ${story.sources.length} total sources):
-${JSON.stringify(regionSummary, null, 2)}
-
-REGIONS WITHOUT SOURCES (classify as no_coverage, adjacent_coverage, or displaced_coverage):
-${JSON.stringify(uncoveredRegions)}
 
 REGIONAL FRAMINGS FROM SYNTHESIS:
 ${JSON.stringify(story.framings.map(f => ({ region: f.region, framing: f.framing, contrast: f.contrastWith })), null, 2)}
@@ -175,38 +176,88 @@ DISCREPANCIES FOUND:
 ${JSON.stringify(story.discrepancies.map(d => ({ issue: d.issue, sideA: d.sideA, sideB: d.sideB, sourcesA: d.sourcesA, sourcesB: d.sourcesB })), null, 2)}
 
 KEY CLAIMS:
-${JSON.stringify(story.claims.slice(0, 8).map(c => ({ claim: c.claim, confidence: c.confidence, supportedBy: c.supportedBy, contradictedBy: c.contradictedBy })), null, 2)}
+${JSON.stringify(story.claims.slice(0, 8).map(c => ({ claim: c.claim, confidence: c.confidence, supportedBy: c.supportedBy, contradictedBy: c.contradictedBy })), null, 2)}`
 
-MANDATORY CLASSIFICATION HINTS (do NOT ignore these):
-- Regions with STATE MEDIA outlets [${stateMediaRegions.join(', ')}]: These MUST be classified as fill_status="reframed" or "contradicted" — state media ALWAYS applies editorial framing. NEVER classify state media regions as "wire_copy".
-- Regions with CONTRASTING framings in the synthesis: [${regionsWithContrast.join(', ')}] — These have distinct editorial angles. Classify as "reframed" not "wire_copy".
-- Regions involved in DISCREPANCIES: [${[...regionsInDiscrepancies].join(', ')}] — outlets from these regions disagree on key claims. At least one side should be "reframed" or "contradicted".
-- The MAJORITY of regions should NOT be wire_copy. Wire copy means running AP/Reuters verbatim with zero editorial additions. Most outlets add headlines, context, commentary — that's "reframed". Only classify as wire_copy if the outlet literally ran wire text unchanged.
-- Expect: 1 original, 3-6 reframed, 1-3 contradicted, rest wire_copy or no_coverage. If your output has >10 wire_copy, you're being too lazy — go back and differentiate.
+  for (let i = 0; i < allRegionIds.length; i += BATCH_SIZE) {
+    const batchRegionIds = allRegionIds.slice(i, i + BATCH_SIZE)
+    const batchRegions = regionSummary.filter(r => batchRegionIds.includes(r.region_id))
+    const batchUncovered = batchRegionIds.filter(r => uncoveredRegions.includes(r))
 
-Classify EVERY region — both those WITH sources and those WITHOUT.`
+    const batchHints: string[] = []
+    for (const rid of batchRegionIds) {
+      if (stateMediaRegions.includes(rid)) batchHints.push(`${rid}: HAS STATE MEDIA — must be "reframed" or "contradicted", NEVER "wire_copy"`)
+      if (regionsWithContrast.some(r => r.toLowerCase().includes(rid))) batchHints.push(`${rid}: HAS CONTRASTING FRAMING — classify as "reframed"`)
+      if (regionsInDiscrepancies.has(rid)) batchHints.push(`${rid}: INVOLVED IN DISCREPANCY — likely "reframed" or "contradicted"`)
+    }
 
-  const result = await callClaude({
-    model: HAIKU,
-    systemPrompt: SYSTEM_PROMPT,
-    userPrompt,
-    agentType: 'map-classifier',
-    maxTokens: 4096,
-    storyId,
+    const batchPrompt = `${sharedContext}
+
+CLASSIFY THESE ${batchRegionIds.length} REGIONS:
+${JSON.stringify(batchRegions, null, 2)}
+
+${batchUncovered.length > 0 ? `REGIONS WITHOUT SOURCES (use no_coverage/adjacent_coverage/displaced_coverage): ${JSON.stringify(batchUncovered)}` : ''}
+
+${batchHints.length > 0 ? `MANDATORY HINTS:\n${batchHints.join('\n')}` : ''}
+
+RULES:
+- wire_copy = outlet ran AP/Reuters/AFP text VERBATIM. No editorial additions whatsoever.
+- reframed = outlet added its own headline, commentary, regional angle, or editorial context. This is MOST outlets.
+- contradicted = outlet's primary frame OPPOSES the consensus. Not just quoting the other side — LEADING with a counter-narrative.
+- original = the story originated here. Only 1-2 regions qualify.
+- If an outlet added ANY editorial framing beyond wire text, classify as "reframed", not "wire_copy".
+
+Respond with JSON: { "classifications": [...] }`
+
+    try {
+      const result = await callClaude({
+        model: HAIKU,
+        systemPrompt: SYSTEM_PROMPT,
+        userPrompt: batchPrompt,
+        agentType: 'map-classifier',
+        maxTokens: 2048,
+        storyId,
+      })
+      totalCost += result.costUsd
+
+      const parsed = parseJSON<{ classifications: CountryClassification[] }>(result.text)
+      if (parsed.classifications) {
+        for (const c of parsed.classifications) {
+          allClassifications.push({
+            country_code: String(c.country_code ?? ''),
+            region_id: String(c.region_id ?? ''),
+            outlet_count: Number(c.outlet_count ?? 0),
+            outlets: Array.isArray(c.outlets) ? c.outlets.map(String) : [],
+            border_status: (['original', 'wire_copy', 'reframed', 'no_coverage'].includes(c.border_status) ? c.border_status : 'reframed') as CountryClassification['border_status'],
+            fill_status: (['original', 'wire_copy', 'reframed', 'contradicted', 'no_coverage', 'adjacent_coverage', 'displaced_coverage'].includes(c.fill_status) ? c.fill_status : 'reframed') as CountryClassification['fill_status'],
+            dominant_framing: String(c.dominant_framing ?? ''),
+          })
+        }
+        console.log(`[map] Batch ${Math.floor(i/BATCH_SIZE)+1}: classified ${parsed.classifications.length} regions`)
+      }
+    } catch (err) {
+      console.warn(`[map] Batch ${Math.floor(i/BATCH_SIZE)+1} failed:`, err instanceof Error ? err.message : err)
+      // Add uncovered defaults for failed batch
+      for (const rid of batchRegionIds) {
+        allClassifications.push({
+          country_code: rid.toUpperCase(),
+          region_id: rid,
+          outlet_count: 0,
+          outlets: [],
+          border_status: 'no_coverage',
+          fill_status: 'no_coverage',
+          dominant_framing: 'Classification failed',
+        })
+      }
+    }
+  }
+
+  // Deduplicate by region_id (keep first)
+  const seen = new Set<string>()
+  const deduped = allClassifications.filter(c => {
+    if (seen.has(c.region_id)) return false
+    seen.add(c.region_id)
+    return true
   })
 
-  const parsed = parseJSON<{ classifications: CountryClassification[] }>(result.text)
-
-  return {
-    classifications: (parsed.classifications ?? []).map(c => ({
-      country_code: String(c.country_code ?? ''),
-      region_id: String(c.region_id ?? ''),
-      outlet_count: Number(c.outlet_count ?? 0),
-      outlets: Array.isArray(c.outlets) ? c.outlets.map(String) : [],
-      border_status: (['original', 'wire_copy', 'reframed', 'no_coverage'].includes(c.border_status) ? c.border_status : 'wire_copy') as CountryClassification['border_status'],
-      fill_status: (['original', 'wire_copy', 'reframed', 'contradicted', 'no_coverage', 'adjacent_coverage', 'displaced_coverage'].includes(c.fill_status) ? c.fill_status : 'wire_copy') as CountryClassification['fill_status'],
-      dominant_framing: String(c.dominant_framing ?? ''),
-    })),
-    costUsd: result.costUsd,
-  }
+  return { classifications: deduped, costUsd: totalCost }
 }

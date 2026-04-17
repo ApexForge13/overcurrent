@@ -215,6 +215,44 @@ export async function fetchArticle(
     }
   } catch (err) {
     console.warn(`[fetch] Extraction error for ${url}:`, err instanceof Error ? err.message : err)
+
+    // Try Wayback Machine for sites that block us at the network level (PressTV, Tasnim, etc.)
+    try {
+      const waybackUrl = `https://web.archive.org/web/2026/${url}`
+      const waybackResp = await fetch(waybackUrl, {
+        signal: AbortSignal.timeout(15_000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+      })
+      if (waybackResp.ok) {
+        const waybackHtml = await waybackResp.text()
+        const jsdom = await import('jsdom')
+        const { Readability } = await import('@mozilla/readability')
+        const virtualConsole = new jsdom.VirtualConsole()
+        virtualConsole.on('error', () => {})
+        const dom = new jsdom.JSDOM(waybackHtml, { url, virtualConsole })
+        const reader = new Readability(dom.window.document)
+        const article = reader.parse()
+        if (article?.content) {
+          const plainText = stripHtml(article.content)
+          if (plainText && plainText.length > 50) {
+            const truncated = truncateWords(plainText, MAX_WORDS)
+            const wordCount = truncated.split(/\s+/).length
+            console.log(`[fetch] Wayback Machine hit for ${url} (${wordCount} words)`)
+            return {
+              title: article.title ?? rssTitle ?? '',
+              content: truncated,
+              length: wordCount,
+              contentQuality: classifyQuality(wordCount),
+            }
+          }
+        }
+      }
+    } catch {
+      // Wayback also failed — fall through to snippet
+    }
+
     // Fall back to RSS snippet if available
     if (rssSnippet && rssSnippet.length >= 50) {
       const snippetText = stripHtml(rssSnippet)

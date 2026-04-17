@@ -114,14 +114,82 @@ function matchesKeywordsLenient(text: string, kw: SplitKeywords): boolean {
   return kw.all.some(k => lower.includes(k))
 }
 
+// Words that are capitalized in headlines but aren't actually proper nouns.
+// We strip these from dynamic anchor detection.
+const STOP_PROPER = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'of', 'in', 'on', 'at', 'to', 'for',
+  'both', 'from', 'with', 'after', 'before', 'during', 'this', 'that', 'these',
+  'those', 'hottest', 'record', 'lower', 'over', 'under', 'into', 'out',
+  'more', 'most', 'some', 'all', 'new', 'old', 'big', 'against', 'threatens',
+  'resign', 'resigns', 'votes', 'wins', 'loses', 'says', 'told', 'calls',
+  'rally', 'rallies', 'protest', 'protests', 'march', 'marches',
+])
+
+/**
+ * Detect proper-noun anchors from the ORIGINAL (case-sensitive) query.
+ * Logic:
+ *  - Any capitalized word 3+ chars that isn't in STOP_PROPER
+ *  - Any multi-word capitalized phrase (e.g. "Lower 48", "Strait of Hormuz")
+ *  - All-caps acronyms (NOAA, NATO, UN, EU)
+ */
+function extractDynamicAnchors(query: string): string[] {
+  const dynamic = new Set<string>()
+
+  // All-caps acronyms (2+ chars) — NOAA, NATO, UN, EU, CBS, FBI
+  const acronyms = query.match(/\b[A-Z]{2,}\b/g) || []
+  for (const a of acronyms) {
+    dynamic.add(a.toLowerCase())
+  }
+
+  // Proper nouns: single capitalized words 3+ chars not in stoplist
+  const words = query.split(/\s+/)
+  for (const raw of words) {
+    // Strip punctuation
+    const clean = raw.replace(/[^\p{L}0-9]/gu, '')
+    if (clean.length < 3) continue
+    // Must start with uppercase in the original (proper noun signal)
+    if (!/^[A-ZÀ-ÿ]/.test(clean)) continue
+    const lower = clean.toLowerCase()
+    if (STOP_PROPER.has(lower)) continue
+    dynamic.add(lower)
+  }
+
+  // 4-digit years (2020-2099) are strong topic anchors
+  const years = query.match(/\b(20[2-9]\d)\b/g) || []
+  for (const y of years) dynamic.add(y)
+
+  // Multi-word capitalized phrases ("Strait of Hormuz", "White House", "South China Sea")
+  // Cap at 3-word phrases to avoid matching entire titles.
+  const phrases = query.match(/\b[A-Z][a-z]+(?:\s+(?:of|the)\s+[A-Z][a-z]+|\s+[A-Z][a-z]+){1,2}\b/g) || []
+  for (const p of phrases) {
+    // Skip if the phrase contains a stopword at the start
+    const firstWord = p.split(/\s+/)[0].toLowerCase()
+    if (STOP_PROPER.has(firstWord)) continue
+    dynamic.add(p.toLowerCase())
+  }
+
+  // "Lower 48" style phrases (capitalized word + number)
+  const wordNumber = query.match(/\b[A-Z][a-z]+\s+\d+\b/g) || []
+  for (const p of wordNumber) {
+    dynamic.add(p.toLowerCase())
+  }
+
+  return Array.from(dynamic)
+}
+
 /**
  * Extract keywords from a query string, split into anchors and context.
+ * Combines three anchor sources:
+ *  1. Hardcoded ANCHOR_WORDS (countries, leaders, orgs we know about)
+ *  2. Dynamic detection: capitalized proper nouns in the query
+ *  3. Acronyms (NOAA, NATO, etc.)
  * Also generates broader variants for international matching.
  */
 export function queryToKeywords(query: string): SplitKeywords {
   const words = query
     .toLowerCase()
     .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}0-9]/gu, ''))
     .filter((w) => w.length > 2)
 
   // Add common international variations
@@ -135,10 +203,29 @@ export function queryToKeywords(query: string): SplitKeywords {
   if (words.includes('honduras')) extras.push('honduran', 'tegucigalpa', 'central america')
   if (words.includes('migrant')) extras.push('migration', 'immigrant', 'refugee', 'caravan', 'asylum')
   if (words.includes('blockade')) extras.push('embargo', 'naval', 'siege')
+  if (words.includes('tehran')) extras.push('iran', 'iranian', 'tehran rally', 'tehran protest')
+  if (words.includes('congress')) extras.push('house', 'senate', 'representative', 'senator', 'lawmaker')
+  if (words.includes('resign')) extras.push('resigns', 'resignation', 'steps down', 'stepping down')
+  if (words.includes('hottest')) extras.push('record', 'temperature', 'heat', 'climate', 'warming', 'noaa')
 
   const all = [...new Set([...words, ...extras])]
-  const anchors = all.filter(w => ANCHOR_WORDS.has(w))
-  const context = all.filter(w => !ANCHOR_WORDS.has(w))
+
+  // Dynamic anchor detection from ORIGINAL query (case-sensitive)
+  const dynamicAnchors = extractDynamicAnchors(query)
+
+  // Merge hardcoded + dynamic anchors
+  const anchorSet = new Set<string>()
+  for (const w of all) {
+    if (ANCHOR_WORDS.has(w)) anchorSet.add(w)
+  }
+  for (const a of dynamicAnchors) {
+    anchorSet.add(a)
+    // Also add to the flat list if not already present
+    if (!all.includes(a)) all.push(a)
+  }
+
+  const anchors = Array.from(anchorSet)
+  const context = all.filter(w => !anchorSet.has(w))
 
   return { anchors, context, all }
 }

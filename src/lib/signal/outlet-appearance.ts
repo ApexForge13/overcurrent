@@ -47,6 +47,19 @@ export async function writeOutletAppearances(rows: AppearanceInput[]): Promise<{
     console.warn('[appearance] Outlet lookup failed, continuing with null outletIds:', err instanceof Error ? err.message : err)
   }
 
+  // Validate Date objects — new Date("invalid") returns a truthy Invalid Date
+  // that passes the ?? null guard but crashes Prisma inserts.
+  function validDate(d: Date | null | undefined): Date | null {
+    if (!d) return null
+    if (Number.isNaN(d.getTime())) return null
+    return d
+  }
+  function validNumber(n: number | null | undefined): number | null {
+    if (n === null || n === undefined) return null
+    if (Number.isNaN(n) || !Number.isFinite(n)) return null
+    return n
+  }
+
   const data = rows.map((r) => ({
     outletId: outletLookup.get(normalizeDomain(r.outletDomain)) ?? null,
     outletDomain: normalizeDomain(r.outletDomain),
@@ -57,8 +70,8 @@ export async function writeOutletAppearances(rows: AppearanceInput[]): Promise<{
     framingAngle: r.framingAngle ?? null,
     wasLeadingFraming: r.wasLeadingFraming ?? false,
     sourceTypes: r.sourceTypes ? JSON.stringify(r.sourceTypes) : null,
-    publishedAt: r.publishedAt ?? null,
-    hoursFromFirstDetection: r.hoursFromFirstDetection ?? null,
+    publishedAt: validDate(r.publishedAt),
+    hoursFromFirstDetection: validNumber(r.hoursFromFirstDetection),
     isBackfilled: r.isBackfilled ?? false,
   }))
 

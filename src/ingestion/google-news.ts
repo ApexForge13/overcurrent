@@ -211,9 +211,19 @@ export async function fetchGoogleNewsResults(
   anchors: string[],
   maxPerLanguage: number = 30,
 ): Promise<GoogleNewsResult[]> {
+  // If no anchors, fall back to using significant query words
+  let searchTerms = anchors
   if (anchors.length === 0) {
-    console.warn('[Google News] No anchors provided, skipping')
-    return []
+    const queryWords = query
+      .split(/\s+/)
+      .map((w) => w.replace(/[^\p{L}0-9]/gu, ''))
+      .filter((w) => w.length >= 4) // skip tiny filler words
+    searchTerms = queryWords.slice(0, 5)
+    if (searchTerms.length === 0) {
+      console.warn('[Google News] Empty query, skipping')
+      return []
+    }
+    console.log(`[Google News] No anchors — falling back to query words: ${searchTerms.join(', ')}`)
   }
 
   // Fetch all 6 language feeds in parallel, with a small stagger
@@ -226,7 +236,7 @@ export async function fetchGoogleNewsResults(
     const delayMs = i * 1000
     feedPromises.push(
       sleep(delayMs).then(() =>
-        fetchLanguageFeed(anchors, feed, maxPerLanguage),
+        fetchLanguageFeed(searchTerms, feed, maxPerLanguage),
       ),
     )
   }

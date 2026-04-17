@@ -658,7 +658,13 @@ export async function runVerifyPipeline(
   // Override unknown politicalLean/reliability with outlet registry data
   for (const source of triageResult.sources) {
     if (source.politicalLean === 'unknown' || source.reliability === 'unknown') {
-      const domain = new URL(source.url).hostname.replace(/^www\./, '')
+      let domain = ''
+      try {
+        domain = new URL(source.url).hostname.replace(/^www\./, '')
+      } catch {
+        // Malformed URL — skip registry lookup for this source
+        continue
+      }
       const outlet = findOutletByDomain(domain)
       if (outlet) {
         if (source.politicalLean === 'unknown') source.politicalLean = outlet.politicalLean

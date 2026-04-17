@@ -16,7 +16,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { status, headline, synopsis } = body as { status?: string; headline?: string; synopsis?: string }
+  const { status, headline, synopsis, thePattern } = body as {
+    status?: string
+    headline?: string
+    synopsis?: string
+    thePattern?: string
+  }
 
   if (status !== undefined && !VALID_STATUSES.includes(status)) {
     return Response.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, { status: 400 })
@@ -30,10 +35,15 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     return Response.json({ error: 'synopsis must be a string' }, { status: 400 })
   }
 
+  if (thePattern !== undefined && typeof thePattern !== 'string') {
+    return Response.json({ error: 'thePattern must be a string' }, { status: 400 })
+  }
+
   const data: Record<string, unknown> = {}
   if (status !== undefined) data.status = status
   if (headline !== undefined) data.headline = headline
   if (synopsis !== undefined) data.synopsis = synopsis
+  if (thePattern !== undefined) data.thePattern = thePattern
   if (status === 'published') data.publishedAt = new Date()
 
   const story = await prisma.story.update({ where: { id }, data })

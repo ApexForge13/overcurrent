@@ -5,7 +5,7 @@ import { searchGdeltGlobal, getRegionFromCountryName } from '@/ingestion/gdelt'
 import { scanRssFeeds, queryToKeywords } from '@/ingestion/rss'
 import { fetchGoogleNewsResults } from '@/ingestion/google-news'
 // searchReddit removed — Reddit is Stream 2 only (Discourse Gap)
-import { findOutletByDomain } from '@/data/outlets'
+import { findOutletByDomain, REGION_MINIMUMS, OUTLET_ARTICLE_CAP } from '@/data/outlets'
 import { isBlockedDomain } from '@/data/blocklist'
 import { resetGlobalModelState } from '@/lib/models'
 import { normalizeCountryCode, inferRegionFromCountryCode } from '@/lib/country-codes'
@@ -548,7 +548,7 @@ export async function runVerifyPipeline(
   // This frees slots for international outlets that were being crowded out
   // by 14x The Hill / 15x Axios duplicates.
   const outletCounts = new Map<string, number>()
-  const MAX_PER_OUTLET = 2
+  const MAX_PER_OUTLET = OUTLET_ARTICLE_CAP
   const dedupedSources = rawSources.filter((s) => {
     // Normalize domain to outlet name: strip www., use base domain
     const key = s.domain.replace(/^www\./, '').toLowerCase()
@@ -702,16 +702,9 @@ export async function runVerifyPipeline(
   console.log(`[dedup] Post-triage: ${beforeDedup} → ${triageResult.sources.length} sources (${beforeDedup - triageResult.sources.length} removed). Top dup outlets: ${dupOutlets.slice(0, 5).join(', ')}`)
 
   // ── REGIONAL DIVERSITY ENFORCEMENT ───────────────────────────────────
-  // Ensure minimum representation per region. Without this, English-language
-  // US articles dominate triage scoring and crowd out international outlets.
-  const REGION_MINIMUMS: Record<string, number> = {
-    'North America': 15,
-    'Europe': 10,
-    'Middle East & Africa': 10,
-    'Asia-Pacific': 8,
-    'South & Central Asia': 5,
-    'Latin America': 5,
-  }
+  // REGION_MINIMUMS and MAX_PER_REGION_PCT are imported from outlets.ts
+  // (single source of truth). Without these, English-language US articles
+  // dominate triage scoring and crowd out international outlets.
   const MAX_PER_REGION_PCT = 0.5 // No region > 50% of total
 
   // Group sources by region

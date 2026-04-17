@@ -20,6 +20,13 @@ export interface OutletInfo {
   reliability: "high" | "medium" | "low" | "mixed"
   language: string
   rssUrl?: string
+  /**
+   * Priority tier — drives triage slot reservation and signal tracking.
+   * - 'must-have': ~33 outlets. Auto-passed in triage if ANY keyword match; never dropped.
+   * - 'high': ~20 outlets. Boosted in triage scoring.
+   * - 'standard' or undefined: no special treatment.
+   */
+  priority?: "must-have" | "high" | "standard"
 }
 
 export const outlets: OutletInfo[] = [
@@ -5119,6 +5126,247 @@ export const outlets: OutletInfo[] = [
     language: "ru",
   },
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PRIORITY SEED MERGE — 18 outlets added to meet 125-outlet must-have floor
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // North America (US)
+  {
+    name: "CNBC",
+    domain: "cnbc.com",
+    country: "US",
+    region: "North America",
+    type: "broadcaster",
+    politicalLean: "center",
+    reliability: "medium",
+    language: "en",
+    rssUrl: "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    priority: "standard",
+  },
+  {
+    name: "Los Angeles Times",
+    domain: "latimes.com",
+    country: "US",
+    region: "North America",
+    type: "newspaper",
+    politicalLean: "center-left",
+    reliability: "medium",
+    language: "en",
+    rssUrl: "https://www.latimes.com/world-nation/rss2.0.xml",
+    priority: "standard",
+  },
+  {
+    name: "Forbes",
+    domain: "forbes.com",
+    country: "US",
+    region: "North America",
+    type: "digital",
+    politicalLean: "center-right",
+    reliability: "medium",
+    language: "en",
+    rssUrl: "https://www.forbes.com/real-time/feed2/",
+    priority: "standard",
+  },
+  {
+    name: "C-SPAN",
+    domain: "c-span.org",
+    country: "US",
+    region: "North America",
+    type: "broadcaster",
+    politicalLean: "center",
+    reliability: "high",
+    language: "en",
+    priority: "standard",
+  },
+
+  // Europe (UK)
+  {
+    name: "The Times (UK)",
+    domain: "thetimes.co.uk",
+    country: "GB",
+    region: "Europe",
+    type: "newspaper",
+    politicalLean: "center-right",
+    reliability: "high",
+    language: "en",
+    priority: "standard",
+  },
+
+  // Asia-Pacific
+  {
+    name: "Sixth Tone",
+    domain: "sixthtone.com",
+    country: "CN",
+    region: "Asia-Pacific",
+    type: "digital",
+    politicalLean: "center",
+    reliability: "medium",
+    language: "en",
+    rssUrl: "https://www.sixthtone.com/rss",
+    priority: "standard",
+  },
+  {
+    name: "Focus Taiwan (CNA)",
+    domain: "focustaiwan.tw",
+    country: "TW",
+    region: "Asia-Pacific",
+    type: "state",
+    politicalLean: "center",
+    reliability: "medium",
+    language: "en",
+    rssUrl: "https://focustaiwan.tw/rss/aall.xml",
+    priority: "standard",
+  },
+  {
+    name: "NHK World (apex domain)",
+    domain: "nhk.or.jp",
+    country: "JP",
+    region: "Asia-Pacific",
+    type: "state",
+    politicalLean: "center",
+    reliability: "high",
+    language: "en",
+    // RSS handled by existing www3.nhk.or.jp entry — this apex-domain entry exists
+    // so findOutletByDomain() can match articles scraped from nhk.or.jp/* URLs
+    priority: "must-have",
+  },
+  {
+    name: "Times of India (apex .com)",
+    domain: "timesofindia.com",
+    country: "IN",
+    region: "South & Central Asia",
+    type: "newspaper",
+    politicalLean: "center",
+    reliability: "medium",
+    language: "en",
+    // RSS handled by existing timesofindia.indiatimes.com entry — this .com
+    // apex entry lets findOutletByDomain() match both URL forms
+    priority: "standard",
+  },
+  {
+    name: "Malaysiakini",
+    domain: "malaysiakini.com",
+    country: "MY",
+    region: "Asia-Pacific",
+    type: "digital",
+    politicalLean: "center-left",
+    reliability: "high",
+    language: "en",
+    rssUrl: "https://malaysiakini.com/rss",
+    priority: "standard",
+  },
+
+  // Middle East & Africa
+  {
+    name: "Al Jazeera Arabic",
+    domain: "aljazeera.net",
+    country: "QA",
+    region: "Middle East & Africa",
+    type: "state",
+    politicalLean: "center-left",
+    reliability: "medium",
+    language: "ar",
+    priority: "must-have",
+  },
+  {
+    name: "IranWire",
+    domain: "iranwire.com",
+    country: "GB",
+    region: "Middle East & Africa",
+    type: "digital",
+    politicalLean: "center",
+    reliability: "medium",
+    language: "en",
+    rssUrl: "https://iranwire.com/en/feed/",
+    priority: "high",
+  },
+  {
+    name: "Radio Farda",
+    domain: "radiofarda.com",
+    country: "US",
+    region: "Middle East & Africa",
+    type: "broadcaster",
+    politicalLean: "center",
+    reliability: "medium",
+    language: "fa",
+    priority: "high",
+  },
+  {
+    name: "Al-Ahram",
+    domain: "ahram.org.eg",
+    country: "EG",
+    region: "Middle East & Africa",
+    type: "state",
+    politicalLean: "state-controlled",
+    reliability: "medium",
+    language: "ar",
+    priority: "standard",
+  },
+
+  // Latin America
+  {
+    name: "Efecto Cocuyo",
+    domain: "efectococuyo.com",
+    country: "VE",
+    region: "Latin America",
+    type: "digital",
+    politicalLean: "center",
+    reliability: "medium",
+    language: "es",
+    rssUrl: "https://efectococuyo.com/feed/",
+    priority: "high",
+  },
+
+  // Global / state-affiliated broadcasters (US-funded independent editorial)
+  {
+    name: "Voice of America",
+    domain: "voanews.com",
+    country: "US",
+    region: "North America",
+    type: "state",
+    politicalLean: "center",
+    reliability: "high",
+    language: "en",
+    rssUrl: "https://www.voanews.com/api/zqmopeepqt",
+    priority: "standard",
+  },
+  {
+    name: "Radio Free Europe / Radio Liberty",
+    domain: "rferl.org",
+    country: "CZ",
+    region: "Europe",
+    type: "digital",
+    politicalLean: "center",
+    reliability: "high",
+    language: "en",
+    rssUrl: "https://www.rferl.org/api/zrqpteruuv",
+    priority: "standard",
+  },
+  {
+    name: "Radio Free Asia",
+    domain: "rfa.org",
+    country: "US",
+    region: "North America",
+    type: "digital",
+    politicalLean: "center",
+    reliability: "medium",
+    language: "en",
+    rssUrl: "https://www.rfa.org/english/RSS",
+    priority: "standard",
+  },
+  {
+    name: "Nikkei (Japanese)",
+    domain: "nikkei.com",
+    country: "JP",
+    region: "Asia-Pacific",
+    type: "newspaper",
+    politicalLean: "center",
+    reliability: "high",
+    language: "ja",
+    // Japanese-language parent of asia.nikkei.com — Japan's paper of record
+    // for business/economic coverage, often leads Western wires on Asia stories
+    priority: "high",
+  },
 ]
 
 // ─── Helper functions ────────────────────────────────────────────────────────
@@ -5167,4 +5415,170 @@ export function getOutletsForRegion(region: string): OutletInfo[] {
  */
 export function getOutletsWithRss(): OutletInfo[] {
   return outlets.filter((o) => !!o.rssUrl)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRIORITY TIERS — drives triage slot reservation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * MUST-HAVE outlets. If a source from one of these domains has ANY keyword
+ * relevance, it auto-passes triage and gets a reserved slot. Never dropped
+ * for region caps. These ~33 outlets represent the must-have floor for
+ * every analysis — if they're missing, the analysis has meaningful blind spots.
+ *
+ * MIN_SIGNAL: always enforced; no threshold.
+ */
+export const MUST_HAVE_DOMAINS: ReadonlySet<string> = new Set([
+  // Wire services — backbone of global syndication
+  'apnews.com', 'reuters.com', 'afp.com',
+  // US — major mainstream reach
+  'nytimes.com', 'washingtonpost.com', 'wsj.com', 'bloomberg.com',
+  'npr.org', 'cnn.com', 'foxnews.com',
+  // UK
+  'bbc.com', 'theguardian.com', 'ft.com', 'economist.com',
+  // Europe (state broadcasters with global reach)
+  'dw.com', 'france24.com',
+  // China — state framing signal
+  'scmp.com', 'cgtn.com', 'xinhuanet.com',
+  // Japan
+  'nhk.or.jp',
+  // India — largest Anglophone democracy
+  'thehindu.com',
+  // Pakistan — critical for South Asia coverage
+  'dawn.com',
+  // Southeast Asia
+  'channelnewsasia.com',
+  // Australia
+  'abc.net.au',
+  // Middle East
+  'aljazeera.com', 'aljazeera.net', 'al-monitor.com',
+  'timesofisrael.com', 'haaretz.com', 'iranintl.com',
+  // Africa — francophone wire + South Africa + Nigeria
+  'rfi.fr', 'mg.co.za', 'premiumtimesng.com',
+  // Latin America
+  'folha.uol.com.br',
+  'infobae.com',          // cross-market Argentina/Mexico/Colombia reach
+  // Russia state framing
+  'rt.com',
+])
+
+/**
+ * HIGH-PRIORITY outlets. Major regional reach and important framing signal.
+ * Boosted in triage scoring but not auto-passed. Don't displace MUST-HAVE
+ * slots but should be preferred over STANDARD outlets when capacity is tight.
+ *
+ * MIN_SIGNAL: always enforced; no threshold.
+ */
+export const HIGH_PRIORITY_DOMAINS: ReadonlySet<string> = new Set([
+  // Canada
+  'cbc.ca', 'theglobeandmail.com',
+  // France paper of record
+  'lemonde.fr',
+  // Eastern Europe / Russia diaspora
+  'kyivindependent.com', 'meduza.io',
+  // China independent
+  'caixinglobal.com',
+  // Taiwan
+  'taipeitimes.com',
+  // Korea wire
+  'en.yna.co.kr',
+  // South Asia
+  'thedailystar.net',
+  // Southeast Asia
+  'rappler.com', 'thejakartapost.com',
+  // Middle East independent
+  'middleeasteye.net', 'aawsat.com',
+  // Africa
+  'jeuneafrique.com', 'dailymaverick.co.za', 'addisstandard.com', 'madamasr.com',
+  // Latin America
+  'clarin.com', 'elespectador.com', 'efectococuyo.com',
+  // Iran exile
+  'iranwire.com', 'radiofarda.com',
+])
+
+/**
+ * Wire service domains. Articles from these outlets need special handling
+ * in source deduplication: 30 AP reprints across 30 regional outlets are NOT
+ * 30 independent sources. Wire copies are flagged and collapsed under parent.
+ *
+ * MIN_SIGNAL: always enforced.
+ */
+export const WIRE_SERVICE_DOMAINS: ReadonlySet<string> = new Set([
+  'apnews.com', 'reuters.com', 'afp.com', 'bloomberg.com',
+])
+
+/**
+ * Max articles per outlet per analysis. Prevents The Hill (16x) / Axios (14x)
+ * domination from Run 1. Enforced at the dedup stage in pipeline.ts.
+ *
+ * MIN_SIGNAL: always enforced.
+ */
+export const OUTLET_ARTICLE_CAP = 2
+
+/**
+ * Minimum sources per region after dedup. If a region falls below minimum,
+ * backfill kicks in to pull more sources from that region's outlets.
+ * Uses Title-Case region names matching the existing registry.
+ *
+ * MIN_SIGNAL: always enforced.
+ */
+export const REGION_MINIMUMS: Record<string, number> = {
+  'North America': 15,
+  'Europe': 10,
+  'Middle East & Africa': 10,
+  'Asia-Pacific': 8,
+  'South & Central Asia': 5,
+  'Latin America': 5,
+}
+
+/**
+ * Maximum share of triage output any single region can occupy.
+ * Prevents English-language dominance (US + UK = 60%+ by default).
+ */
+export const REGION_MAX_PCT = 0.5
+
+/**
+ * Check if a domain is flagged as must-have for triage slot reservation.
+ * Normalizes the domain (strips www., protocol, trailing slash) before lookup.
+ */
+export function isMustHaveDomain(domain: string): boolean {
+  if (!domain) return false
+  const normalized = domain
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+  return MUST_HAVE_DOMAINS.has(normalized)
+}
+
+/**
+ * Check if a domain is flagged as high-priority for triage scoring boost.
+ */
+export function isHighPriorityDomain(domain: string): boolean {
+  if (!domain) return false
+  const normalized = domain
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+  return HIGH_PRIORITY_DOMAINS.has(normalized)
+}
+
+/**
+ * Registry statistics for admin dashboard + CI checks.
+ */
+export function getRegistryStats() {
+  const byRegion = outlets.reduce<Record<string, number>>((acc, o) => {
+    acc[o.region] = (acc[o.region] || 0) + 1
+    return acc
+  }, {})
+  return {
+    total: outlets.length,
+    byRegion,
+    withRss: outlets.filter((o) => !!o.rssUrl).length,
+    stateMedia: outlets.filter((o) => o.type === 'state').length,
+    mustHave: MUST_HAVE_DOMAINS.size,
+    highPriority: HIGH_PRIORITY_DOMAINS.size,
+  }
 }

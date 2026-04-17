@@ -42,6 +42,13 @@ model Story {
   lastReanalyzed      DateTime?
   isOngoing           Boolean   @default(false)
   reanalysisStatus    String?   // null | queued | running | review | published
+  // ── Predictive signal layer fields (Session 1: additive, no compute yet) ──
+  storyClusterId               String?     // FK to StoryCluster — assigned in Session 2
+  storyPhase                   String?     // first_wave | development | consolidation | tail (frozen at time of analysis)
+  clusterOverride              String?     // 'new' | 'attach' | null — manual override for v2 reruns
+  signalCategory               String?     // 8 signal categories (trade_dispute, military_conflict, etc.) — populated by dedicated Haiku classifier in Session 2
+  signalCategoryOverriddenBy   String?     // admin email who manually overrode
+  signalCategoryOverriddenAt   DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   sources           Source[]
@@ -58,10 +65,18 @@ model Story {
   discourseSnapshots  DiscourseSnapshot[]
   discourseGap        DiscourseGap?
   versions          StoryVersion[]
+  // ── Predictive signal relations ──
+  storyCluster        StoryCluster?       @relation(fields: [storyClusterId], references: [id], onDelete: SetNull)
+  outletAppearances   OutletAppearance[]
+  factOmissions       FactOmission[]
+  framingTags         FramingTag[]
+  predictiveSignals   PredictiveSignal[]
 
   @@index([status, createdAt])
   @@index([primaryCategory])
   @@index([status, primaryCategory])
+  @@index([storyClusterId])
+  @@index([signalCategory])
 }
 
 model Source {
@@ -370,4 +385,241 @@ model Subscriber {
   status         String    @default("active")
   subscribedAt   DateTime  @default(now())
   unsubscribedAt DateTime?
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PREDICTIVE SIGNAL INFRASTRUCTURE (admin-only; never queried from public routes)
+//
+// These tables track outlet behavioral patterns, story clustering,
+// fact-level omissions, narrative arc reconstruction, and predictive
+// signals. All protected by requireAdmin() at the API layer.
+//
+// Minimum signal thresholds are commented per-field so you know when
+// each metric becomes reliable vs. early-accumulation noise.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Parent entity for repeated analyses of the same story.
+// Individual `Story` records (analyses) are children of a StoryCluster
+// whenever headline similarity + entity overlap thresholds are met.
+// MIN_SIGNAL: phase classification works after 1 analysis.
+//             Narrative arc needs 3+ analyses spanning different phases.
+model StoryCluster {
+  id                  String   @id @default(cuid())
+  clusterHeadline     String                   // canonical headline from first analysis
+  clusterKeywords     String                   // JSON array of entity keywords for matching
+  signalCategory      String?                  // dominant signal category across analyses
+  firstDetectedAt     DateTime                 // earliest article publication timestamp
+  lastUpdatedAt       DateTime @default(now())
+  currentPhase        String   @default("first_wave") // first_wave | development | consolidation | tail
+  totalAnalysesRun    Int      @default(0)
+  isBackfilled        Boolean  @default(false) // true when reconstructed from historical stories
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  analyses            Story[]
+  narrativeArc        NarrativeArc?
+  predictiveSignals   PredictiveSignal[]
+  outletAppearances   OutletAppearance[]
+  factOmissions       FactOmission[]
+  framingTags         FramingTag[]
+
+  @@index([currentPhase])
+  @@index([signalCategory])
+  @@index([firstDetectedAt])
+}
+
+// Canonical outlet record in the signal layer.
+// Seeded from src/data/outlets.ts via mapOutlet() function.
+// Uses snake_case regions and editorial type enum (differs from OutletInfo).
+// Tier is manually assignable via admin UI; default pre-seeded by heuristic.
+// MIN_SIGNAL: tier defaults to "unclassified" until manually assigned.
+model Outlet {
+  id              String   @id @default(cuid())
+  domain          String   @unique              // normalized (no www., no protocol)
+  name            String
+  country         String                        // ISO 3166-1 alpha-2
+  region          String                        // snake_case: north_america, europe, asia_pacific, middle_east, africa, latin_america, global
+  editorialType   String                        // mainstream | independent | state | wire | aggregator
+  politicalLean   String
+  reliability     String
+  language        String   @default("en")
+  tier            String   @default("unclassified") // wire_service | national | regional | specialty | emerging | unclassified
+  priority        String?                       // must-have | high | standard (mirror of OutletInfo.priority)
+  tierOverriddenBy  String?                     // admin email who manually overrode tier
+  tierOverriddenAt  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  appearances     OutletAppearance[]
+  fingerprint     OutletFingerprint?
+
+  @@index([tier])
+  @@index([region])
+  @@index([editorialType])
+}
+
+// Aggregated behavioral fingerprint per outlet.
+// Recomputed periodically from OutletAppearance rows.
+// All percentage fields are JSON-encoded for category/dimension breakdowns.
+// MIN_SIGNAL: 20 appearances before percentages are reliable.
+//             Below 20 → show in admin with "Insufficient Data — X/20" badge.
+model OutletFingerprint {
+  id                              String   @id @default(cuid())
+  outletId                        String   @unique
+  outlet                          Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  totalAppearances                Int      @default(0)
+  primaryFramingDistribution      String?  // JSON {category: {framing: pct}}
+  sourceTypePreference            String?  // JSON {government: pct, expert: pct, unnamed: pct, other: pct}
+  regionalOriginBias              String?  // JSON {region: {as_origin: count, as_recipient: count}}
+  omissionRate                    Float    @default(0) // pct of 60%+ facts this outlet misses
+  pickupSpeed                     String?  // JSON {category: avg_hours_from_first_detection}
+  storyCategoryCoverage           String?  // JSON {category: count}
+  includesBackfilledData          Boolean  @default(false) // true if any backfilled appearances contributed
+  lastComputedAt                  DateTime @default(now())
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
+}
+
+// Event log — one row per outlet per analysis.
+// Immutable observational record. Drives fingerprint aggregation.
+// onDelete: SetNull on both Story and Outlet so we preserve history even if source records are deleted.
+// MIN_SIGNAL: no threshold — every appearance is valid data.
+model OutletAppearance {
+  id                       String   @id @default(cuid())
+  outletId                 String?
+  outlet                   Outlet?  @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  outletDomain             String                       // denormalized for query speed + survives outlet deletion
+  storyId                  String?
+  story                    Story?   @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  storyClusterId           String?
+  storyCluster             StoryCluster? @relation(fields: [storyClusterId], references: [id], onDelete: SetNull)
+  signalCategory           String?
+  storyPhase               String                       // phase at time of this analysis
+  framingAngle             String?                      // economic | political | humanitarian | security | legal
+  wasLeadingFraming        Boolean  @default(false)     // did this outlet lead with this frame
+  sourceTypes              String?                      // JSON array of source types cited
+  publishedAt              DateTime?                    // article publication timestamp
+  hoursFromFirstDetection  Float?                       // pickup speed for this analysis
+  isBackfilled             Boolean  @default(false)
+  createdAt                DateTime @default(now())
+
+  @@index([outletId, createdAt])
+  @@index([storyClusterId])
+  @@index([storyId])
+  @@index([signalCategory, storyPhase])
+}
+
+// Fact-level omission tracking. Distinct from the existing Omission table
+// (which tracks regional/outlet gaps). This is a structured, outlet-linked
+// record used by the predictive signal layer.
+// MIN_SIGNAL: requires 5+ sources covering the story to detect meaningful omission.
+model FactOmission {
+  id                String   @id @default(cuid())
+  storyId           String?
+  story             Story?   @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  storyClusterId    String?
+  storyCluster      StoryCluster? @relation(fields: [storyClusterId], references: [id], onDelete: SetNull)
+  factType          String                       // financial_detail | legal_finding | named_individual | government_statement | historical_context | casualty_figure
+  factDescription   String                       // the actual fact being tracked
+  presentInPct      Float                        // % of sources that contained this fact
+  carriedByOutlets  String                       // JSON array of outlet domains that included it
+  missedByOutlets   String                       // JSON array of outlet domains that covered the story but omitted this fact
+  storyPhase        String
+  isBackfilled      Boolean  @default(false)
+  detectedAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  @@index([storyClusterId, factType])
+  @@index([storyId])
+  @@index([factType])
+}
+
+// Per-outlet framing snapshot per analysis. Powers narrative arc reconstruction.
+// Lightweight — just captures "outlet X led with framing Y in phase Z".
+// MIN_SIGNAL: 3+ analyses in a cluster before arc generation considers these.
+model FramingTag {
+  id               String   @id @default(cuid())
+  storyId          String?
+  story            Story?   @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  storyClusterId   String?
+  storyCluster     StoryCluster? @relation(fields: [storyClusterId], references: [id], onDelete: SetNull)
+  outletDomain     String                       // denormalized
+  framingAngle     String                       // economic | political | humanitarian | security | legal | other
+  isDominant       Boolean  @default(false)     // was this the leading framing in the analysis
+  storyPhase       String
+  isBackfilled     Boolean  @default(false)
+  detectedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  @@index([storyClusterId, storyPhase])
+  @@index([outletDomain])
+}
+
+// 1:1 with StoryCluster — auto-generated view when cluster has 3+ analyses
+// spanning at least 2 phases. Regenerates on cluster updates.
+// MIN_SIGNAL: 3+ analyses across different phases.
+model NarrativeArc {
+  id                    String   @id @default(cuid())
+  storyClusterId        String   @unique
+  storyCluster          StoryCluster @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
+  firstWaveFramings     String                   // JSON array of framings present at first wave
+  persistentFramings    String                   // JSON array — framings that survived to consolidation
+  emergentFramings      String                   // JSON array — framings that appeared in development
+  surfacedOmissions     String                   // JSON: [{factOmissionId, firstSurfacedByTier, firstSurfacedAt}]
+  earlyMovers           String                   // JSON {framingAngle: [outletDomain]}
+  lateFollowers         String                   // JSON {framingAngle: [outletDomain]}
+  generatedAt           DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// Predictive trajectory score computed on each first-wave analysis.
+// Only shown in admin UI if CategoryEnablement.enabled is true for that category.
+// MIN_SIGNAL: 5+ prior analyses in the same signalCategory for confidence ≥40%.
+//             Below threshold → label "Insufficient Data" in admin.
+model PredictiveSignal {
+  id                           String   @id @default(cuid())
+  storyId                      String?
+  story                        Story?   @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  storyClusterId               String
+  storyCluster                 StoryCluster @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
+  predictedDominantFraming     String
+  framingConfidencePct         Int                          // 0-100
+  topOmissionRisks             String                       // JSON: [{factType, likelyMissedBy[], likelyCarriedBy[]}]
+  momentumFlag                 String                       // stable | shifting | contested
+  momentumReason               String
+  computedFromAnalysesCount    Int                          // how many prior analyses supported the pattern
+  generatedAt                  DateTime @default(now())
+  createdAt                    DateTime @default(now())
+
+  @@index([storyClusterId])
+  @@index([storyId])
+}
+
+// Per-category aggregation — auto-computed evidence library.
+// This is the compounding asset: "Across N diplomatic-negotiation analyses,
+// legal details are absent from 73% of First Wave wire coverage."
+// MIN_SIGNAL: 10+ analyses in category for meaningful evidence claims.
+model StoryCategoryPattern {
+  id                              String   @id @default(cuid())
+  signalCategory                  String   @unique
+  avgAnalysesUntilStabilization   Float    @default(0)       // avg # of analyses before framing stabilizes
+  commonFirstWaveOmissions        String?                     // JSON {factType: count}
+  leadingTiers                    String?                     // JSON {tier: lead_rate}
+  followingTiers                  String?                     // JSON {tier: follow_rate}
+  originatingRegions              String?                     // JSON {region: count}
+  amplifyingRegions               String?                     // JSON {region: count}
+  totalAnalyses                   Int      @default(0)
+  lastComputedAt                  DateTime @default(now())
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
+}
+
+// Per-category toggle for surfacing predictive signals in admin UI.
+// Manually flipped by admin once signal is validated for that category.
+model CategoryEnablement {
+  signalCategory   String   @id
+  enabled          Boolean  @default(false)
+  enabledAt        DateTime?
+  enabledBy        String?                     // admin email
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }

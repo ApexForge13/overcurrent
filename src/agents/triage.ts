@@ -1,7 +1,7 @@
 import { callClaude, parseJSON, HAIKU } from '@/lib/anthropic'
 import { ANTI_HALLUCINATION_RULES, JSON_RULES } from './prompts'
 import { queryToKeywords } from '@/ingestion/rss'
-import { findOutletByDomain } from '@/data/outlets'
+import { findOutletByDomain, isMustHaveDomain } from '@/data/outlets'
 
 /** Strip diacritics for matching (á → a, ö → o, etc.) */
 function stripDiacritics(text: string): string {
@@ -244,34 +244,50 @@ export async function triageSources(
     const { region, sources: batch } = batches[bIdx]
 
     // ── ANCHOR AUTO-PASS: score ≥ 2 AND has entity anchor → skip Haiku ──
+    // Auto-pass logic:
+    //   1. MUST-HAVE outlet (AP/Reuters/BBC/etc.) + ANY keyword match → reserved slot
+    //   2. Anchor keyword match (score ≥ 2 AND hasAnchor) → anchor auto-pass
+    //   3. Everything else → Haiku decides
     // Generic keyword matches (score ≥ 2 but no anchor) MUST go through Haiku.
     // This prevents "Fox News: man arrested after years on the run" from auto-passing
     // on a Hungary story just because "after" and "years" are in the query.
+    const mustHavePassed: typeof batch = []
     const anchorPassed: typeof batch = []
     const needsHaiku: typeof batch = []
     for (const s of batch) {
       const { score, hasAnchor } = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
-      if (score >= 2 && hasAnchor) {
+      const isMustHave = isMustHaveDomain(s.domain)
+      if (isMustHave && score >= 1) {
+        // MUST-HAVE outlet with ANY keyword match: reserved slot, no Haiku needed
+        mustHavePassed.push(s)
+      } else if (score >= 2 && hasAnchor) {
         anchorPassed.push(s)
       } else {
         needsHaiku.push(s)
       }
     }
 
-    // Auto-pass anchor-matched sources directly into results
-    if (anchorPassed.length > 0) {
-      for (const s of anchorPassed) {
-        allTriagedSources.push(autoPassSource(s))
-      }
+    // Auto-pass both buckets
+    for (const s of mustHavePassed) {
+      allTriagedSources.push(autoPassSource(s))
+    }
+    for (const s of anchorPassed) {
+      allTriagedSources.push(autoPassSource(s))
     }
 
     if (needsHaiku.length === 0) {
-      console.log(`[Triage] Batch ${bIdx + 1} (${region}): auto-passed all ${anchorPassed.length} sources (anchor match)`)
+      const parts = []
+      if (mustHavePassed.length > 0) parts.push(`${mustHavePassed.length} must-have`)
+      if (anchorPassed.length > 0) parts.push(`${anchorPassed.length} anchor`)
+      console.log(`[Triage] Batch ${bIdx + 1} (${region}): auto-passed all ${mustHavePassed.length + anchorPassed.length} sources (${parts.join(', ')})`)
       continue
     }
 
-    if (anchorPassed.length > 0) {
-      console.log(`[Triage] Batch ${bIdx + 1} (${region}): auto-passed ${anchorPassed.length}, sending ${needsHaiku.length} to Haiku`)
+    if (mustHavePassed.length > 0 || anchorPassed.length > 0) {
+      const parts = []
+      if (mustHavePassed.length > 0) parts.push(`${mustHavePassed.length} must-have`)
+      if (anchorPassed.length > 0) parts.push(`${anchorPassed.length} anchor`)
+      console.log(`[Triage] Batch ${bIdx + 1} (${region}): auto-passed ${parts.join(' + ')}, sending ${needsHaiku.length} to Haiku`)
     }
 
     const slimBatch = needsHaiku.map(s => {
@@ -389,25 +405,36 @@ export async function triageSources(
     for (let bIdx = 0; bIdx < expandedBatches.length; bIdx++) {
       const { region, sources: batch } = expandedBatches[bIdx]
 
-      // ── ANCHOR AUTO-PASS (expanded pass) — requires entity anchor ──
+      // ── AUTO-PASS (expanded pass) — MUST-HAVE domain OR anchor keyword ──
+      const mustHavePassed: typeof batch = []
       const anchorPassed: typeof batch = []
       const needsHaiku: typeof batch = []
       for (const s of batch) {
         // Skip already-triaged URLs
         if (allTriagedSources.some(t => String(t.url) === s.url)) continue
         const { score, hasAnchor } = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
-        if (score >= 2 && hasAnchor) {
+        const isMustHave = isMustHaveDomain(s.domain)
+        if (isMustHave && score >= 1) {
+          mustHavePassed.push(s)
+        } else if (score >= 2 && hasAnchor) {
           anchorPassed.push(s)
         } else {
           needsHaiku.push(s)
         }
       }
 
-      if (anchorPassed.length > 0) {
-        for (const s of anchorPassed) {
-          allTriagedSources.push(autoPassSource(s))
-        }
-        console.log(`[Triage] Expanded batch ${bIdx + 1} (${region}): Auto-passed ${anchorPassed.length} anchor-matched sources, sending ${needsHaiku.length} to Haiku`)
+      for (const s of mustHavePassed) {
+        allTriagedSources.push(autoPassSource(s))
+      }
+      for (const s of anchorPassed) {
+        allTriagedSources.push(autoPassSource(s))
+      }
+
+      if (mustHavePassed.length > 0 || anchorPassed.length > 0) {
+        const parts = []
+        if (mustHavePassed.length > 0) parts.push(`${mustHavePassed.length} must-have`)
+        if (anchorPassed.length > 0) parts.push(`${anchorPassed.length} anchor`)
+        console.log(`[Triage] Expanded batch ${bIdx + 1} (${region}): auto-passed ${parts.join(' + ')}, sending ${needsHaiku.length} to Haiku`)
       }
 
       if (needsHaiku.length === 0) continue

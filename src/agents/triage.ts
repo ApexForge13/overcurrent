@@ -128,8 +128,28 @@ Any text outside the JSON object will cause a system failure.`
 
 const OUTLET_ALIASES: Record<string, string> = {
   'repubblica': 'La Repubblica',
+  'repubblica firenze': 'La Repubblica',
+  'repubblica napoli': 'La Repubblica',
+  'repubblica milano': 'La Repubblica',
+  'repubblica roma': 'La Repubblica',
+  'repubblica bologna': 'La Repubblica',
+  'repubblica torino': 'La Repubblica',
+  'repubblica genova': 'La Repubblica',
+  'repubblica palermo': 'La Repubblica',
+  'repubblica bari': 'La Repubblica',
+  'd repubblica': 'La Repubblica',
+  'repubblica d.': 'La Repubblica',
   'yonhapnews agency': 'Yonhap News Agency',
   'yonhapnews': 'Yonhap News Agency',
+  // BBC regional editions → BBC
+  'bbc.co.uk': 'BBC',
+  'bbc news': 'BBC',
+  // NYT alternate names
+  'nyt': 'The New York Times',
+  'new york times': 'The New York Times',
+  // CNN aliases
+  'cnn.com': 'CNN',
+  'edition.cnn.com': 'CNN',
 }
 
 function normalizeOutletName(name: string): string {

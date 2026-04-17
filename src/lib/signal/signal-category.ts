@@ -22,6 +22,7 @@ export const SIGNAL_CATEGORIES = [
   'military_conflict',
   'election_coverage',
   'corporate_scandal',
+  'political_scandal',
   'diplomatic_negotiation',
   'civil_unrest',
   'economic_policy',
@@ -30,13 +31,14 @@ export const SIGNAL_CATEGORIES = [
 
 export type SignalCategory = (typeof SIGNAL_CATEGORIES)[number]
 
-const SYSTEM_PROMPT = `You classify news stories into ONE of 8 signal categories for Overcurrent's predictive layer.
+const SYSTEM_PROMPT = `You classify news stories into ONE of 9 signal categories for Overcurrent's predictive layer.
 
 Categories (lowercase, underscore):
 - trade_dispute: tariffs, trade wars, import/export restrictions, trade agreements
 - military_conflict: active warfare, military strikes, invasions, armed confrontation, blockades
 - election_coverage: elections, election results, candidate announcements, campaign events
-- corporate_scandal: corporate fraud, executive misconduct, company collapses, regulatory actions against companies
+- corporate_scandal: corporate fraud, executive misconduct at COMPANIES, company collapses, regulatory actions against businesses
+- political_scandal: misconduct by ELECTED OFFICIALS or government figures, congressional expulsions, resignations over ethics, political sex scandals, corruption in office
 - diplomatic_negotiation: peace talks, summits, treaties, diplomatic visits, negotiations between states
 - civil_unrest: protests, riots, strikes, civil disobedience, mass demonstrations
 - economic_policy: interest rates, fiscal policy, regulatory changes, monetary announcements
@@ -47,9 +49,12 @@ Rules:
 - If the story spans multiple categories, pick the DOMINANT angle (the one driving the headline).
 - "Military conflict" takes precedence over "diplomatic_negotiation" when active fighting is happening.
 - "Election_coverage" beats "civil_unrest" when the primary story is a vote, even if there are protests.
+- "Political_scandal" beats "corporate_scandal" when the subject is a politician/government official.
+  Example: "Congressman resigns over sexual misconduct" → political_scandal, NOT corporate_scandal.
+  Example: "CEO arrested for fraud" → corporate_scandal.
 
 Response: ONLY a JSON object, nothing else. Format:
-{ "signalCategory": "one_of_the_8", "confidence": 0.0-1.0, "reasoning": "1 sentence" }`
+{ "signalCategory": "one_of_the_9", "confidence": 0.0-1.0, "reasoning": "1 sentence" }`
 
 export interface SignalCategoryResult {
   signalCategory: SignalCategory

@@ -141,18 +141,35 @@ ${sourceText}`
     const trimmed = result.text.trim()
     if (trimmed.length > 100 && !trimmed.endsWith('}')) {
       console.warn(`[Debate R2] ${model.name} output truncated for ${region} — attempting salvage`)
-      // Try to close unclosed JSON structures
+
+      // Truncate at last complete array element — cut off mid-object to last complete `},`
+      // then close the containing structures. Handles both mid-string and mid-object cuts.
       let salvage = trimmed
-      let braces = 0, brackets = 0
-      for (const c of salvage) {
-        if (c === '{') braces++; if (c === '}') braces--
-        if (c === '[') brackets++; if (c === ']') brackets--
+      const lastCompleteEl = salvage.lastIndexOf('},')
+      if (lastCompleteEl > 0) {
+        salvage = salvage.substring(0, lastCompleteEl + 1) // keep the closing }
       }
+
+      // Close unclosed arrays and objects
+      let braces = 0, brackets = 0, inString = false, escape = false
+      for (const c of salvage) {
+        if (escape) { escape = false; continue }
+        if (c === '\\') { escape = true; continue }
+        if (c === '"') { inString = !inString; continue }
+        if (inString) continue
+        if (c === '{') braces++
+        else if (c === '}') braces--
+        else if (c === '[') brackets++
+        else if (c === ']') brackets--
+      }
+      // If still mid-string, add closing quote
+      if (inString) salvage += '"'
       while (brackets > 0) { salvage += ']'; brackets-- }
       while (braces > 0) { salvage += '}'; braces-- }
+
       try {
         analysis = parseJSON<Round2Analysis>(salvage)
-        console.log(`[Debate R2] Salvaged truncated ${model.name} output for ${region}`)
+        console.log(`[Debate R2] Salvaged truncated ${model.name} output for ${region} (${Object.keys(analysis).length} keys)`)
       } catch {
         console.warn(`[Debate R2] ${model.name} salvage failed for ${region}. Raw:`, result.text.substring(0, 300))
         analysis = {

@@ -103,12 +103,13 @@ describe('FACT_TYPES constants', () => {
 })
 
 describe('SIGNAL_CATEGORIES constants', () => {
-  it('contains all 8 expected categories', () => {
-    expect(SIGNAL_CATEGORIES).toHaveLength(8)
+  it('contains all 9 expected categories', () => {
+    expect(SIGNAL_CATEGORIES).toHaveLength(9)
     expect(SIGNAL_CATEGORIES).toContain('trade_dispute')
     expect(SIGNAL_CATEGORIES).toContain('military_conflict')
     expect(SIGNAL_CATEGORIES).toContain('election_coverage')
     expect(SIGNAL_CATEGORIES).toContain('corporate_scandal')
+    expect(SIGNAL_CATEGORIES).toContain('political_scandal')
     expect(SIGNAL_CATEGORIES).toContain('diplomatic_negotiation')
     expect(SIGNAL_CATEGORIES).toContain('civil_unrest')
     expect(SIGNAL_CATEGORIES).toContain('economic_policy')

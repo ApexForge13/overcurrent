@@ -550,9 +550,24 @@ export async function runVerifyPipeline(
   // by 14x The Hill / 15x Axios duplicates.
   const outletCounts = new Map<string, number>()
   const MAX_PER_OUTLET = OUTLET_ARTICLE_CAP
+  // Collapse regional subdomains of major outlets to their parent (Repubblica, etc.)
+  function normalizeOutletDomain(d: string): string {
+    let n = d.replace(/^www\./, '').toLowerCase()
+    // Collapse regional Repubblica (firenze.repubblica.it, d.repubblica.it → repubblica.it)
+    if (n.endsWith('.repubblica.it')) n = 'repubblica.it'
+    // Collapse regional Guardian sections (amp.theguardian.com → theguardian.com)
+    if (n.endsWith('.theguardian.com')) n = 'theguardian.com'
+    // BBC regional (news.bbc.co.uk → bbc.co.uk)
+    if (n.endsWith('.bbc.com')) n = 'bbc.com'
+    if (n.endsWith('.bbc.co.uk')) n = 'bbc.co.uk'
+    // CNN editions (edition.cnn.com → cnn.com)
+    if (n.endsWith('.cnn.com')) n = 'cnn.com'
+    // AOL regional
+    if (n.endsWith('.aol.com') || n.endsWith('.aol.co.uk')) n = n.replace(/^.*\./, 'aol.')
+    return n
+  }
   const dedupedSources = rawSources.filter((s) => {
-    // Normalize domain to outlet name: strip www., use base domain
-    const key = s.domain.replace(/^www\./, '').toLowerCase()
+    const key = normalizeOutletDomain(s.domain)
     const count = outletCounts.get(key) ?? 0
     if (count >= MAX_PER_OUTLET) return false
     outletCounts.set(key, count + 1)

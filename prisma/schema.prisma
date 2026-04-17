@@ -46,9 +46,17 @@ model Story {
   storyClusterId               String?     // FK to StoryCluster — assigned in Session 2
   storyPhase                   String?     // first_wave | development | consolidation | tail (frozen at time of analysis)
   clusterOverride              String?     // 'new' | 'attach' | null — manual override for v2 reruns
-  signalCategory               String?     // 8 signal categories (trade_dispute, military_conflict, etc.) — populated by dedicated Haiku classifier in Session 2
+  signalCategory               String?     // 9 signal categories (trade_dispute, military_conflict, etc.) — populated by dedicated Haiku classifier in Session 2
   signalCategoryOverriddenBy   String?     // admin email who manually overrode
   signalCategoryOverriddenAt   DateTime?
+  // ── Story arc system fields (Session 3) ──
+  // Every Story is EXACTLY one analysisType — mutually exclusive at the record level.
+  umbrellaArcId                String?     // FK to UmbrellaArc — null for standalone one-offs
+  analysisType                 String?     // standalone | umbrella_tagged | new_arc | arc_rerun
+  arcLabel                     String?     // short specific descriptor, e.g. "US-Iran Naval Blockade"
+  arcImportance                String?     // core | reference (only set when analysisType='new_arc')
+  arcPhaseAtCreation           String?     // phase this analysis was designated to cover (first_wave | development | consolidation | tail)
+  arcDesignatedAt              DateTime?   // timestamp when this analysis was tagged to the arc/umbrella
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   sources           Source[]
@@ -71,12 +79,17 @@ model Story {
   factOmissions       FactOmission[]
   framingTags         FramingTag[]
   predictiveSignals   PredictiveSignal[]
+  // ── Story arc system relations ──
+  umbrellaArc         UmbrellaArc?        @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  arcPhaseSchedules   ArcPhaseSchedule[]
 
   @@index([status, createdAt])
   @@index([primaryCategory])
   @@index([status, primaryCategory])
   @@index([storyClusterId])
   @@index([signalCategory])
+  @@index([umbrellaArcId])
+  @@index([analysisType])
 }
 
 model Source {
@@ -622,4 +635,126 @@ model CategoryEnablement {
   enabledBy        String?                     // admin email
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STORY ARC MANAGEMENT SYSTEM (Session 3 — 4-layer architecture)
+//
+// Layer 1: UmbrellaArc   — named folder grouping related story arcs + one-offs.
+//                          Never directly analyzed. Pure container.
+// Layer 2: Story Arc     — a Story record with analysisType='new_arc' or 'arc_rerun'
+//                          that is bounded to a specific event. Runs on a phase schedule.
+// Layer 3: Umbrella-tagged one-off — Story with analysisType='umbrella_tagged'
+//                          filed under an umbrella but no re-run schedule.
+// Layer 4: Standalone one-off — Story with analysisType='standalone', no umbrella.
+//
+// All new tables admin-only. Public routes never import them.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Parent container. Never analyzed directly — it's a named folder/project context
+// that groups related story arcs and one-offs for cross-event fingerprinting and
+// narrative-drift tracking.
+// MIN_SIGNAL: cross-event patterns require 3+ nested analyses. Below that the
+//             detail page shows "Cross-event patterns require 3 analyses —
+//             currently at X of 3" instead of pattern computations.
+model UmbrellaArc {
+  id                        String   @id @default(cuid())
+  name                      String                        // e.g. "US-Iran Escalation 2026"
+  description               String?
+  status                    String   @default("active")   // active | archived
+  signalCategory            String                        // one of the 9 SIGNAL_CATEGORIES
+  // Reserved for future sub-umbrella hierarchy, do not build against this field
+  // until explicitly instructed.
+  parentUmbrellaId          String?
+  parentUmbrella            UmbrellaArc?  @relation("UmbrellaHierarchy", fields: [parentUmbrellaId], references: [id], onDelete: SetNull)
+  childUmbrellas            UmbrellaArc[] @relation("UmbrellaHierarchy")
+  // Scan cadence for the intelligence scan (Step 4). Default manual.
+  scanFrequency             String   @default("manual")   // manual | daily | every_48_hours | weekly
+  // Auto-populated by signal tracking when a nested analysis runs.
+  firstAnalysisAt           DateTime?
+  lastAnalysisAt            DateTime?
+  totalAnalyses             Int      @default(0)
+  storyArcCount             Int      @default(0)          // count of Story records with analysisType='new_arc'
+  oneOffCount               Int      @default(0)          // count of umbrella_tagged + standalone-under-umbrella
+  intelligenceScanLastRunAt DateTime?
+  notes                     String?                       // manual cross-event observations; feeds internal case study library
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  analyses                  Story[]
+  intelligenceScans         UmbrellaIntelligenceScan[]
+  outletProfiles            OutletUmbrellaProfile[]
+  phaseSchedules            ArcPhaseSchedule[]
+
+  @@index([status])
+  @@index([signalCategory])
+  @@index([parentUmbrellaId])
+}
+
+// Re-analysis schedule for a single story arc (a Story with analysisType='new_arc').
+// Created automatically when a new arc is designated; chained forward as phases complete.
+// MIN_SIGNAL: arc completeness scores below 2 completed phases produce unreliable signal.
+//             Confidence scores should not display above 40% until at least 3 phases
+//             are completed for the parent arc.
+model ArcPhaseSchedule {
+  id              String   @id @default(cuid())
+  storyArcId      String?                      // FK to the initiating Story record
+  storyArc        Story?   @relation(fields: [storyArcId], references: [id], onDelete: SetNull)
+  umbrellaArcId   String?
+  umbrellaArc     UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  targetPhase     String                       // first_wave | development | consolidation | tail
+  scheduledFor    DateTime
+  status          String   @default("pending") // pending | completed | skipped
+  completedAt     DateTime?
+  completedByStoryId String?                   // the re-analysis Story that closed this schedule
+  skipReason      String?
+  isSkipped       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([storyArcId])
+  @@index([umbrellaArcId])
+}
+
+// One row per intelligence scan. The scan is a lightweight Haiku call
+// (~$0.01-$0.03) that surfaces sub-event candidates under an umbrella.
+// Does NOT ingest articles. Does NOT run the debate pipeline. Recommendations
+// only — nothing auto-executes.
+// MIN_SIGNAL: scan recommendations are early signal only below 5 accumulated
+//             analyses under the umbrella. UI shows "Early Signal — Limited Data"
+//             badge until that threshold.
+model UmbrellaIntelligenceScan {
+  id                       String   @id @default(cuid())
+  umbrellaArcId            String
+  umbrellaArc              UmbrellaArc @relation(fields: [umbrellaArcId], references: [id], onDelete: Cascade)
+  ranAt                    DateTime @default(now())
+  recommendationsGenerated Int      @default(0)
+  recommendationsTriggered Int      @default(0)
+  rawOutput                String                        // JSON: [{label, kind: 'story_arc'|'one_off', rationale, estimatedPhase}]
+  createdAt                DateTime @default(now())
+
+  @@index([umbrellaArcId, ranAt])
+}
+
+// Cross-event outlet behavior profile scoped to a single umbrella.
+// Recomputed whenever a new analysis is added to the umbrella.
+// MIN_SIGNAL: frameConsistency requires minimum 5 appearances within the
+//             umbrella before the percentage is statistically meaningful.
+//             Below threshold the admin UI shows "Insufficient Data" badge.
+//             Section itself does not render until 3+ umbrella-level analyses exist.
+model OutletUmbrellaProfile {
+  id                       String   @id @default(cuid())
+  outletId                 String
+  umbrellaArcId            String
+  umbrellaArc              UmbrellaArc @relation(fields: [umbrellaArcId], references: [id], onDelete: Cascade)
+  frameConsistency         Float    @default(0) // pct of events where outlet led with same primary framing angle
+  earlyMoverRate           Float    @default(0) // pct of events where First Wave framing became dominant Consolidation frame
+  omissionConsistencyRate  Float    @default(0) // pct of events where omission pattern matched outlet's overall fingerprint for this signalCategory
+  analysesAppeared         Int      @default(0)
+  computedAt               DateTime @default(now())
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@unique([outletId, umbrellaArcId])
+  @@index([umbrellaArcId])
 }

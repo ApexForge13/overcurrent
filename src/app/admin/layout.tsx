@@ -20,8 +20,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <h1 className="font-display font-bold text-2xl text-text-primary">ADMIN</h1>
           <p className="text-xs text-text-muted font-mono">Overcurrent Editorial Dashboard</p>
         </div>
-        <nav className="flex gap-4 text-sm font-mono">
+        <nav className="flex gap-4 text-sm font-mono flex-wrap">
           <a href="/admin" className="text-text-secondary hover:text-accent-green">Dashboard</a>
+          <a href="/admin/signals/umbrellas" className="text-text-secondary hover:text-accent-teal">Umbrellas</a>
           <a href="/admin/social" className="text-text-secondary hover:text-accent-purple">Social</a>
           <a href="/admin/archive" className="text-text-secondary hover:text-accent-amber">Archive</a>
           <a href="/admin/costs" className="text-text-secondary hover:text-accent-amber">Costs</a>

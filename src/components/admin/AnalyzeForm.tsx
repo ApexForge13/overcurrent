@@ -23,6 +23,7 @@ interface ArcOption {
   id: string
   arcLabel: string
   headline: string
+  searchQuery: string
   currentPhase: StoryPhase
   totalAnalysesRun: number
   recommendedPhase: StoryPhase
@@ -57,6 +58,9 @@ export function AnalyzeForm({ onStoryReady }: AnalyzeFormProps) {
   const [arcImportance, setArcImportance] = useState<ArcImportance>('core')
   const [arcRerunTargetStoryId, setArcRerunTargetStoryId] = useState<string>('')
   const [arcPhaseAtCreation, setArcPhaseAtCreation] = useState<StoryPhase | ''>('')
+  // Tracks whether the query was populated by arc auto-fill (vs. typed by the
+  // analyst). Clears on user edit so we don't keep overwriting their changes.
+  const [queryAutoFilledFromArc, setQueryAutoFilledFromArc] = useState(false)
 
   // ── Data fetched from API ──
   const [umbrellas, setUmbrellas] = useState<UmbrellaOption[]>([])
@@ -150,6 +154,24 @@ export function AnalyzeForm({ onStoryReady }: AnalyzeFormProps) {
       setArcPhaseAtCreation(selectedArc.recommendedPhase)
     }
   }, [analysisType, selectedArc, arcPhaseAtCreation])
+
+  // ── Auto-fill query from initiating arc when arc_rerun arc is selected ──
+  // Only fills if the query field is empty or was previously auto-filled.
+  // Never overwrites text the analyst typed themselves.
+  useEffect(() => {
+    if (analysisType !== 'arc_rerun') return
+    if (!selectedArc?.searchQuery) return
+    if (query.trim() === '' || queryAutoFilledFromArc) {
+      setQuery(selectedArc.searchQuery)
+      setQueryAutoFilledFromArc(true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisType, selectedArc])
+
+  // Clear the auto-filled flag when analysisType changes away from arc_rerun
+  useEffect(() => {
+    if (analysisType !== 'arc_rerun') setQueryAutoFilledFromArc(false)
+  }, [analysisType])
 
   // ── Filtered umbrella list for searchable dropdown ──
   const selectedUmbrella = useMemo(() => umbrellas.find((u) => u.id === umbrellaId), [umbrellas, umbrellaId])
@@ -757,42 +779,61 @@ export function AnalyzeForm({ onStoryReady }: AnalyzeFormProps) {
         )}
 
         {/* Query + submit */}
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={
-              mode === 'verify' ? 'Enter a story to analyze...' : 'Enter the dominant story...'
-            }
-            disabled={isAnalyzing}
-            style={{
-              flex: 1,
-              padding: '8px 12px',
-              fontFamily: 'var(--font-body)',
-              fontSize: '13px',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-primary)',
-              outline: 'none',
-            }}
-          />
-          <button
-            type="submit"
-            disabled={isAnalyzing || !query.trim()}
-            style={{
-              padding: '8px 16px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '12px',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-primary)',
-              background: 'transparent',
-              cursor: isAnalyzing ? 'wait' : 'pointer',
-              opacity: isAnalyzing ? 0.5 : 1,
-            }}
-          >
-            {isAnalyzing ? 'analyzing...' : 'analyze'}
-          </button>
+        <div>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value)
+                if (queryAutoFilledFromArc) setQueryAutoFilledFromArc(false)
+              }}
+              placeholder={
+                mode === 'verify' ? 'Enter a story to analyze...' : 'Enter the dominant story...'
+              }
+              disabled={isAnalyzing}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                fontFamily: 'var(--font-body)',
+                fontSize: '13px',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                border: queryAutoFilledFromArc
+                  ? '1px dashed var(--accent-teal)'
+                  : '1px solid var(--border-primary)',
+                outline: 'none',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={isAnalyzing || !query.trim()}
+              style={{
+                padding: '8px 16px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '12px',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-primary)',
+                background: 'transparent',
+                cursor: isAnalyzing ? 'wait' : 'pointer',
+                opacity: isAnalyzing ? 0.5 : 1,
+              }}
+            >
+              {isAnalyzing ? 'analyzing...' : 'analyze'}
+            </button>
+          </div>
+          {queryAutoFilledFromArc && (
+            <p
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '10px',
+                color: 'var(--accent-teal)',
+                marginTop: '4px',
+              }}
+            >
+              Auto-filled from arc — edit to refine focus (e.g. "day 3 reactions...")
+            </p>
+          )}
         </div>
 
         {status && (

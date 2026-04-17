@@ -40,6 +40,7 @@ export async function GET(
       id: true,
       arcLabel: true,
       headline: true,
+      searchQuery: true,
       createdAt: true,
       storyClusterId: true,
       storyPhase: true,
@@ -64,6 +65,9 @@ export async function GET(
       id: a.id,
       arcLabel: a.arcLabel ?? a.headline,
       headline: a.headline,
+      // Original search query from the initiating arc — used by the analyze form
+      // to auto-populate the query input when the arc is selected for re-run.
+      searchQuery: a.searchQuery,
       createdAt: a.createdAt,
       currentPhase: a.storyCluster?.currentPhase ?? a.storyPhase ?? 'first_wave',
       totalAnalysesRun: a.storyCluster?.totalAnalysesRun ?? 1,

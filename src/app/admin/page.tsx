@@ -225,6 +225,14 @@ export default function AdminDashboard() {
                       <span>{story.countryCount} countries</span>
                       <span>{story.regionCount} regions</span>
                       <span>{story.confidenceLevel}</span>
+                      <span>
+                        {new Date(story.createdAt).toLocaleString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </span>
                     </div>
                   </div>
                   <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
@@ -315,7 +323,15 @@ export default function AdminDashboard() {
                       <span>{story.sourceCount} sources</span>
                       <span>{story.countryCount} countries</span>
                       <span>{story.regionCount} regions</span>
-                      <span>{new Date(story.createdAt).toLocaleDateString()}</span>
+                      <span>
+                        {new Date(story.createdAt).toLocaleString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </span>
                     </div>
                   </div>
                   <div className="flex gap-2 flex-shrink-0">

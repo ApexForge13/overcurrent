@@ -24,6 +24,7 @@ import { VaultToggle } from "./VaultToggle";
 
 interface StoryDetailProps {
   story: {
+    slug: string;
     headline: string;
     synopsis: string;
     confidenceLevel: string;
@@ -160,7 +161,7 @@ interface StoryDetailProps {
       round: number;
       modelName: string;
       provider: string;
-      content: string;
+      // content is lazy-loaded via /api/stories/[slug]/debate — not in initial props
     }>;
     discourseGap?: {
       mediaDominantFrame: string;
@@ -878,7 +879,7 @@ export function StoryDetail({ story }: StoryDetailProps) {
           title="MODEL DEBATE"
           preview={`See how ${new Set(story.debateRounds.filter((r) => r.round === 1).map((r) => r.modelName)).size} AI models argued about this story across ${new Set(story.debateRounds.map((r) => r.region)).size} regions`}
         >
-          <DebateHighlights debateRounds={story.debateRounds} />
+          <DebateHighlights debateRounds={story.debateRounds} storySlug={story.slug} />
         </CollapsibleSection>
       )}
 

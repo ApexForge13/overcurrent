@@ -9,6 +9,23 @@ import { StoryPaywallWrapper } from "@/components/StoryPaywallWrapper";
 // On revalidation, Next rebuilds in the background — users never wait.
 export const revalidate = 300;
 
+// Pre-render the top 20 most recent published stories at build time.
+// These get instant static loads; older stories use ISR (built on first visit, cached 5min).
+export async function generateStaticParams() {
+  try {
+    const stories = await prisma.story.findMany({
+      where: { status: "published" },
+      select: { slug: true },
+      orderBy: { publishedAt: "desc" },
+      take: 20,
+    });
+    return stories.map((s) => ({ slug: s.slug }));
+  } catch {
+    // DB might not be reachable at build time in some environments — fail open
+    return [];
+  }
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -89,7 +106,21 @@ export default async function StoryPage({
         framings: true,
         silences: true,
         followUps: { orderBy: { sortOrder: "asc" } },
-        debateRounds: true,
+        // Metadata only — massive content JSON is lazy-loaded via
+        // /api/stories/[slug]/debate when the user expands the MODEL DEBATE section.
+        debateRounds: {
+          select: {
+            id: true,
+            region: true,
+            round: true,
+            modelName: true,
+            provider: true,
+            inputTokens: true,
+            outputTokens: true,
+            costUsd: true,
+            // content: EXCLUDED — saves 100-270KB per load
+          },
+        },
         discourseGap: true,
         // Cap posts per snapshot at top 5 by upvotes (was: all 50-200 posts)
         discourseSnapshots: {

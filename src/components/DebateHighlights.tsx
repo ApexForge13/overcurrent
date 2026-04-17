@@ -4,17 +4,23 @@ import { useState, useEffect, useCallback } from "react";
 
 /* ───────── Types ───────── */
 
-interface DebateRound {
+// Metadata version — lacks `content` (lazy-loaded via API)
+interface DebateRoundMeta {
   id: string;
   region: string;
   round: number;
   modelName: string;
   provider: string;
+}
+
+// Full version — includes content (fetched from /api/stories/[slug]/debate)
+interface DebateRound extends DebateRoundMeta {
   content: string;
 }
 
 interface DebateHighlightsProps {
-  debateRounds: DebateRound[];
+  debateRounds: DebateRoundMeta[];
+  storySlug: string;
 }
 
 interface KeyFinding {
@@ -606,23 +612,52 @@ function RegionDebatePanel({ data, playing }: { data: RegionData; playing: boole
 
 /* ───────── Main Component ───────── */
 
-export function DebateHighlights({ debateRounds }: DebateHighlightsProps) {
+export function DebateHighlights({ debateRounds: metaRounds, storySlug }: DebateHighlightsProps) {
   const [expanded, setExpanded] = useState(true);
   const [activeRegion, setActiveRegion] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [autoPlayed, setAutoPlayed] = useState(false);
 
+  // Lazy-loaded full debate rounds with content JSON
+  const [fullRounds, setFullRounds] = useState<DebateRound[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     ensureKeyframes();
   }, []);
 
-  // Group rounds by region
-  const regions = [...new Set(debateRounds.map((r) => r.region))];
+  // Fetch full content on first mount. Runs once per page load.
+  // This is ~100-270KB but cached at the edge (s-maxage=300).
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/stories/${storySlug}/debate`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.debateRounds)) {
+          setFullRounds(data.debateRounds);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [storySlug]);
 
-  // Build region data
+  // Group rounds by region (from metadata — available immediately)
+  const regions = [...new Set(metaRounds.map((r) => r.region))];
+
+  // Build region data (requires full content — returns empty shells until loaded)
   const buildRegionData = useCallback(
     (region: string): RegionData => {
-      const regionRounds = debateRounds.filter((r) => r.region === region);
+      if (!fullRounds) {
+        return { region, r1: [], r2: [], moderator: { consensus_findings: [], resolved_disputes: [], unresolved_disputes: [], caught_errors: [], debate_quality_note: "" } };
+      }
+      const regionRounds = fullRounds.filter((r) => r.region === region);
       const r1Rounds = regionRounds.filter((r) => r.round === 1);
       const r2Rounds = regionRounds.filter((r) => r.round === 2);
       const r3Rounds = regionRounds.filter((r) => r.round === 3);
@@ -641,7 +676,7 @@ export function DebateHighlights({ debateRounds }: DebateHighlightsProps) {
 
       return { region, r1, r2, moderator };
     },
-    [debateRounds]
+    [fullRounds]
   );
 
   // Set default active region
@@ -651,23 +686,39 @@ export function DebateHighlights({ debateRounds }: DebateHighlightsProps) {
     }
   }, [regions, activeRegion]);
 
-  // Auto-play on mount
+  // Auto-play once data is loaded
   useEffect(() => {
-    if (!autoPlayed && activeRegion && expanded) {
+    if (!autoPlayed && activeRegion && expanded && fullRounds) {
       const t = setTimeout(() => {
         setPlaying(true);
         setAutoPlayed(true);
       }, 300);
       return () => clearTimeout(t);
     }
-  }, [autoPlayed, activeRegion, expanded]);
+  }, [autoPlayed, activeRegion, expanded, fullRounds]);
 
-  const moderatorRounds = debateRounds.filter((r) => r.round === 3);
-  if (moderatorRounds.length === 0 && debateRounds.filter((r) => r.round === 1).length === 0) {
+  const moderatorRounds = metaRounds.filter((r) => r.round === 3);
+  if (moderatorRounds.length === 0 && metaRounds.filter((r) => r.round === 1).length === 0) {
     return null;
   }
 
-  const modelsUsed = [...new Set(debateRounds.filter((r) => r.round === 1).map((r) => r.modelName))];
+  // Show a skeleton state while debate content is loading
+  if (!fullRounds && !loadError) {
+    return (
+      <div style={{ padding: "24px 0", textAlign: "center", fontFamily: "var(--font-mono, monospace)", fontSize: "12px", color: "var(--text-tertiary)" }}>
+        Loading debate analysis...
+      </div>
+    );
+  }
+  if (loadError) {
+    return (
+      <div style={{ padding: "24px 0", textAlign: "center", fontFamily: "var(--font-mono, monospace)", fontSize: "12px", color: "var(--accent-red)" }}>
+        Could not load debate analysis: {loadError}
+      </div>
+    );
+  }
+
+  const modelsUsed = [...new Set(metaRounds.filter((r) => r.round === 1).map((r) => r.modelName))];
 
   const handleReplay = () => {
     setPlaying(false);

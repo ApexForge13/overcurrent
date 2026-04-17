@@ -65,17 +65,23 @@ export function AnalyzeForm({ onStoryReady }: AnalyzeFormProps) {
 
   // ── Submission state ──
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [status, setStatus] = useState<string>(() => {
-    if (typeof window === 'undefined') return ''
+  // Status starts empty on both server and client to avoid hydration mismatch.
+  // Saved status is restored from localStorage in an effect after mount.
+  const [status, setStatus] = useState<string>('')
+
+  // ── Restore saved analysis status from localStorage after mount ──
+  useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('oc_analysis') || '{}')
-      if (saved.msg && !saved.running) return saved.msg
-      if (saved.msg && saved.running && Date.now() - saved.ts < 600_000) {
-        return `${saved.msg} (pipeline was running for "${saved.query}" — may still be processing on Railway)`
+      if (saved.msg && !saved.running) {
+        setStatus(saved.msg)
+      } else if (saved.msg && saved.running && Date.now() - saved.ts < 600_000) {
+        setStatus(
+          `${saved.msg} (pipeline was running for "${saved.query}" — may still be processing on Railway)`,
+        )
       }
     } catch {}
-    return ''
-  })
+  }, [])
 
   // ── Load umbrellas on mount ──
   useEffect(() => {
@@ -252,10 +258,19 @@ export function AnalyzeForm({ onStoryReady }: AnalyzeFormProps) {
       }
     } catch (err) {
       setIsAnalyzing(false)
-      statusUpdate(
-        `Analysis failed: ${err instanceof Error ? err.message : 'connection lost'}`,
-        false,
-      )
+      const msg = err instanceof Error ? err.message : 'connection lost'
+      // HTTP/2 SSE streams on Railway sometimes drop mid-analysis even though
+      // the pipeline keeps running server-side. Tell the operator truthfully.
+      const looksLikeStreamDrop =
+        msg.includes('network') || msg.includes('HTTP2') || msg.includes('fetch')
+      if (looksLikeStreamDrop) {
+        statusUpdate(
+          'Stream connection dropped — the pipeline is still running on Railway. Check the review list in 15-20 minutes, or tail the Railway logs.',
+          false,
+        )
+      } else {
+        statusUpdate(`Analysis failed: ${msg}`, false)
+      }
     }
   }
 

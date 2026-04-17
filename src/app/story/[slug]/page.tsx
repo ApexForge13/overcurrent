@@ -5,6 +5,10 @@ import { StoryDetail } from "@/components/StoryDetail";
 import { ReAnalyzeButton } from "@/components/ReAnalyzeButton";
 import { StoryPaywallWrapper } from "@/components/StoryPaywallWrapper";
 
+// ISR: cache story pages for 5 minutes. Published stories rarely change.
+// On revalidation, Next rebuilds in the background — users never wait.
+export const revalidate = 300;
+
 export async function generateMetadata({
   params,
 }: {
@@ -73,42 +77,48 @@ export default async function StoryPage({
 }) {
   const { slug } = await params;
 
-  const story = await prisma.story.findUnique({
-    where: { slug },
-    include: {
-      sources: true,
-      claims: { orderBy: { sortOrder: "asc" } },
-      discrepancies: true,
-      omissions: true,
-      framings: true,
-      silences: true,
-      followUps: { orderBy: { sortOrder: "asc" } },
-      debateRounds: true,
-      discourseGap: true,
-      discourseSnapshots: { include: { posts: true } },
-      versions: { orderBy: { versionNumber: 'desc' as const } },
-    },
-  });
+  // Parallelize story fetch with "more stories" — they're independent queries
+  const [story, moreStories] = await Promise.all([
+    prisma.story.findUnique({
+      where: { slug },
+      include: {
+        sources: true,
+        claims: { orderBy: { sortOrder: "asc" } },
+        discrepancies: true,
+        omissions: true,
+        framings: true,
+        silences: true,
+        followUps: { orderBy: { sortOrder: "asc" } },
+        debateRounds: true,
+        discourseGap: true,
+        // Cap posts per snapshot at top 5 by upvotes (was: all 50-200 posts)
+        discourseSnapshots: {
+          include: {
+            posts: { take: 5, orderBy: { upvotes: 'desc' as const } },
+          },
+        },
+        versions: { orderBy: { versionNumber: 'desc' as const } },
+      },
+    }),
+    prisma.story.findMany({
+      where: {
+        status: "published",
+        slug: { not: slug },
+      },
+      select: {
+        slug: true,
+        headline: true,
+        primaryCategory: true,
+        sourceCount: true,
+        countryCount: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+    }),
+  ]);
 
   if (!story) notFound();
-
-  // Fetch other published stories for "More Analyses"
-  const moreStories = await prisma.story.findMany({
-    where: {
-      status: "published",
-      slug: { not: slug },
-    },
-    select: {
-      slug: true,
-      headline: true,
-      primaryCategory: true,
-      sourceCount: true,
-      countryCount: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 4,
-  });
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -122,7 +132,7 @@ export default async function StoryPage({
         {/* ReAnalyzeButton hidden from public — admin only via /admin */}
       </div>
       <StoryPaywallWrapper slug={slug}>
-        <StoryDetail story={JSON.parse(JSON.stringify(story))} />
+        <StoryDetail story={story} />
       </StoryPaywallWrapper>
 
       {/* More Analyses */}

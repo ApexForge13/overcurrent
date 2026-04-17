@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { ThePattern } from "./ThePattern";
 import { RegionalCoverageMap } from "./RegionalCoverageMap";
@@ -312,25 +313,29 @@ export function StoryDetail({ story }: StoryDetailProps) {
   const confidenceColor = getConfidenceColor(story.confidenceLevel);
   const modelCount = countModels(story.debateRounds);
 
-  // Deduplicate sources by outlet name within each region, then group by region
-  const seenOutlets = new Map<string, typeof story.sources[0]>();
-  for (const source of story.sources) {
-    const normalized = normalizeOutlet(source.outlet);
-    const key = `${normalized}|${source.region}`;
-    if (!seenOutlets.has(key)) {
-      seenOutlets.set(key, { ...source, outlet: normalized });
+  // Deduplicate sources by outlet+region and group by region — memoized to avoid
+  // O(n) rebuild on every render. Only recomputes when story.sources changes.
+  const { dedupedSources, groupedSources } = useMemo(() => {
+    const seen = new Map<string, typeof story.sources[0]>();
+    for (const source of story.sources) {
+      const normalized = normalizeOutlet(source.outlet);
+      const key = `${normalized}|${source.region}`;
+      if (!seen.has(key)) {
+        seen.set(key, { ...source, outlet: normalized });
+      }
     }
-  }
-  const dedupedSources = [...seenOutlets.values()];
-  const groupedSources = dedupedSources.reduce<Record<string, typeof story.sources>>(
-    (acc, source) => {
-      const region = source.region || "Unknown";
-      if (!acc[region]) acc[region] = [];
-      acc[region].push(source);
-      return acc;
-    },
-    {}
-  );
+    const deduped = [...seen.values()];
+    const grouped = deduped.reduce<Record<string, typeof story.sources>>(
+      (acc, source) => {
+        const region = source.region || "Unknown";
+        if (!acc[region]) acc[region] = [];
+        acc[region].push(source);
+        return acc;
+      },
+      {}
+    );
+    return { dedupedSources: deduped, groupedSources: grouped };
+  }, [story.sources]);
 
   // Determine follow-up format — show new format whenever followUpQuestions exist,
   // even if hypotheses are empty (they still show as expandable questions)

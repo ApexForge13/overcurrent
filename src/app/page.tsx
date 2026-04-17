@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
-import { CATEGORIES, CATEGORY_SLUGS, getCategoryColor } from "@/data/categories";
+import { CATEGORIES, getCategoryColor } from "@/data/categories";
 import { createClient } from "@/lib/supabase/client";
 
+// ── Types ──────────────────────────────────────────────────────────────────
 interface StoryItem {
   id: string;
   slug: string;
@@ -43,6 +44,7 @@ interface SSEEvent {
   [key: string]: unknown;
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
 function timeAgo(date: string): string {
   const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
   if (seconds < 60) return "just now";
@@ -59,28 +61,32 @@ function confidenceColor(level: string): string {
   return "var(--text-tertiary)";
 }
 
-/** Build a tension hook from thePattern or fall back to source stats */
-function buildHook(story: StoryItem): string {
-  // Use thePattern if it exists and is punchy enough
-  if (story.thePattern && story.thePattern.length > 10 && story.thePattern.length < 280) {
-    return story.thePattern;
-  }
-  // Fallback: source stats tension line
-  return `${story.sourceCount} sources. ${story.countryCount} countries. ${story.consensusScore}% agree on what happened.`;
+function confidencePct(level: string, consensus: number): string {
+  // Prefer consensus score if available, else approximate from level
+  if (consensus && consensus > 0) return `${consensus}%`;
+  const l = level.toUpperCase();
+  if (l === "HIGH") return "80%+";
+  if (l === "MEDIUM") return "60%";
+  if (l === "DEVELOPING") return "50%";
+  if (l === "LOW") return "<50%";
+  return "";
 }
 
-const SIDEBAR_THRESHOLD = 5;
+/** Extract the Pattern — the compelling italic line — or fall back to stats */
+function buildPattern(story: StoryItem): string {
+  if (story.thePattern && story.thePattern.length > 10 && story.thePattern.length < 320) {
+    return story.thePattern;
+  }
+  return `${story.sourceCount} sources across ${story.countryCount} countries. ${story.consensusScore}% agreed on what happened.`;
+}
 
+// ── Main Page ──────────────────────────────────────────────────────────────
 export default function HomePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [showAnalyzeInput, setShowAnalyzeInput] = useState(false);
-  const [analyzeMode, setAnalyzeMode] = useState<"verify" | "undercurrent">("verify");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [query, setQuery] = useState("");
+  const [analyzeMode] = useState<"verify" | "undercurrent">("verify");
   const [events, setEvents] = useState<SSEEvent[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -126,408 +132,758 @@ export default function HomePage() {
 
   useEffect(() => { fetchFeed(); }, [fetchFeed]);
 
-  async function handleAnalyze(e: React.FormEvent) {
-    e.preventDefault();
-    if (!query.trim() || isAnalyzing) return;
-    setIsAnalyzing(true);
-    setEvents([]);
+  const featured = stories[0];
+  const latest = stories.slice(1);
 
-    try {
-      const endpoint = analyzeMode === "verify" ? "/api/analyze" : "/api/undercurrent";
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query.trim() }),
-      });
-      if (!response.body) throw new Error("No stream");
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6)) as SSEEvent;
-              setEvents((prev) => [...prev, data]);
-              if (data.phase === "complete" || data.event === "complete") {
-                await fetchFeed();
-                setIsAnalyzing(false);
-                setShowAnalyzeInput(false);
-              }
-              if (data.phase === "error") setIsAnalyzing(false);
-            } catch { /* skip */ }
-          }
-        }
-      }
-    } catch { setIsAnalyzing(false); }
-  }
-
-  // Categories that actually have published stories
-  const populatedCategories = useMemo(() => {
-    const cats = new Set<string>();
-    for (const s of stories) {
-      if (s.primaryCategory) cats.add(s.primaryCategory);
-    }
-    return CATEGORY_SLUGS.filter(slug => slug !== 'undercurrent' && cats.has(slug));
-  }, [stories]);
-
-  const filteredStories = categoryFilter === "all"
-    ? stories
-    : stories.filter((s) => s.primaryCategory === categoryFilter);
-  const searchFiltered = searchQuery.trim()
-    ? filteredStories.filter(s =>
-        s.headline.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.synopsis?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : filteredStories;
-  const featured = searchFiltered[0];
-  const rest = searchFiltered.slice(1);
-  const showSidebar = stories.length >= SIDEBAR_THRESHOLD && rest.length > 0;
+  // Aggregate stats
+  const totalStories = stories.length;
+  const totalSources = stories.reduce((sum, s) => sum + s.sourceCount, 0);
+  const maxCountries = stories.reduce((max, s) => Math.max(max, s.countryCount), 0);
 
   return (
-    <div className="max-w-[1200px] mx-auto px-6">
-      {/* Tagline */}
-      <div className="py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-tertiary)' }}>
-          Every outlet shows you their version. We show you everyone&apos;s.
+    <div>
+      {/* Top tagline — minimal, centered */}
+      <div className="max-w-[1200px] mx-auto px-6 py-8">
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '13px',
+            color: 'var(--text-tertiary)',
+            letterSpacing: '0.01em',
+          }}
+        >
+          Every outlet shows you their version. <span style={{ color: 'var(--text-secondary)' }}>We show you everyone&apos;s.</span>
         </p>
       </div>
 
-      {/* Analysis progress (visible if admin triggers from /admin) */}
+      {/* Analysis progress (admin only, when triggered) */}
       {events.length > 0 && (
-        <div className="py-6 border-b" style={{ borderColor: 'var(--border-primary)' }}>
+        <div className="max-w-[1200px] mx-auto px-6 py-6 border-t border-b" style={{ borderColor: 'var(--border-primary)' }}>
           <AnalysisProgress events={events} mode={analyzeMode} />
         </div>
       )}
 
-      {/* Category filter pills — only show populated categories */}
-      {stories.length > 0 && populatedCategories.length > 0 && (
-        <div className="flex items-center gap-2 py-4 overflow-x-auto flex-nowrap" style={{ borderBottom: '1px solid var(--border-primary)' }}>
-          <button
-            onClick={() => setCategoryFilter("all")}
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              padding: '4px 10px',
-              color: categoryFilter === "all" ? 'var(--text-primary)' : 'var(--text-tertiary)',
-              background: 'none',
-              border: 'none',
-              borderBottom: categoryFilter === "all" ? '2px solid var(--text-primary)' : '2px solid transparent',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            ALL
-          </button>
-          {populatedCategories.map((slug) => (
-            <button
-              key={slug}
-              onClick={() => setCategoryFilter(slug)}
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '11px',
-                padding: '4px 10px',
-                color: categoryFilter === slug ? getCategoryColor(slug) : 'var(--text-tertiary)',
-                background: 'none',
-                border: 'none',
-                borderBottom: categoryFilter === slug ? `2px solid ${getCategoryColor(slug)}` : '2px solid transparent',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                textTransform: 'capitalize',
-              }}
-            >
-              {CATEGORIES[slug].label.split(' ')[0]}
-            </button>
-          ))}
+      {/* Empty state */}
+      {stories.length === 0 && !isAnalyzing ? (
+        <div className="max-w-[1200px] mx-auto px-6 py-24 text-center" style={{ color: 'var(--text-tertiary)' }}>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            No stories yet
+          </p>
+          <p className="mt-3" style={{ fontFamily: 'var(--font-body)', fontSize: '14px' }}>
+            New analyses appear here after they clear admin review.
+          </p>
         </div>
+      ) : (
+        <>
+          {/* ═══════════════ HERO ANALYSIS ═══════════════ */}
+          {featured && <HeroAnalysis story={featured} isAdmin={isAdmin} onDelete={handleDelete} />}
+
+          {/* ═══════════════ LATEST ANALYSES GRID ═══════════════ */}
+          {latest.length > 0 && <LatestAnalyses stories={latest} isAdmin={isAdmin} onDelete={handleDelete} />}
+        </>
       )}
 
-      {/* Search input */}
-      {stories.length > 0 && (
-        <div className="pt-4">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search stories..."
-            style={{
-              width: '100%',
-              padding: '8px 0',
-              fontFamily: 'var(--font-body)',
-              fontSize: '14px',
-              background: 'transparent',
-              color: 'var(--text-primary)',
-              border: 'none',
-              borderBottom: '1px solid var(--border-primary)',
-              outline: 'none',
-              marginBottom: '8px',
-            }}
-          />
-        </div>
-      )}
-
-      {/* Main content */}
-      <div className="py-8">
-        {stories.length === 0 && !isAnalyzing ? (
-          <div className="py-20 text-center" style={{ color: 'var(--text-tertiary)' }}>
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: 600 }}>No stories yet</p>
-            <p className="mt-2 text-sm" style={{ fontFamily: 'var(--font-body)' }}>Click &quot;+ new analysis&quot; to cross-reference your first story.</p>
-          </div>
-        ) : (
-          <div className={showSidebar ? "flex gap-12 flex-col lg:flex-row" : ""}>
-            {/* Featured story */}
-            {featured && (
-              <div className={showSidebar ? "lg:w-[58%] relative" : "relative"}>
-                {isAdmin && (
-                  <button
-                    onClick={() => handleDelete(featured.id, featured.headline)}
-                    title="Delete story"
-                    style={{
-                      position: 'absolute', top: 0, right: 0,
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      fontFamily: 'var(--font-mono)', fontSize: '14px',
-                      color: 'var(--text-tertiary)', padding: '4px 8px',
-                      opacity: 0.5, transition: 'opacity 150ms, color 150ms',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-                  >
-                    {"\u2715"}
-                  </button>
-                )}
-                <a
-                  href={`/story/${featured.slug}`}
-                  className="block group"
-                  style={{ padding: '16px 0', borderRadius: '4px', transition: 'background 150ms' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    {featured.primaryCategory && (
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: getCategoryColor(featured.primaryCategory) }}>
-                        {CATEGORIES[featured.primaryCategory as keyof typeof CATEGORIES]?.label.split(' ')[0] ?? featured.primaryCategory}
-                      </span>
-                    )}
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: confidenceColor(featured.confidenceLevel) }}>
-                      {featured.confidenceLevel}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                      {featured.consensusScore}% consensus
-                    </span>
-                  </div>
-                  <h2
-                    className="transition-colors"
-                    style={{
-                      fontFamily: 'var(--font-display)',
-                      fontSize: showSidebar ? '36px' : '42px',
-                      fontWeight: 700,
-                      lineHeight: 1.15,
-                      letterSpacing: '-0.02em',
-                      color: 'var(--text-primary)',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent-blue)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
-                  >
-                    {featured.headline}
-                  </h2>
-                  {/* Tension hook */}
-                  <p className="mt-3" style={{
-                    fontFamily: 'var(--font-body)',
-                    fontSize: '16px',
-                    lineHeight: 1.5,
-                    color: 'var(--accent-amber)',
-                    fontStyle: 'italic',
-                  }}>
-                    {buildHook(featured)}
-                  </p>
-                  <p className="mt-3 line-clamp-3" style={{ fontFamily: 'var(--font-body)', fontSize: '16px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-                    {featured.synopsis?.replace(/<[^>]*>/g, '').substring(0, 300)}
-                  </p>
-                  <div className="mt-4 flex items-center gap-4">
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                      {featured.sourceCount} sources
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                      {featured.countryCount} countries
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                      {timeAgo(featured.createdAt)}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--accent-blue)', marginLeft: 'auto' }}>
-                      Read full analysis &rarr;
-                    </span>
-                  </div>
-                </a>
-
-                {/* Below-featured cards: when no sidebar, show remaining stories as full-width rows */}
-                {!showSidebar && rest.length > 0 && (
-                  <div className="mt-6" style={{ borderTop: '1px solid var(--border-primary)', paddingTop: '24px' }}>
-                    <div className="mb-4">
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: 'var(--text-tertiary)' }}>
-                        Latest analyses
-                      </span>
-                    </div>
-                    {rest.map((story) => (
-                      <StoryRow key={story.slug} story={story} isAdmin={isAdmin} onDelete={handleDelete} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Sidebar — only when 5+ stories */}
-            {showSidebar && (
-              <div className="lg:w-[42%] lg:border-l lg:pl-8" style={{ borderColor: 'var(--border-primary)' }}>
-                <div className="mb-4">
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: 'var(--text-tertiary)' }}>
-                    Latest analyses
-                  </span>
-                </div>
-                <div>
-                  {rest.map((story) => (
-                    <StoryRow key={story.slug} story={story} isAdmin={isAdmin} onDelete={handleDelete} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Undercurrent section */}
+      {/* ═══════════════ UNDERCURRENT ═══════════════ */}
       {reports.length > 0 && (
-        <div className="py-8 border-t" style={{ borderColor: 'var(--border-primary)' }}>
-          <div className="section-rule"><span>Undercurrent</span></div>
-          {reports.map((report) => (
-            <a
-              key={report.slug}
-              href={`/undercurrent/${report.slug}`}
-              className="block py-5 border-b group"
-              style={{ borderColor: 'var(--border-primary)', borderLeft: '3px solid var(--accent-purple)', paddingLeft: '16px' }}
-            >
-              <h3
-                className="group-hover:opacity-70 transition-opacity"
-                style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}
+        <section className="max-w-[1200px] mx-auto px-6 py-16 border-t" style={{ borderColor: 'var(--border-primary)' }}>
+          <SectionLabel>Undercurrent</SectionLabel>
+          <div className="mt-8 space-y-5">
+            {reports.map((report) => (
+              <a
+                key={report.slug}
+                href={`/undercurrent/${report.slug}`}
+                className="block py-5 border-b group hover-card"
+                style={{
+                  borderColor: 'var(--border-primary)',
+                  borderLeft: '3px solid var(--accent-purple)',
+                  paddingLeft: '20px',
+                  transition: 'background 200ms ease, transform 200ms ease',
+                }}
               >
-                While everyone watched {report.dominantHeadline}...
-              </h3>
-              <div className="mt-2 flex items-center gap-4">
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-purple)' }}>
-                  {(report._count?.displacedStories ?? report.displacedStories?.length ?? 0)} displaced stories
-                </span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-purple)' }}>
-                  {(report._count?.quietActions ?? report.quietActions?.length ?? 0)} quiet actions
-                </span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                  {timeAgo(report.createdAt)}
-                </span>
-              </div>
-            </a>
-          ))}
-        </div>
+                <h3
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: '20px',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.3,
+                  }}
+                >
+                  While everyone watched {report.dominantHeadline}...
+                </h3>
+                <div className="mt-3 flex items-center gap-5">
+                  <StatChip color="var(--accent-purple)">
+                    {(report._count?.displacedStories ?? report.displacedStories?.length ?? 0)} displaced stories
+                  </StatChip>
+                  <StatChip color="var(--accent-purple)">
+                    {(report._count?.quietActions ?? report.quietActions?.length ?? 0)} quiet actions
+                  </StatChip>
+                  <StatChip>{timeAgo(report.createdAt)}</StatChip>
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
       )}
 
-      {/* Stats bar */}
-      <div className="py-8 border-t grid grid-cols-2 md:grid-cols-4 gap-8" style={{ borderColor: 'var(--border-primary)' }}>
-        {[
-          { label: "stories analyzed", value: stories.length },
-          { label: "sources checked", value: stories.reduce((n, s) => n + s.sourceCount, 0).toLocaleString() },
-          { label: "countries covered", value: [...new Set(stories.flatMap(() => []))].length || stories.reduce((max, s) => Math.max(max, s.countryCount), 0) },
-          { label: "models debating", value: 4 },
-        ].map((stat) => (
-          <div key={stat.label}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '28px', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {stat.value}
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)', letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
-              {stat.label}
-            </div>
+      {/* ═══════════════ BY THE NUMBERS ═══════════════ */}
+      {stories.length > 0 && (
+        <section className="max-w-[1200px] mx-auto px-6 py-20 border-t" style={{ borderColor: 'var(--border-primary)' }}>
+          <SectionLabel>By the numbers</SectionLabel>
+          <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-4">
+            <Stat number={totalStories.toString()} label="stories analyzed" />
+            <Stat number={totalSources.toLocaleString()} label="sources checked" />
+            <Stat number={maxCountries.toString()} label="countries covered" />
+            <Stat number="4" label="models debating" />
           </div>
-        ))}
-      </div>
+        </section>
+      )}
+
+      {/* ═══════════════ SUBSCRIBE ═══════════════ */}
+      <SubscribeBar />
+
+      {/* Page-level animations + hover effects */}
+      <style jsx global>{`
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .hero-fade-in {
+          animation: fadeUp 500ms ease-out both;
+        }
+        .grid-fade-in {
+          animation: fadeUp 500ms ease-out both;
+        }
+        .stats-fade-in {
+          animation: fadeIn 600ms ease-out both;
+          animation-delay: 300ms;
+        }
+        .hover-card:hover {
+          background: rgba(42, 157, 143, 0.03);
+          transform: translateY(-2px);
+        }
+        .analysis-card:hover {
+          border-color: rgba(42, 157, 143, 0.4) !important;
+          transform: translateY(-2px);
+        }
+        .cta-arrow {
+          display: inline-block;
+          transition: transform 200ms ease;
+        }
+        .cta-link:hover .cta-arrow {
+          transform: translateX(3px);
+        }
+      `}</style>
     </div>
   );
 }
 
-/** Reusable story row card — used in both sidebar and single-column layouts */
-function StoryRow({ story, isAdmin, onDelete }: { story: StoryItem; isAdmin: boolean; onDelete: (id: string, headline: string) => void }) {
+// ───────────────────────────────────────────────────────────────────────────
+// HERO ANALYSIS
+// ───────────────────────────────────────────────────────────────────────────
+function HeroAnalysis({
+  story,
+  isAdmin,
+  onDelete,
+}: {
+  story: StoryItem;
+  isAdmin: boolean;
+  onDelete: (id: string, headline: string) => void;
+}) {
+  const pattern = buildPattern(story);
+  const category = story.primaryCategory;
+  const categoryColor = category ? getCategoryColor(category) : 'var(--text-tertiary)';
+  const categoryLabel = category
+    ? CATEGORIES[category as keyof typeof CATEGORIES]?.label.split(' ')[0] ?? category
+    : null;
+  const confColor = confidenceColor(story.confidenceLevel);
+
+  return (
+    <section
+      className="hero-fade-in relative"
+      style={{
+        background: 'linear-gradient(180deg, rgba(42, 157, 143, 0.03) 0%, transparent 100%)',
+        borderBottom: '1px solid var(--border-primary)',
+      }}
+    >
+      {/* Thin category accent bar on left */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: '3px',
+          background: categoryColor,
+          opacity: 0.6,
+        }}
+      />
+
+      <div className="max-w-[1200px] mx-auto px-6 py-16 md:py-24 relative">
+        {/* Admin delete */}
+        {isAdmin && (
+          <button
+            onClick={() => onDelete(story.id, story.headline)}
+            title="Delete story"
+            style={{
+              position: 'absolute',
+              top: '16px',
+              right: '24px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '14px',
+              color: 'var(--text-tertiary)',
+              padding: '4px 8px',
+              opacity: 0.4,
+              transition: 'opacity 150ms, color 150ms',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '1';
+              e.currentTarget.style.color = 'var(--accent-red)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '0.4';
+              e.currentTarget.style.color = 'var(--text-tertiary)';
+            }}
+          >
+            {"\u2715"}
+          </button>
+        )}
+
+        {/* Featured label — super small, understated */}
+        <div className="flex items-center gap-4 mb-8">
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10px',
+              fontWeight: 600,
+              letterSpacing: '0.15em',
+              textTransform: 'uppercase',
+              color: 'var(--text-tertiary)',
+            }}
+          >
+            Featured analysis
+          </span>
+          <div style={{ flex: 1, maxWidth: '64px', height: '1px', background: 'var(--border-primary)' }} />
+          {categoryLabel && (
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '10px',
+                fontWeight: 700,
+                letterSpacing: '0.15em',
+                textTransform: 'uppercase',
+                color: categoryColor,
+              }}
+            >
+              {categoryLabel}
+            </span>
+          )}
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10px',
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: confColor,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: confColor,
+              }}
+            />
+            {story.confidenceLevel} · {confidencePct(story.confidenceLevel, story.consensusScore)}
+          </span>
+        </div>
+
+        {/* THE PATTERN — hero text */}
+        <a
+          href={`/story/${story.slug}`}
+          className="block group cta-link"
+          style={{ textDecoration: 'none', color: 'inherit' }}
+        >
+          <h1
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 'clamp(22px, 3.4vw, 36px)',
+              fontWeight: 600,
+              lineHeight: 1.3,
+              letterSpacing: '-0.01em',
+              color: 'var(--text-primary)',
+              maxWidth: '800px',
+              fontStyle: 'italic',
+              transition: 'color 200ms ease',
+            }}
+          >
+            <span style={{ color: 'var(--accent-teal, #2A9D8F)', marginRight: '6px' }}>&ldquo;</span>
+            {pattern}
+            <span style={{ color: 'var(--accent-teal, #2A9D8F)', marginLeft: '6px' }}>&rdquo;</span>
+          </h1>
+
+          {/* Headline — subtitle treatment */}
+          <h2
+            className="mt-6"
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 'clamp(15px, 1.5vw, 18px)',
+              fontWeight: 400,
+              lineHeight: 1.55,
+              color: 'var(--text-secondary)',
+              maxWidth: '720px',
+            }}
+          >
+            {story.headline}
+          </h2>
+
+          {/* Stats bar */}
+          <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2">
+            <HeroStat>{story.sourceCount.toLocaleString()} sources</HeroStat>
+            <HeroStat>{story.countryCount} countries</HeroStat>
+            <HeroStat>{story.regionCount} regions</HeroStat>
+            <HeroStat>4 AI models</HeroStat>
+            <HeroStat muted>{timeAgo(story.createdAt)}</HeroStat>
+          </div>
+
+          {/* CTA */}
+          <div className="mt-8">
+            <span
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: '14px',
+                fontWeight: 500,
+                color: 'var(--accent-teal, #2A9D8F)',
+                letterSpacing: '0.01em',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                borderBottom: '1px solid rgba(42, 157, 143, 0.3)',
+                paddingBottom: '2px',
+              }}
+            >
+              Read full analysis
+              <span className="cta-arrow">&rarr;</span>
+            </span>
+          </div>
+        </a>
+      </div>
+    </section>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// LATEST ANALYSES GRID
+// ───────────────────────────────────────────────────────────────────────────
+function LatestAnalyses({
+  stories,
+  isAdmin,
+  onDelete,
+}: {
+  stories: StoryItem[];
+  isAdmin: boolean;
+  onDelete: (id: string, headline: string) => void;
+}) {
+  return (
+    <section className="max-w-[1200px] mx-auto px-6 py-16 grid-fade-in">
+      <SectionLabel>Latest analyses</SectionLabel>
+      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+        {stories.map((story, i) => (
+          <AnalysisCard
+            key={story.slug}
+            story={story}
+            isAdmin={isAdmin}
+            onDelete={onDelete}
+            index={i}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AnalysisCard({
+  story,
+  isAdmin,
+  onDelete,
+  index,
+}: {
+  story: StoryItem;
+  isAdmin: boolean;
+  onDelete: (id: string, headline: string) => void;
+  index: number;
+}) {
+  const pattern = buildPattern(story);
+  const category = story.primaryCategory;
+  const categoryColor = category ? getCategoryColor(category) : 'var(--text-tertiary)';
+  const categoryLabel = category
+    ? CATEGORIES[category as keyof typeof CATEGORIES]?.label.split(' ')[0] ?? category
+    : null;
+  const confColor = confidenceColor(story.confidenceLevel);
+
   return (
     <div
-      className="relative py-4 border-b"
-      style={{ borderColor: 'var(--border-primary)' }}
+      className="relative analysis-card"
+      style={{
+        border: '1px solid var(--border-primary)',
+        padding: '24px',
+        transition: 'all 200ms ease',
+        animation: 'fadeUp 500ms ease-out both',
+        animationDelay: `${Math.min(index * 80, 400)}ms`,
+      }}
     >
       {isAdmin && (
         <button
           onClick={() => onDelete(story.id, story.headline)}
           title="Delete story"
           style={{
-            position: 'absolute', top: '12px', right: 0,
-            background: 'none', border: 'none', cursor: 'pointer',
-            fontFamily: 'var(--font-mono)', fontSize: '12px',
-            color: 'var(--text-tertiary)', padding: '2px 6px',
-            opacity: 0.4, transition: 'opacity 150ms, color 150ms',
+            position: 'absolute',
+            top: '12px',
+            right: '12px',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+            color: 'var(--text-tertiary)',
+            padding: '2px 6px',
+            opacity: 0.3,
+            transition: 'opacity 150ms, color 150ms',
+            zIndex: 2,
           }}
-          onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--accent-red)'; }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.opacity = '1';
+            e.currentTarget.style.color = 'var(--accent-red)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.opacity = '0.3';
+            e.currentTarget.style.color = 'var(--text-tertiary)';
+          }}
         >
           {"\u2715"}
         </button>
       )}
+
       <a
         href={`/story/${story.slug}`}
-        className="block group"
-        style={{ padding: '4px 0', transition: 'background 150ms' }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+        style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
       >
-        <h3
-          className="pr-6 transition-colors"
+        {/* Category */}
+        {categoryLabel && (
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10px',
+              fontWeight: 700,
+              letterSpacing: '0.15em',
+              textTransform: 'uppercase',
+              color: categoryColor,
+              marginBottom: '14px',
+            }}
+          >
+            {categoryLabel}
+          </div>
+        )}
+
+        {/* Pattern — the hook */}
+        <p
           style={{
             fontFamily: 'var(--font-display)',
-            fontSize: '18px',
-            fontWeight: 600,
-            lineHeight: 1.3,
-            letterSpacing: '-0.01em',
-            color: 'var(--text-primary)',
+            fontSize: '17px',
+            fontStyle: 'italic',
+            lineHeight: 1.45,
+            color: 'var(--accent-teal, #2A9D8F)',
+            letterSpacing: '-0.005em',
+            // 3-line clamp
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            marginBottom: '12px',
           }}
-          onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent-blue)'; }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        >
+          {pattern}
+        </p>
+
+        {/* Headline — supporting */}
+        <h3
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '14px',
+            fontWeight: 400,
+            lineHeight: 1.5,
+            color: 'var(--text-secondary)',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            marginBottom: '20px',
+          }}
         >
           {story.headline}
         </h3>
-        {/* Tension hook */}
-        <p className="mt-1 line-clamp-2" style={{
-          fontFamily: 'var(--font-body)',
-          fontSize: '13px',
-          lineHeight: 1.5,
-          color: 'var(--accent-amber)',
-          fontStyle: 'italic',
-        }}>
-          {buildHook(story)}
-        </p>
-        <div className="mt-2 flex items-center gap-3">
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' as const, color: confidenceColor(story.confidenceLevel) }}>
-            {story.confidenceLevel}
+
+        {/* Stats row */}
+        <div className="flex items-center flex-wrap gap-x-4 gap-y-1">
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              color: confColor,
+              textTransform: 'uppercase',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: confColor,
+              }}
+            />
+            {story.confidenceLevel} {confidencePct(story.confidenceLevel, story.consensusScore)}
           </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-            {story.consensusScore}%
-          </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-            {story.sourceCount} sources
-          </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-            {timeAgo(story.createdAt)}
-          </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-blue)', marginLeft: 'auto' }}>
-            &rarr;
-          </span>
+          <DotSeparator />
+          <StatChip>{story.sourceCount} sources</StatChip>
+          <DotSeparator />
+          <StatChip>{timeAgo(story.createdAt)}</StatChip>
         </div>
       </a>
     </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// SHARED BITS
+// ───────────────────────────────────────────────────────────────────────────
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-4">
+      <span
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '10px',
+          fontWeight: 600,
+          letterSpacing: '0.2em',
+          textTransform: 'uppercase',
+          color: 'var(--text-tertiary)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {children}
+      </span>
+      <div style={{ flex: 1, height: '1px', background: 'var(--border-primary)' }} />
+    </div>
+  );
+}
+
+function StatChip({ children, color = 'var(--text-tertiary)' }: { children: React.ReactNode; color?: string }) {
+  return (
+    <span
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: '11px',
+        color,
+        letterSpacing: '0.02em',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function DotSeparator() {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: '3px',
+        height: '3px',
+        borderRadius: '50%',
+        background: 'var(--text-tertiary)',
+        opacity: 0.4,
+        display: 'inline-block',
+      }}
+    />
+  );
+}
+
+function HeroStat({ children, muted = false }: { children: React.ReactNode; muted?: boolean }) {
+  return (
+    <span
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: '12px',
+        color: muted ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+        letterSpacing: '0.02em',
+        display: 'inline-flex',
+        alignItems: 'center',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Stat({ number, label }: { number: string; label: string }) {
+  return (
+    <div className="stats-fade-in text-center md:text-left">
+      <div
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 'clamp(32px, 4vw, 52px)',
+          fontWeight: 600,
+          lineHeight: 1,
+          color: 'var(--text-primary)',
+          letterSpacing: '-0.02em',
+        }}
+      >
+        {number}
+      </div>
+      <div
+        className="mt-3"
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '10px',
+          letterSpacing: '0.2em',
+          textTransform: 'uppercase',
+          color: 'var(--text-tertiary)',
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// SUBSCRIBE
+// ───────────────────────────────────────────────────────────────────────────
+function SubscribeBar() {
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim() || status === 'loading') return;
+    setStatus('loading');
+    try {
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      if (res.ok) {
+        setStatus('success');
+        setEmail('');
+      } else {
+        setStatus('error');
+      }
+    } catch {
+      setStatus('error');
+    }
+  }
+
+  return (
+    <section className="max-w-[1200px] mx-auto px-6 py-16 border-t" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '14px',
+            color: 'var(--text-secondary)',
+            maxWidth: '480px',
+            lineHeight: 1.5,
+          }}
+        >
+          Free weekly digest: the stories everyone covered differently.
+        </p>
+        <form
+          onSubmit={handleSubmit}
+          className="flex items-center gap-0 w-full md:w-auto"
+          style={{ maxWidth: '440px' }}
+        >
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="your@email.com"
+            disabled={status === 'loading' || status === 'success'}
+            style={{
+              flex: 1,
+              padding: '12px 14px',
+              fontFamily: 'var(--font-body)',
+              fontSize: '14px',
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-primary)',
+              borderRight: 'none',
+              outline: 'none',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={status === 'loading' || status === 'success'}
+            style={{
+              padding: '12px 20px',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              fontWeight: 600,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: status === 'success' ? 'var(--accent-green)' : 'var(--accent-teal, #2A9D8F)',
+              background: 'transparent',
+              border: '1px solid var(--border-primary)',
+              borderLeft: '1px solid var(--border-primary)',
+              cursor: status === 'loading' || status === 'success' ? 'default' : 'pointer',
+              transition: 'background 200ms ease, color 200ms ease',
+              whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={(e) => {
+              if (status === 'idle' || status === 'error') {
+                e.currentTarget.style.background = 'rgba(42, 157, 143, 0.08)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            {status === 'loading' ? '...' : status === 'success' ? 'subscribed ✓' : 'subscribe'}
+          </button>
+        </form>
+      </div>
+      {status === 'error' && (
+        <p
+          className="mt-3"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '11px',
+            color: 'var(--accent-red)',
+          }}
+        >
+          Something went wrong. Try again?
+        </p>
+      )}
+    </section>
   );
 }

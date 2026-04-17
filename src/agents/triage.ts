@@ -257,11 +257,18 @@ export async function triageSources(
     for (const s of batch) {
       const { score, hasAnchor } = keywordRelevanceScore(s.title, queryKw.anchors, queryKw.all)
       const isMustHave = isMustHaveDomain(s.domain)
-      if (isMustHave && score >= 1) {
-        // MUST-HAVE outlet with ANY keyword match: reserved slot, no Haiku needed
+      // Must-have outlets: auto-pass only if they actually mention a proper noun
+      // from the query OR have a strong (score ≥ 2) keyword match. This prevents
+      // "AP: 250k miles from Earth" from auto-passing on a "Swalwell from Congress"
+      // query just because "from" matches.
+      if (isMustHave && (hasAnchor || score >= 2)) {
         mustHavePassed.push(s)
       } else if (score >= 2 && hasAnchor) {
         anchorPassed.push(s)
+      } else if (isMustHave && score >= 1) {
+        // Must-have outlet with weak match: still prefer over non-must-have,
+        // but let Haiku adjudicate relevance
+        needsHaiku.push(s)
       } else {
         needsHaiku.push(s)
       }

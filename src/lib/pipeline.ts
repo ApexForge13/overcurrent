@@ -15,6 +15,7 @@ import { analyzeSilence } from '@/agents/silence'
 import { synthesize } from '@/agents/synthesis'
 import { runRegionalDebate, moderatorToRegionalAnalysis, resetModelFailureTracking } from '@/lib/debate'
 import type { DebateRoundData } from '@/lib/debate'
+import { runSignalTracking } from '@/lib/signal'
 // Social draft generation removed from pipeline — drafts written manually
 // import { generateSocialDrafts } from '@/agents/social-drafts'
 import { fetchRedditDiscourse } from '@/ingestion/reddit-discourse'
@@ -1457,6 +1458,72 @@ export async function runVerifyPipeline(
   console.log(`[pipeline] Cost: $${totalCost.toFixed(4)}`)
   console.log(`[pipeline] Time: ${elapsed}s`)
   console.log(`[pipeline] ══════════════════════════════════════\n`)
+
+  // ── PHASE 7: SIGNAL TRACKING (admin-only, never touches public routes) ──
+  // Runs after main story save. Writes to StoryCluster, OutletAppearance,
+  // FactOmission, FramingTag, OutletFingerprint, StoryCategoryPattern,
+  // NarrativeArc, PredictiveSignal. Fully try/catch-wrapped — if this whole
+  // block fails, the story is still saved and the user sees normal output.
+  try {
+    onProgress('signal_tracking', { phase: 'signal_tracking', message: 'Running signal tracking...' })
+
+    // Build framing lookup: infer per-outlet framing from regional framings
+    // (coarse but useful at current analysis density — will refine with
+    // outlet-level framing detection in a future iteration).
+    const framingByRegion = new Map<string, string>()
+    for (const f of synthesisResult.framingSplit || []) {
+      // The `frameName` is typically the region-level framing ("western", "regional", etc.)
+      // Use it as-is. Outlets in a region get that region's framing.
+      if (f.outletTypes) framingByRegion.set(f.frameName, f.ledWith || f.frameName)
+    }
+
+    // For simpler framings, use the story-level framings array
+    const framingByDomain: Array<{ outletDomain: string; framingAngle: string; isDominant: boolean }> = []
+    for (const source of substantiveArticles) {
+      try {
+        const domain = new URL(source.url).hostname.replace(/^www\./, '')
+        // Map region → framing (coarse)
+        // If framingSplit has the region, use its ledWith; otherwise use region name as framing
+        const regionFraming = framingByRegion.get(source.region) || source.region.toLowerCase().replace(/\s+/g, '_')
+        framingByDomain.push({
+          outletDomain: domain,
+          framingAngle: regionFraming,
+          isDominant: true, // no per-outlet dominance data yet; treat all as dominant for their region's framing
+        })
+      } catch {
+        // Skip malformed URLs
+      }
+    }
+
+    const signalSources = substantiveArticles.map((s) => {
+      let domain = ''
+      try { domain = new URL(s.url).hostname.replace(/^www\./, '') } catch {}
+      return {
+        outletDomain: domain,
+        title: s.title,
+        content: s.content,
+        region: s.region,
+        publishedAt: (s as { publishedAt?: Date | string | null }).publishedAt
+          ? new Date((s as { publishedAt?: Date | string | null }).publishedAt as string)
+          : null,
+      }
+    }).filter((s) => s.outletDomain)
+
+    const signalResult = await runSignalTracking({
+      storyId: story.id,
+      headline: synthesisResult.headline,
+      synopsis: synthesisResult.synopsis,
+      query,
+      firstArticlePublishedAt: sourcesFrom,
+      sources: signalSources,
+      framings: framingByDomain,
+    })
+
+    console.log(`[pipeline] Signal tracking: cluster=${signalResult.clusterId?.substring(0, 8)}, phase=${signalResult.storyPhase}, category=${signalResult.signalCategory}, cost=$${signalResult.totalCostUsd.toFixed(4)}`)
+    totalCost += signalResult.totalCostUsd
+  } catch (err) {
+    console.error('[pipeline] Signal tracking failed (non-blocking):', err instanceof Error ? err.message : err)
+  }
 
   onProgress('complete', {
     phase: 'complete',

@@ -25,7 +25,16 @@ app.get('/health', (_req, res) => {
 
 // Verify analysis endpoint
 app.post('/analyze', async (req, res) => {
-  const { query } = req.body
+  const {
+    query,
+    // ── Story arc system fields (Step 2) — all optional ──
+    umbrellaArcId,
+    analysisType,
+    arcLabel,
+    arcImportance,
+    arcPhaseAtCreation,
+    arcRerunTargetStoryId,
+  } = req.body
 
   if (!query || typeof query !== 'string') {
     return res.status(400).json({ error: 'Missing required field: query' })
@@ -58,7 +67,14 @@ app.post('/analyze', async (req, res) => {
   try {
     // Dynamic import to avoid module initialization issues
     const { runVerifyPipeline } = await import('../src/lib/pipeline')
-    await runVerifyPipeline(query, send)
+    await runVerifyPipeline(query, send, {
+      umbrellaArcId: typeof umbrellaArcId === 'string' ? umbrellaArcId : null,
+      analysisType: typeof analysisType === 'string' ? analysisType : null,
+      arcLabel: typeof arcLabel === 'string' ? arcLabel : null,
+      arcImportance: typeof arcImportance === 'string' ? arcImportance : null,
+      arcPhaseAtCreation: typeof arcPhaseAtCreation === 'string' ? arcPhaseAtCreation : null,
+      arcRerunTargetStoryId: typeof arcRerunTargetStoryId === 'string' ? arcRerunTargetStoryId : null,
+    })
   } catch (error) {
     console.error('Analysis error:', error)
     send('error', {

@@ -16,6 +16,7 @@ import { synthesize } from '@/agents/synthesis'
 import { runRegionalDebate, moderatorToRegionalAnalysis, resetModelFailureTracking } from '@/lib/debate'
 import type { DebateRoundData } from '@/lib/debate'
 import { runSignalTracking } from '@/lib/signal'
+import { bumpUmbrellaCounters } from '@/lib/umbrella-counters'
 // Social draft generation removed from pipeline — drafts written manually
 // import { generateSocialDrafts } from '@/agents/social-drafts'
 import { fetchRedditDiscourse } from '@/ingestion/reddit-discourse'
@@ -28,6 +29,137 @@ import type { SilenceAnalysis } from '@/agents/silence'
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const VALID_ANALYSIS_TYPES = new Set(['standalone', 'umbrella_tagged', 'new_arc', 'arc_rerun'])
+const VALID_ARC_IMPORTANCES = new Set(['core', 'reference'])
+const VALID_STORY_PHASES = new Set(['first_wave', 'development', 'consolidation', 'tail'])
+
+interface ResolvedArcOptions {
+  // Normalized + validated fields to be written to Story
+  umbrellaArcId: string | null
+  analysisType: string | null
+  arcLabel: string | null
+  arcImportance: string | null
+  arcPhaseAtCreation: string | null
+  // For arc_rerun: the existing cluster to attach to
+  attachToClusterId: string | null
+  // Error from validation (null if clean)
+  error: string | null
+}
+
+/**
+ * Validate the arc-system options supplied to runVerifyPipeline and resolve
+ * the StoryCluster that an arc_rerun should attach to.
+ */
+async function resolveArcOptions(options: Partial<{
+  umbrellaArcId?: string | null
+  analysisType?: string | null
+  arcLabel?: string | null
+  arcImportance?: string | null
+  arcPhaseAtCreation?: string | null
+  arcRerunTargetStoryId?: string | null
+}>): Promise<ResolvedArcOptions> {
+  const empty: ResolvedArcOptions = {
+    umbrellaArcId: null,
+    analysisType: null,
+    arcLabel: null,
+    arcImportance: null,
+    arcPhaseAtCreation: null,
+    attachToClusterId: null,
+    error: null,
+  }
+
+  // If no arc-system fields supplied, behave identically to pre-system runs.
+  if (!options.analysisType && !options.umbrellaArcId) return empty
+
+  const analysisType = options.analysisType ?? null
+  if (analysisType && !VALID_ANALYSIS_TYPES.has(analysisType)) {
+    return { ...empty, error: `Invalid analysisType: ${analysisType}` }
+  }
+
+  // Verify umbrella exists if provided
+  let umbrellaArcId: string | null = null
+  if (options.umbrellaArcId) {
+    const umb = await prisma.umbrellaArc.findUnique({
+      where: { id: options.umbrellaArcId },
+      select: { id: true, status: true },
+    })
+    if (!umb) return { ...empty, error: `Umbrella not found: ${options.umbrellaArcId}` }
+    if (umb.status === 'archived') {
+      return { ...empty, error: 'Cannot file a new analysis under an archived umbrella' }
+    }
+    umbrellaArcId = umb.id
+  }
+
+  // umbrella_tagged / new_arc / arc_rerun require an umbrella
+  if (
+    (analysisType === 'umbrella_tagged' || analysisType === 'new_arc' || analysisType === 'arc_rerun') &&
+    !umbrellaArcId
+  ) {
+    return { ...empty, error: `analysisType=${analysisType} requires umbrellaArcId` }
+  }
+
+  // new_arc requires arcLabel
+  const arcLabel = options.arcLabel?.trim() || null
+  if (analysisType === 'new_arc' && !arcLabel) {
+    return { ...empty, error: 'analysisType=new_arc requires arcLabel' }
+  }
+
+  // new_arc requires arcImportance
+  const arcImportance = options.arcImportance ?? null
+  if (analysisType === 'new_arc') {
+    if (!arcImportance || !VALID_ARC_IMPORTANCES.has(arcImportance)) {
+      return { ...empty, error: 'analysisType=new_arc requires arcImportance (core | reference)' }
+    }
+  }
+
+  // phase is optional; if provided must be valid
+  const arcPhaseAtCreation = options.arcPhaseAtCreation ?? null
+  if (arcPhaseAtCreation && !VALID_STORY_PHASES.has(arcPhaseAtCreation)) {
+    return { ...empty, error: `Invalid arcPhaseAtCreation: ${arcPhaseAtCreation}` }
+  }
+
+  // arc_rerun: resolve the target arc Story and its StoryCluster
+  let attachToClusterId: string | null = null
+  let resolvedArcLabel = arcLabel
+  if (analysisType === 'arc_rerun') {
+    if (!options.arcRerunTargetStoryId) {
+      return { ...empty, error: 'analysisType=arc_rerun requires arcRerunTargetStoryId' }
+    }
+    const targetArc = await prisma.story.findUnique({
+      where: { id: options.arcRerunTargetStoryId },
+      select: {
+        id: true,
+        analysisType: true,
+        arcLabel: true,
+        umbrellaArcId: true,
+        storyClusterId: true,
+      },
+    })
+    if (!targetArc) {
+      return { ...empty, error: `arcRerunTargetStoryId not found: ${options.arcRerunTargetStoryId}` }
+    }
+    if (targetArc.analysisType !== 'new_arc') {
+      return { ...empty, error: 'arcRerunTargetStoryId must reference a new_arc analysis' }
+    }
+    if (umbrellaArcId && targetArc.umbrellaArcId && targetArc.umbrellaArcId !== umbrellaArcId) {
+      return { ...empty, error: 'Arc belongs to a different umbrella than the one selected' }
+    }
+    attachToClusterId = targetArc.storyClusterId ?? null
+    // Inherit arcLabel from the initiating arc if the caller didn't specify one
+    resolvedArcLabel = resolvedArcLabel ?? targetArc.arcLabel
+  }
+
+  return {
+    umbrellaArcId,
+    analysisType,
+    arcLabel: resolvedArcLabel,
+    arcImportance: analysisType === 'new_arc' ? arcImportance : null,
+    arcPhaseAtCreation,
+    attachToClusterId,
+    error: null,
+  }
+}
 
 async function parallelWithLimit<T, R>(
   items: T[],
@@ -399,12 +531,38 @@ function buildTimelineFromClassifications(
 // Main pipeline
 // ---------------------------------------------------------------------------
 
+// ── Story arc system options (Step 2) ──
+// All fields optional; when absent the pipeline behaves identically to
+// pre-arc-system runs (analysisType=null, umbrellaArcId=null → pure standalone).
+export interface VerifyPipelineOptions {
+  umbrellaArcId?: string | null
+  /** standalone | umbrella_tagged | new_arc | arc_rerun */
+  analysisType?: string | null
+  arcLabel?: string | null
+  /** core | reference — only meaningful when analysisType === 'new_arc' */
+  arcImportance?: string | null
+  /** first_wave | development | consolidation | tail */
+  arcPhaseAtCreation?: string | null
+  /** For arc_rerun: the initiating arc Story.id — used to attach the re-run
+   *  to the same StoryCluster as the arc instead of letting the cluster-matcher
+   *  decide. */
+  arcRerunTargetStoryId?: string | null
+}
+
 export async function runVerifyPipeline(
   query: string,
   onProgress: (event: string, data: unknown) => void,
+  options: VerifyPipelineOptions = {},
 ): Promise<string> {
   const startTime = Date.now()
   let totalCost = 0
+
+  // ── Pre-flight: validate arc-system options ──
+  const arcOptions = await resolveArcOptions(options)
+  if (arcOptions.error) {
+    onProgress('error', { phase: 'error', message: arcOptions.error })
+    throw new Error(arcOptions.error)
+  }
 
   // Reset cross-region model failure tracking and global state for this run
   resetModelFailureTracking()
@@ -1181,8 +1339,20 @@ export async function runVerifyPipeline(
         outletCount: new Set(triageResult.sources.map(s => s.outlet)).size,
         sourcesFrom: sourcesFrom,
         sourcesTo: sourcesTo,
+        // ── Story arc system fields (Step 2) ──
+        umbrellaArcId: arcOptions.umbrellaArcId,
+        analysisType: arcOptions.analysisType,
+        arcLabel: arcOptions.arcLabel,
+        arcImportance: arcOptions.arcImportance,
+        arcPhaseAtCreation: arcOptions.arcPhaseAtCreation,
+        arcDesignatedAt: arcOptions.umbrellaArcId || arcOptions.analysisType ? new Date() : null,
       },
     })
+
+    // ── Bump UmbrellaArc counters (in same transaction) ──
+    if (arcOptions.umbrellaArcId) {
+      await bumpUmbrellaCounters(tx, arcOptions.umbrellaArcId, arcOptions.analysisType)
+    }
 
     // Sources
     if (triageResult.sources.length > 0) {
@@ -1530,6 +1700,11 @@ export async function runVerifyPipeline(
       synopsis: synthesisResult.synopsis,
       query,
       firstArticlePublishedAt: sourcesFrom,
+      // For arc_rerun, attach to the initiating arc's cluster instead of
+      // letting the cluster-matcher run. Ensures arcs stay grouped even when
+      // headline similarity drops off across re-runs.
+      clusterOverride: arcOptions.attachToClusterId ? 'attach' : null,
+      attachToClusterId: arcOptions.attachToClusterId,
       sources: signalSources,
       framings: framingByDomain,
     })

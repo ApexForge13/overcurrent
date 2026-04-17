@@ -1,6 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from 'react'
 import { CoverageTracker } from '@/components/admin/CoverageTracker'
+import { AnalyzeForm } from '@/components/admin/AnalyzeForm'
 
 interface DashboardStats {
   totalStories: number
@@ -37,20 +38,6 @@ export default function AdminDashboard() {
   const [reanalysisStatus, setReanalysisStatus] = useState<Record<string, string>>({})
   const [carouselSlides, setCarouselSlides] = useState<Record<string, Array<{ slide: number; filename: string; dataUrl: string }>>>({})
   const [carouselLoading, setCarouselLoading] = useState<Record<string, boolean>>({})
-  const [analyzeMode, setAnalyzeMode] = useState<'verify' | 'undercurrent'>('verify')
-  const [analyzeQuery, setAnalyzeQuery] = useState('')
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [analyzeStatus, setAnalyzeStatus] = useState(() => {
-    if (typeof window === 'undefined') return ''
-    try {
-      const saved = JSON.parse(localStorage.getItem('oc_analysis') || '{}')
-      if (saved.msg && !saved.running) return saved.msg // Show last result
-      if (saved.msg && saved.running && Date.now() - saved.ts < 600_000) {
-        return `${saved.msg} (pipeline was running for "${saved.query}" — may still be processing on Railway)`
-      }
-    } catch {}
-    return ''
-  })
 
   const fetchReviewStories = useCallback(() => {
     fetch('/api/admin/stories?status=review')
@@ -194,101 +181,11 @@ export default function AdminDashboard() {
     setCarouselLoading(prev => ({ ...prev, [storyId]: false }))
   }
 
-  async function handleAnalyze(e: React.FormEvent) {
-    e.preventDefault()
-    if (!analyzeQuery.trim() || isAnalyzing) return
-    setIsAnalyzing(true)
-    const statusUpdate = (msg: string, running = true) => {
-      setAnalyzeStatus(msg)
-      try { localStorage.setItem('oc_analysis', JSON.stringify({ msg, running, ts: Date.now(), query: analyzeQuery.trim() })) } catch {}
-    }
-    statusUpdate('Starting analysis...')
-
-    // Use Railway pipeline service (no timeout) instead of Vercel serverless function
-    const railwayBase = 'https://overcurrent-production.up.railway.app'
-    const endpoint = analyzeMode === 'verify' ? `${railwayBase}/analyze` : `${railwayBase}/undercurrent`
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: analyzeQuery.trim() }),
-      })
-      if (!response.ok) throw new Error(`Railway returned ${response.status}: ${response.statusText}`)
-      if (!response.body) throw new Error('No stream body')
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let finished = false
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              statusUpdate(data.message || data.phase || '')
-              if (data.phase === 'complete') {
-                finished = true
-                setIsAnalyzing(false)
-                setAnalyzeQuery('')
-                statusUpdate('Complete — story is in review below', false)
-                fetchReviewStories()
-              }
-              if (data.phase === 'error') {
-                finished = true
-                setIsAnalyzing(false)
-                statusUpdate(`Error: ${data.message}`, false)
-              }
-            } catch { /* skip malformed SSE */ }
-          }
-        }
-      }
-      // Stream ended without complete/error event — likely crashed
-      if (!finished) {
-        setIsAnalyzing(false)
-        statusUpdate('Stream ended unexpectedly — pipeline may have crashed. Check Railway logs.', false)
-      }
-    } catch (err) {
-      setIsAnalyzing(false)
-      statusUpdate(`Analysis failed: ${err instanceof Error ? err.message : 'connection lost'}`, false)
-    }
-  }
-
   return (
     <div>
-      {/* Analyze form */}
-      <div className="mb-8 p-5" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)' }}>
-        <div className="flex items-center gap-3 mb-3">
-          <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
-            New Analysis
-          </h3>
-          <button onClick={() => setAnalyzeMode('verify')}
-            style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '2px 8px', color: analyzeMode === 'verify' ? 'var(--accent-green)' : 'var(--text-tertiary)', border: analyzeMode === 'verify' ? '1px solid var(--accent-green)' : '1px solid transparent', background: 'none', cursor: 'pointer' }}>
-            verify
-          </button>
-          <button onClick={() => setAnalyzeMode('undercurrent')}
-            style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '2px 8px', color: analyzeMode === 'undercurrent' ? 'var(--accent-purple)' : 'var(--text-tertiary)', border: analyzeMode === 'undercurrent' ? '1px solid var(--accent-purple)' : '1px solid transparent', background: 'none', cursor: 'pointer' }}>
-            undercurrent
-          </button>
-        </div>
-        <form onSubmit={handleAnalyze} className="flex gap-3">
-          <input type="text" value={analyzeQuery} onChange={e => setAnalyzeQuery(e.target.value)}
-            placeholder={analyzeMode === 'verify' ? 'Enter a story to analyze...' : 'Enter the dominant story...'}
-            disabled={isAnalyzing}
-            style={{ flex: 1, padding: '8px 12px', fontFamily: 'var(--font-body)', fontSize: '13px', background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', outline: 'none' }} />
-          <button type="submit" disabled={isAnalyzing || !analyzeQuery.trim()}
-            style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', background: 'transparent', cursor: isAnalyzing ? 'wait' : 'pointer', opacity: isAnalyzing ? 0.5 : 1 }}>
-            {isAnalyzing ? 'analyzing...' : 'analyze'}
-          </button>
-        </form>
-        {analyzeStatus && (
-          <p className="mt-2" style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: isAnalyzing ? 'var(--accent-amber)' : analyzeStatus.includes('Error') ? 'var(--accent-red)' : 'var(--accent-green)' }}>
-            {analyzeStatus}
-          </p>
-        )}
+      {/* Analyze form — now umbrella-aware with analysisType selector */}
+      <div className="mb-8">
+        <AnalyzeForm onStoryReady={fetchReviewStories} />
       </div>
 
       <h2 className="font-display font-bold text-xl mb-6">Dashboard</h2>

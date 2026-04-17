@@ -175,11 +175,49 @@ export default function HomePage() {
         </div>
       ) : (
         <>
-          {/* ═══════════════ HERO ANALYSIS ═══════════════ */}
-          {featured && <HeroAnalysis story={featured} isAdmin={isAdmin} onDelete={handleDelete} />}
+          {/* ═══════════════ HERO + SIDEBAR LIST ═══════════════ */}
+          {featured && (
+            <section
+              className="hero-fade-in"
+              style={{
+                background: 'linear-gradient(180deg, rgba(42, 157, 143, 0.03) 0%, transparent 100%)',
+                borderBottom: '1px solid var(--border-primary)',
+              }}
+            >
+              <div className="max-w-[1200px] mx-auto px-6 py-14 md:py-20">
+                <div className="flex flex-col lg:flex-row lg:gap-12">
+                  {/* Featured — left column (~60%) */}
+                  <div className="lg:w-[60%] relative">
+                    <HeroAnalysis story={featured} isAdmin={isAdmin} onDelete={handleDelete} />
+                  </div>
 
-          {/* ═══════════════ LATEST ANALYSES GRID ═══════════════ */}
-          {latest.length > 0 && <LatestAnalyses stories={latest} isAdmin={isAdmin} onDelete={handleDelete} />}
+                  {/* Sidebar list — right column (~40%) */}
+                  {latest.length > 0 && (
+                    <aside className="lg:w-[40%] mt-16 lg:mt-0 lg:border-l lg:pl-10" style={{ borderColor: 'var(--border-primary)' }}>
+                      <SectionLabel>Latest analyses</SectionLabel>
+                      <div className="mt-6">
+                        {latest.slice(0, 5).map((story, i) => (
+                          <SidebarRow key={story.slug} story={story} isAdmin={isAdmin} onDelete={handleDelete} index={i} />
+                        ))}
+                      </div>
+                    </aside>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Overflow: stories 6+ as additional compact rows below the hero */}
+          {latest.length > 5 && (
+            <section className="max-w-[1200px] mx-auto px-6 py-12">
+              <SectionLabel>More analyses</SectionLabel>
+              <div className="mt-6">
+                {latest.slice(5).map((story, i) => (
+                  <SidebarRow key={story.slug} story={story} isAdmin={isAdmin} onDelete={handleDelete} index={i} />
+                ))}
+              </div>
+            </section>
+          )}
         </>
       )}
 
@@ -303,220 +341,170 @@ function HeroAnalysis({
   const confColor = confidenceColor(story.confidenceLevel);
 
   return (
-    <section
-      className="hero-fade-in relative"
-      style={{
-        background: 'linear-gradient(180deg, rgba(42, 157, 143, 0.03) 0%, transparent 100%)',
-        borderBottom: '1px solid var(--border-primary)',
-      }}
-    >
-      {/* Thin category accent bar on left */}
-      <div
-        aria-hidden
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: '3px',
-          background: categoryColor,
-          opacity: 0.6,
-        }}
-      />
+    <div className="relative">
+      {/* Admin delete */}
+      {isAdmin && (
+        <button
+          onClick={() => onDelete(story.id, story.headline)}
+          title="Delete story"
+          style={{
+            position: 'absolute',
+            top: '-8px',
+            right: '0',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '14px',
+            color: 'var(--text-tertiary)',
+            padding: '4px 8px',
+            opacity: 0.4,
+            transition: 'opacity 150ms, color 150ms',
+            zIndex: 2,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.opacity = '1';
+            e.currentTarget.style.color = 'var(--accent-red)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.opacity = '0.4';
+            e.currentTarget.style.color = 'var(--text-tertiary)';
+          }}
+        >
+          {"\u2715"}
+        </button>
+      )}
 
-      <div className="max-w-[1200px] mx-auto px-6 py-16 md:py-24 relative">
-        {/* Admin delete */}
-        {isAdmin && (
-          <button
-            onClick={() => onDelete(story.id, story.headline)}
-            title="Delete story"
-            style={{
-              position: 'absolute',
-              top: '16px',
-              right: '24px',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '14px',
-              color: 'var(--text-tertiary)',
-              padding: '4px 8px',
-              opacity: 0.4,
-              transition: 'opacity 150ms, color 150ms',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = '1';
-              e.currentTarget.style.color = 'var(--accent-red)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = '0.4';
-              e.currentTarget.style.color = 'var(--text-tertiary)';
-            }}
-          >
-            {"\u2715"}
-          </button>
-        )}
-
-        {/* Featured label — super small, understated */}
-        <div className="flex items-center gap-4 mb-8">
+      {/* Featured label row */}
+      <div className="flex items-center gap-4 mb-8">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '10px',
+            fontWeight: 600,
+            letterSpacing: '0.15em',
+            textTransform: 'uppercase',
+            color: 'var(--text-tertiary)',
+          }}
+        >
+          Featured analysis
+        </span>
+        <div style={{ flex: 1, maxWidth: '48px', height: '1px', background: 'var(--border-primary)' }} />
+        {categoryLabel && (
           <span
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: '10px',
-              fontWeight: 600,
+              fontWeight: 700,
               letterSpacing: '0.15em',
               textTransform: 'uppercase',
-              color: 'var(--text-tertiary)',
+              color: categoryColor,
             }}
           >
-            Featured analysis
+            {categoryLabel}
           </span>
-          <div style={{ flex: 1, maxWidth: '64px', height: '1px', background: 'var(--border-primary)' }} />
-          {categoryLabel && (
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '10px',
-                fontWeight: 700,
-                letterSpacing: '0.15em',
-                textTransform: 'uppercase',
-                color: categoryColor,
-              }}
-            >
-              {categoryLabel}
-            </span>
-          )}
+        )}
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '10px',
+            fontWeight: 600,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: confColor,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}
+        >
           <span
             style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '10px',
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: confColor,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
+              display: 'inline-block',
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: confColor,
             }}
-          >
-            <span
-              style={{
-                display: 'inline-block',
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: confColor,
-              }}
-            />
-            {story.confidenceLevel} · {confidencePct(story.confidenceLevel, story.consensusScore)}
-          </span>
+          />
+          {story.confidenceLevel} · {confidencePct(story.confidenceLevel, story.consensusScore)}
+        </span>
+      </div>
+
+      {/* THE PATTERN — hero text */}
+      <a
+        href={`/story/${story.slug}`}
+        className="block group cta-link"
+        style={{ textDecoration: 'none', color: 'inherit' }}
+      >
+        <h1
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 'clamp(22px, 2.6vw, 32px)',
+            fontWeight: 600,
+            lineHeight: 1.3,
+            letterSpacing: '-0.01em',
+            color: 'var(--text-primary)',
+            fontStyle: 'italic',
+            transition: 'color 200ms ease',
+          }}
+        >
+          <span style={{ color: 'var(--accent-teal, #2A9D8F)', marginRight: '6px' }}>&ldquo;</span>
+          {pattern}
+          <span style={{ color: 'var(--accent-teal, #2A9D8F)', marginLeft: '6px' }}>&rdquo;</span>
+        </h1>
+
+        {/* Headline — subtitle treatment */}
+        <h2
+          className="mt-6"
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 'clamp(15px, 1.3vw, 17px)',
+            fontWeight: 400,
+            lineHeight: 1.55,
+            color: 'var(--text-secondary)',
+          }}
+        >
+          {story.headline}
+        </h2>
+
+        {/* Stats bar */}
+        <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <HeroStat>{story.sourceCount.toLocaleString()} sources</HeroStat>
+          <HeroStat>{story.countryCount} countries</HeroStat>
+          <HeroStat>{story.regionCount} regions</HeroStat>
+          <HeroStat>4 AI models</HeroStat>
+          <HeroStat muted>{timeAgo(story.createdAt)}</HeroStat>
         </div>
 
-        {/* THE PATTERN — hero text */}
-        <a
-          href={`/story/${story.slug}`}
-          className="block group cta-link"
-          style={{ textDecoration: 'none', color: 'inherit' }}
-        >
-          <h1
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: 'clamp(22px, 3.4vw, 36px)',
-              fontWeight: 600,
-              lineHeight: 1.3,
-              letterSpacing: '-0.01em',
-              color: 'var(--text-primary)',
-              maxWidth: '800px',
-              fontStyle: 'italic',
-              transition: 'color 200ms ease',
-            }}
-          >
-            <span style={{ color: 'var(--accent-teal, #2A9D8F)', marginRight: '6px' }}>&ldquo;</span>
-            {pattern}
-            <span style={{ color: 'var(--accent-teal, #2A9D8F)', marginLeft: '6px' }}>&rdquo;</span>
-          </h1>
-
-          {/* Headline — subtitle treatment */}
-          <h2
-            className="mt-6"
+        {/* CTA */}
+        <div className="mt-6">
+          <span
             style={{
               fontFamily: 'var(--font-body)',
-              fontSize: 'clamp(15px, 1.5vw, 18px)',
-              fontWeight: 400,
-              lineHeight: 1.55,
-              color: 'var(--text-secondary)',
-              maxWidth: '720px',
+              fontSize: '14px',
+              fontWeight: 500,
+              color: 'var(--accent-teal, #2A9D8F)',
+              letterSpacing: '0.01em',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              borderBottom: '1px solid rgba(42, 157, 143, 0.3)',
+              paddingBottom: '2px',
             }}
           >
-            {story.headline}
-          </h2>
-
-          {/* Stats bar */}
-          <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2">
-            <HeroStat>{story.sourceCount.toLocaleString()} sources</HeroStat>
-            <HeroStat>{story.countryCount} countries</HeroStat>
-            <HeroStat>{story.regionCount} regions</HeroStat>
-            <HeroStat>4 AI models</HeroStat>
-            <HeroStat muted>{timeAgo(story.createdAt)}</HeroStat>
-          </div>
-
-          {/* CTA */}
-          <div className="mt-8">
-            <span
-              style={{
-                fontFamily: 'var(--font-body)',
-                fontSize: '14px',
-                fontWeight: 500,
-                color: 'var(--accent-teal, #2A9D8F)',
-                letterSpacing: '0.01em',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                borderBottom: '1px solid rgba(42, 157, 143, 0.3)',
-                paddingBottom: '2px',
-              }}
-            >
-              Read full analysis
-              <span className="cta-arrow">&rarr;</span>
-            </span>
-          </div>
-        </a>
-      </div>
-    </section>
+            Read full analysis
+            <span className="cta-arrow">&rarr;</span>
+          </span>
+        </div>
+      </a>
+    </div>
   );
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// LATEST ANALYSES GRID
+// SIDEBAR ROW — compact list item, white headline, no italic teal Pattern
 // ───────────────────────────────────────────────────────────────────────────
-function LatestAnalyses({
-  stories,
-  isAdmin,
-  onDelete,
-}: {
-  stories: StoryItem[];
-  isAdmin: boolean;
-  onDelete: (id: string, headline: string) => void;
-}) {
-  return (
-    <section className="max-w-[1200px] mx-auto px-6 py-16 grid-fade-in">
-      <SectionLabel>Latest analyses</SectionLabel>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-        {stories.map((story, i) => (
-          <AnalysisCard
-            key={story.slug}
-            story={story}
-            isAdmin={isAdmin}
-            onDelete={onDelete}
-            index={i}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function AnalysisCard({
+function SidebarRow({
   story,
   isAdmin,
   onDelete,
@@ -527,7 +515,6 @@ function AnalysisCard({
   onDelete: (id: string, headline: string) => void;
   index: number;
 }) {
-  const pattern = buildPattern(story);
   const category = story.primaryCategory;
   const categoryColor = category ? getCategoryColor(category) : 'var(--text-tertiary)';
   const categoryLabel = category
@@ -537,13 +524,11 @@ function AnalysisCard({
 
   return (
     <div
-      className="relative analysis-card"
+      className="relative"
       style={{
-        border: '1px solid var(--border-primary)',
-        padding: '24px',
-        transition: 'all 200ms ease',
+        borderBottom: '1px solid var(--border-primary)',
         animation: 'fadeUp 500ms ease-out both',
-        animationDelay: `${Math.min(index * 80, 400)}ms`,
+        animationDelay: `${Math.min(index * 60, 300)}ms`,
       }}
     >
       {isAdmin && (
@@ -553,7 +538,7 @@ function AnalysisCard({
           style={{
             position: 'absolute',
             top: '12px',
-            right: '12px',
+            right: '0',
             background: 'none',
             border: 'none',
             cursor: 'pointer',
@@ -580,72 +565,40 @@ function AnalysisCard({
 
       <a
         href={`/story/${story.slug}`}
-        style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+        className="block group"
+        style={{
+          textDecoration: 'none',
+          color: 'inherit',
+          padding: '14px 0',
+          transition: 'background 150ms',
+          paddingRight: isAdmin ? '24px' : '0',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
       >
-        {/* Category */}
-        {categoryLabel && (
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '10px',
-              fontWeight: 700,
-              letterSpacing: '0.15em',
-              textTransform: 'uppercase',
-              color: categoryColor,
-              marginBottom: '14px',
-            }}
-          >
-            {categoryLabel}
-          </div>
-        )}
-
-        {/* Pattern — the hook */}
-        <p
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '17px',
-            fontStyle: 'italic',
-            lineHeight: 1.45,
-            color: 'var(--accent-teal, #2A9D8F)',
-            letterSpacing: '-0.005em',
-            // 3-line clamp
-            display: '-webkit-box',
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            marginBottom: '12px',
-          }}
-        >
-          {pattern}
-        </p>
-
-        {/* Headline — supporting */}
-        <h3
-          style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: '14px',
-            fontWeight: 400,
-            lineHeight: 1.5,
-            color: 'var(--text-secondary)',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            marginBottom: '20px',
-          }}
-        >
-          {story.headline}
-        </h3>
-
-        {/* Stats row */}
-        <div className="flex items-center flex-wrap gap-x-4 gap-y-1">
+        {/* Top row: category + confidence */}
+        <div className="flex items-center gap-3 mb-2">
+          {categoryLabel && (
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '10px',
+                fontWeight: 700,
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                color: categoryColor,
+              }}
+            >
+              {categoryLabel}
+            </span>
+          )}
           <span
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px',
+              gap: '5px',
               fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
+              fontSize: '10px',
               fontWeight: 600,
               letterSpacing: '0.04em',
               color: confColor,
@@ -655,16 +608,43 @@ function AnalysisCard({
             <span
               style={{
                 display: 'inline-block',
-                width: '6px',
-                height: '6px',
+                width: '5px',
+                height: '5px',
                 borderRadius: '50%',
                 background: confColor,
               }}
             />
             {story.confidenceLevel} {confidencePct(story.confidenceLevel, story.consensusScore)}
           </span>
-          <DotSeparator />
+        </div>
+
+        {/* Headline — white, Playfair, 2-line clamp */}
+        <h3
+          className="transition-colors"
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '17px',
+            fontWeight: 600,
+            lineHeight: 1.3,
+            letterSpacing: '-0.01em',
+            color: 'var(--text-primary)',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            marginBottom: '8px',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent-teal, #2A9D8F)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+        >
+          {story.headline}
+        </h3>
+
+        {/* Stats — mono, muted */}
+        <div className="flex items-center flex-wrap gap-x-3 gap-y-1">
           <StatChip>{story.sourceCount} sources</StatChip>
+          <DotSeparator />
+          <StatChip>{story.countryCount} countries</StatChip>
           <DotSeparator />
           <StatChip>{timeAgo(story.createdAt)}</StatChip>
         </div>

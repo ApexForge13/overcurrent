@@ -434,6 +434,9 @@ model StoryCluster {
   outletAppearances   OutletAppearance[]
   factOmissions       FactOmission[]
   framingTags         FramingTag[]
+  rawSignals          RawSignalLayer[]
+  rawSignalQueue      RawSignalQueue[]
+  caseStudyEntries    CaseStudyEntry[]
 
   @@index([currentPhase])
   @@index([signalCategory])
@@ -684,6 +687,9 @@ model UmbrellaArc {
   intelligenceScans         UmbrellaIntelligenceScan[]
   outletProfiles            OutletUmbrellaProfile[]
   phaseSchedules            ArcPhaseSchedule[]
+  rawSignals                RawSignalLayer[]
+  rawSignalQueue            RawSignalQueue[]
+  caseStudyEntries          CaseStudyEntry[]
 
   @@index([status])
   @@index([signalCategory])
@@ -757,4 +763,110 @@ model OutletUmbrellaProfile {
 
   @@unique([outletId, umbrellaArcId])
   @@index([umbrellaArcId])
+}
+
+// ═══════════════════════════════════════
+// RAW SIGNAL LAYER (Session 4)
+// ═══════════════════════════════════════
+// External data sources that cross-reference against narrative coverage.
+// Every integration writes to RawSignalLayer. The queue (RawSignalQueue) is
+// the audit trail of every source activation — trigger layer, reason, status.
+// CaseStudyEntry auto-populates when an admin reviews a finding, building
+// the internal evidence library for enterprise sales.
+//
+// ADMIN-ONLY. Never surfaced on public-facing pages. All three tables are
+// guarded by requireAdmin() at the API layer. Public isolation CI test
+// includes all three.
+
+// Single raw signal observation from an external data source.
+// Writes happen async, non-blocking from main pipeline.
+// divergenceFlag is the key column — raised when raw data contradicts or
+// materially adds to narrative coverage.
+model RawSignalLayer {
+  id                   String   @id @default(cuid())
+  storyClusterId       String
+  storyCluster         StoryCluster @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
+  umbrellaArcId        String?
+  umbrellaArc          UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  signalType           String                     // gdelt | maritime_ais | aviation_adsb | sec_filing | ... (see lib/raw-signals/types.ts)
+  signalSource         String                     // specific provider: "sentinel-hub", "opensky", "marinetraffic", etc.
+  captureDate          DateTime                   // when the signal was captured (may predate pipeline run)
+  coordinates          Json?                      // bounding box { swLat, swLng, neLat, neLng } — extracted per-integration via Haiku
+  rawContent           Json                       // structured data from the source
+  haikuSummary         String                     // plain-language description of what the raw signal shows
+  divergenceFlag       Boolean  @default(false)   // true when raw data contradicts/adds to narrative
+  divergenceDescription String?                   // 1-2 sentences describing the specific divergence
+  confidenceLevel      String   @default("low")   // low | medium | high
+  reviewedByAdmin      Boolean  @default(false)
+  adminNotes           String?
+  caseStudyEntries     CaseStudyEntry[]
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([storyClusterId])
+  @@index([signalType])
+  @@index([divergenceFlag])
+  @@index([reviewedByAdmin])
+  @@index([umbrellaArcId])
+}
+
+// Queue of pending/running/completed signal enrichment jobs.
+// Every source activation is auditable: triggerLayer and triggerReason
+// record exactly why a source was pulled for this cluster.
+// status 'requires_approval' is reserved for gated integrations (PACER).
+model RawSignalQueue {
+  id                    String   @id @default(cuid())
+  storyClusterId        String
+  storyCluster          StoryCluster @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
+  umbrellaArcId         String?
+  umbrellaArc           UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  signalType            String
+  triggerLayer          String                    // category_trigger | entity_trigger | keyword_trigger
+  triggerReason         String                    // which category/entity/keyword triggered this source
+  status                String   @default("pending") // pending | running | completed | skipped | failed | requires_approval
+  approvedByAdmin       Boolean  @default(false)
+  approvalRequestedAt   DateTime?
+  approvedAt            DateTime?
+  approvedOrDeniedBy    String?
+  estimatedCost         Float?
+  actualCost            Float?
+  dismissalReason       String?
+  recapContribution     Boolean  @default(true)   // for PACER: contribute pulled doc to RECAP archive
+  resultSignalLayerId   String?                   // FK to RawSignalLayer once completed
+  errorMessage          String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([storyClusterId])
+  @@index([status])
+  @@index([signalType])
+  @@index([approvedByAdmin])
+}
+
+// Case study archive — internal evidence library for enterprise sales.
+// Auto-populates when an admin marks a RawSignalLayer record reviewed with
+// adminNotes. isPublishable is manually toggled when a finding is clean
+// enough to share externally.
+model CaseStudyEntry {
+  id                  String   @id @default(cuid())
+  rawSignalLayerId    String?
+  rawSignalLayer      RawSignalLayer? @relation(fields: [rawSignalLayerId], references: [id], onDelete: SetNull)
+  storyClusterId      String
+  storyCluster        StoryCluster @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
+  umbrellaArcId       String?
+  umbrellaArc         UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  signalType          String
+  headline            String
+  fullDescription     String
+  storyPhaseAtDetection String                    // first_wave | development | consolidation | tail
+  divergenceType      String                     // narrative_contradicts_raw | narrative_omits_raw | raw_precedes_narrative | raw_corroborates_narrative
+  isPublishable       Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([storyClusterId])
+  @@index([umbrellaArcId])
+  @@index([signalType])
+  @@index([isPublishable])
+  @@index([divergenceType])
 }

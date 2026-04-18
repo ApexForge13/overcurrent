@@ -1711,6 +1711,31 @@ export async function runVerifyPipeline(
 
     console.log(`[pipeline] Signal tracking: cluster=${signalResult.clusterId?.substring(0, 8)}, phase=${signalResult.storyPhase}, category=${signalResult.signalCategory}, cost=$${signalResult.totalCostUsd.toFixed(4)}`)
     totalCost += signalResult.totalCostUsd
+
+    // ── PHASE 8: RAW SIGNAL LAYER ENRICHMENT ──────────────────────────
+    // Fire-and-forget. Must NOT block or delay analysis delivery.
+    // Runs the 3-layer trigger system (category/entity/keyword), populates
+    // RawSignalQueue, then processes the queue via registered integrations.
+    // Errors here are logged and swallowed.
+    if (signalResult.clusterId) {
+      const clusterId = signalResult.clusterId
+      ;(async () => {
+        try {
+          const { queueRawSignalEnrichment } = await import('@/lib/raw-signals/queue')
+          const queueResult = await queueRawSignalEnrichment(clusterId)
+          if (queueResult && queueResult.queued.length > 0) {
+            // Import registers all integrations as a side effect
+            const { processClusterQueue } = await import('@/lib/raw-signals/integrations')
+            await processClusterQueue(clusterId)
+          }
+        } catch (err) {
+          console.error(
+            '[pipeline] Raw signal enrichment failed (non-blocking):',
+            err instanceof Error ? err.message : err,
+          )
+        }
+      })()
+    }
   } catch (err) {
     console.error('[pipeline] Signal tracking failed (non-blocking):', err instanceof Error ? err.message : err)
   }

@@ -9,21 +9,24 @@
 import { registerIntegration } from '../runner'
 import { gdeltRunner } from './gdelt'
 import { sentinelOpticalRunner, sentinelRadarRunner } from './sentinel-hub'
+import { courtListenerRunner } from './courtlistener'
+import { ofacRunner } from './ofac'
+import { nasaFirmsRunner } from './nasa-firms'
 
 // Registered at module-load time. Safe to import multiple times.
 registerIntegration('gdelt', gdeltRunner)
 registerIntegration('satellite_optical', sentinelOpticalRunner)
 registerIntegration('satellite_radar', sentinelRadarRunner)
+registerIntegration('legal_courtlistener', courtListenerRunner)
+registerIntegration('sanctions_ofac', ofacRunner)
+registerIntegration('satellite_fire', nasaFirmsRunner)
 
 // ── Future integrations register here ────────────────────────────────
 // registerIntegration('government_spending', usaspendingRunner)
 // registerIntegration('sec_filing', secEdgarRunner)
-// registerIntegration('sanctions_ofac', ofacRunner)
 // registerIntegration('aviation_adsb', adsbRunner)
 // registerIntegration('maritime_ais', marineTrafficRunner)
-// registerIntegration('legal_courtlistener', courtListenerRunner)
 // registerIntegration('legal_pacer', pacerRunner)            // GATED BY APPROVAL
-// registerIntegration('satellite_fire', nasaFirmsRunner)
 // registerIntegration('copernicus_emergency', cemsRunner)
 // registerIntegration('satellite_crowdsourced', openAerialMapRunner)
 // registerIntegration('maritime_fishing', gfwRunner)

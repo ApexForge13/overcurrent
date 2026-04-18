@@ -25,4 +25,12 @@ describe('Raw Signal Runner', () => {
     expect(types).toContain('satellite_optical')
     expect(types).toContain('satellite_radar')
   })
+
+  it('Step 5 runners (courtlistener, ofac, nasa-firms) are registered', async () => {
+    await import('@/lib/raw-signals/integrations')
+    const types = getRegisteredSignalTypes()
+    expect(types).toContain('legal_courtlistener')
+    expect(types).toContain('sanctions_ofac')
+    expect(types).toContain('satellite_fire')
+  })
 })

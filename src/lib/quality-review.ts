@@ -194,6 +194,13 @@ interface StorySnapshot {
   claims: Array<{ claim: string; confidence: string; supportedBy: string; contradictedBy: string }>
   framings: Array<{ region: string; framing: string; contrastWith: string | null }>
   sources: Array<{ url: string; title: string; outlet: string; publishedAt: Date | null }>
+  /**
+   * Standing editorial note from the parent StoryCluster — a persistent
+   * per-cluster rule set by admin after prior kills identified a
+   * repeat pattern. Injected into the verdict prompt so the agent can
+   * respect cluster-specific editorial constraints.
+   */
+  clusterAdminNotes?: string | null
 }
 
 function buildUserPrompt(story: StorySnapshot): string {
@@ -217,10 +224,18 @@ function buildUserPrompt(story: StorySnapshot): string {
     )
     .join('\n')
 
+  const adminNotesBlock = story.clusterAdminNotes?.trim()
+    ? `
+
+STANDING EDITORIAL NOTE ON THIS CLUSTER (admin-set, binding for this run):
+${story.clusterAdminNotes.trim()}
+`
+    : ''
+
   return `TODAY: ${today}
 ANALYSIS PRODUCED: ${story.createdAt.toISOString().split('T')[0]} (${analysisAgeHours.toFixed(1)}h ago)
 STORY ID: ${story.id}
-
+${adminNotesBlock}
 HEADLINE:
 ${story.headline}
 
@@ -371,6 +386,7 @@ export async function runQualityReview(
       sourceCount: true,
       createdAt: true,
       status: true,
+      storyClusterId: true,
       claims: {
         select: { claim: true, confidence: true, supportedBy: true, contradictedBy: true },
         orderBy: { sortOrder: 'asc' },
@@ -380,6 +396,14 @@ export async function runQualityReview(
       },
       sources: {
         select: { url: true, title: true, outlet: true, publishedAt: true },
+      },
+      // ── Standing editorial note from the parent cluster ──
+      // When set, this note is a persistent per-cluster rule the agent
+      // must respect when scoring. It prevents repeat kills on the same
+      // pattern by documenting cluster-specific editorial constraints
+      // (e.g. "never claim zero coverage universally").
+      storyCluster: {
+        select: { adminNotes: true },
       },
     },
   })
@@ -415,7 +439,13 @@ export async function runQualityReview(
     console.log(`[quality-review] Story ${storyId.substring(0, 8)} force-review requested — appending new QualityReviewCard`)
   }
 
-  const userPrompt = buildUserPrompt(story as StorySnapshot)
+  // Map the Prisma result shape onto StorySnapshot, pulling the cluster's
+  // standing editorial note up one level so buildUserPrompt can render it.
+  const snapshot: StorySnapshot = {
+    ...(story as unknown as StorySnapshot),
+    clusterAdminNotes: story.storyCluster?.adminNotes ?? null,
+  }
+  const userPrompt = buildUserPrompt(snapshot)
 
   let response: Anthropic.Message
   try {

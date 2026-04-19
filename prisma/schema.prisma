@@ -444,6 +444,14 @@ model StoryCluster {
   // Recomputed by runSignalTracking after each new analysis lands in this cluster.
   arcCompleteness             String?
   arcCompletenessComputedAt   DateTime?
+  // ── Standing editorial note (April 2026) ──
+  // Persistent guidance for all future analyses of this cluster. Read by
+  // the quality review agent and injected into the verdict prompt so
+  // re-runs can be evaluated against cluster-specific editorial rules
+  // (e.g. "never claim zero coverage universally — specialist press exists").
+  // Null for most clusters. Admin-set via the /admin/content editor when
+  // a repeat kill pattern is identified.
+  adminNotes                  String?
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
   analyses                    Story[]

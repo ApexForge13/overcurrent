@@ -36,6 +36,7 @@ export async function recomputeOutletFingerprint(
       sourceTypes: true,
       hoursFromFirstDetection: true,
       isBackfilled: true,
+      storyClusterId: true,
     },
   })
 
@@ -44,6 +45,24 @@ export async function recomputeOutletFingerprint(
     // Wipe any existing fingerprint — nothing to compute
     await prisma.outletFingerprint.deleteMany({ where: { outletId } })
     return
+  }
+
+  // Step 6: log which clusters contributed to this fingerprint compute.
+  // Distribution values feed predictive-signal which applies the 60%+ arc-
+  // quality gate downstream. Fingerprint itself is data-neutral — we log the
+  // audit trail but don't filter input.
+  const contributingClusterIds = [...new Set(appearances.map(a => a.storyClusterId).filter((x): x is string => !!x))]
+  if (contributingClusterIds.length > 0) {
+    const clusterQuality = await prisma.storyCluster.findMany({
+      where: { id: { in: contributingClusterIds } },
+      select: { id: true, arcCompleteness: true },
+    })
+    const qualityCounts = { complete: 0, partial: 0, first_wave_only: 0, incomplete: 0, unclassified: 0 }
+    for (const c of clusterQuality) {
+      const key = c.arcCompleteness ?? 'unclassified'
+      qualityCounts[key as keyof typeof qualityCounts] = (qualityCounts[key as keyof typeof qualityCounts] ?? 0) + 1
+    }
+    console.log(`[fingerprint] outlet=${outletId} contributing=${contributingClusterIds.length} arcs (complete=${qualityCounts.complete}, partial=${qualityCounts.partial}, first_wave_only=${qualityCounts.first_wave_only}, incomplete=${qualityCounts.incomplete}, unclassified=${qualityCounts.unclassified}) @ ${new Date().toISOString()}`)
   }
 
   // ── 1. primaryFramingDistribution: {category: {framing: pct}} ──

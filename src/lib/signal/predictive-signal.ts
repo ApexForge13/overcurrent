@@ -58,12 +58,64 @@ export async function computePredictiveSignal(
   })
 
   // ── 3. How many prior analyses support the pattern? ──
-  const priorAnalyses = await prisma.outletAppearance.findMany({
+  // Also collect their clusters' arc completeness levels so we can build the
+  // data-quality breakdown that feeds the admin UI banner (Step 6).
+  const priorAppearances = await prisma.outletAppearance.findMany({
     where: { signalCategory, storyId: { not: storyId } },
-    select: { storyId: true },
+    select: { storyId: true, storyClusterId: true },
     distinct: ['storyId'],
   })
+  const priorAnalyses = priorAppearances
   const computedFromAnalysesCount = priorAnalyses.length
+
+  // Load arcCompleteness + umbrella for each contributing cluster
+  const priorClusterIds = [...new Set(priorAppearances.map(a => a.storyClusterId).filter((x): x is string => !!x))]
+  const priorClusters = priorClusterIds.length > 0
+    ? await prisma.storyCluster.findMany({
+        where: { id: { in: priorClusterIds } },
+        select: {
+          id: true,
+          arcCompleteness: true,
+          analyses: {
+            where: { analysisType: 'new_arc', arcImportance: 'core' },
+            select: {
+              id: true,
+              arcLabel: true,
+              umbrellaArcId: true,
+              arcPhaseSchedules: { where: { isSkipped: true }, select: { id: true } },
+              umbrellaArc: { select: { id: true, name: true } },
+            },
+          },
+        },
+      })
+    : []
+
+  // Build arc-quality breakdown
+  const arcBreakdown = { complete: 0, partial: 0, first_wave_only: 0, incomplete: 0, unclassified: 0 }
+  let totalSkippedPhases = 0
+  const contributingArcIds: string[] = []
+  const umbrellas: Array<{ id: string; name: string; arcCompleteness: string | null; arcLabel: string | null }> = []
+
+  for (const cluster of priorClusters) {
+    const level = cluster.arcCompleteness ?? 'unclassified'
+    if (level === 'complete' || level === 'partial' || level === 'first_wave_only' || level === 'incomplete') {
+      arcBreakdown[level]++
+    } else {
+      arcBreakdown.unclassified++
+    }
+    for (const arc of cluster.analyses) {
+      contributingArcIds.push(arc.id)
+      totalSkippedPhases += arc.arcPhaseSchedules.length
+      if (arc.umbrellaArc) {
+        umbrellas.push({
+          id: arc.umbrellaArc.id,
+          name: arc.umbrellaArc.name,
+          arcCompleteness: cluster.arcCompleteness,
+          arcLabel: arc.arcLabel,
+        })
+      }
+    }
+  }
 
   // ── 4. Aggregate framing predictions from outlet fingerprints ──
   // For each outlet, what's their typical framing in this category?
@@ -95,6 +147,14 @@ export async function computePredictiveSignal(
     // Cap confidence by category-level data availability
     const categoryDataFactor = Math.min(1, computedFromAnalysesCount / MIN_CATEGORY_ANALYSES_FOR_HIGH_CONFIDENCE)
     framingConfidencePct = Math.round(rawConfidence * categoryDataFactor)
+
+    // Step 6: confidence percentages above 60% must be supported by complete
+    // + partial arcs only. If we have <5 complete arcs contributing, cap at 60%.
+    // (UI further surfaces "Insufficient Data" badge below that threshold.)
+    if (framingConfidencePct > 60 && arcBreakdown.complete < 5) {
+      console.log(`[predictiveSignal] Capping confidence from ${framingConfidencePct}% → 60% (only ${arcBreakdown.complete} complete arcs contributing)`)
+      framingConfidencePct = 60
+    }
   }
 
   // ── 5. Top omission risks ──
@@ -176,6 +236,20 @@ export async function computePredictiveSignal(
   }
 
   // ── 7. Persist ──
+  const contributingArcsBreakdown = JSON.stringify({
+    complete: arcBreakdown.complete,
+    partial: arcBreakdown.partial,
+    first_wave_only: arcBreakdown.first_wave_only,
+    incomplete: arcBreakdown.incomplete,
+    unclassified: arcBreakdown.unclassified,
+    skippedPhases: totalSkippedPhases,
+    contributingArcIds,
+    // Dedupe umbrellas by id
+    umbrellas: Array.from(new Map(umbrellas.map(u => [u.id, u])).values()),
+  })
+
+  console.log(`[predictiveSignal] Arc breakdown: complete=${arcBreakdown.complete}, partial=${arcBreakdown.partial}, first_wave_only=${arcBreakdown.first_wave_only}, incomplete=${arcBreakdown.incomplete}, skippedPhases=${totalSkippedPhases}`)
+
   const saved = await prisma.predictiveSignal.create({
     data: {
       storyId,
@@ -186,6 +260,7 @@ export async function computePredictiveSignal(
       momentumFlag,
       momentumReason,
       computedFromAnalysesCount,
+      contributingArcsBreakdown,
     },
   })
 

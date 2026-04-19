@@ -418,29 +418,40 @@ model Subscriber {
 // MIN_SIGNAL: phase classification works after 1 analysis.
 //             Narrative arc needs 3+ analyses spanning different phases.
 model StoryCluster {
-  id                  String   @id @default(cuid())
-  clusterHeadline     String                   // canonical headline from first analysis
-  clusterKeywords     String                   // JSON array of entity keywords for matching
-  signalCategory      String?                  // dominant signal category across analyses
-  firstDetectedAt     DateTime                 // earliest article publication timestamp
-  lastUpdatedAt       DateTime @default(now())
-  currentPhase        String   @default("first_wave") // first_wave | development | consolidation | tail
-  totalAnalysesRun    Int      @default(0)
-  isBackfilled        Boolean  @default(false) // true when reconstructed from historical stories
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  analyses            Story[]
-  narrativeArc        NarrativeArc?
-  predictiveSignals   PredictiveSignal[]
-  outletAppearances   OutletAppearance[]
-  factOmissions       FactOmission[]
-  framingTags         FramingTag[]
-  rawSignals          RawSignalLayer[]
-  rawSignalQueue      RawSignalQueue[]
-  caseStudyEntries    CaseStudyEntry[]
+  id                          String   @id @default(cuid())
+  clusterHeadline             String                   // canonical headline from first analysis
+  clusterKeywords             String                   // JSON array of entity keywords for matching
+  signalCategory              String?                  // auto-classified; may flip between analyses
+  // Admin-curated category that survives auto-reclassification passes. When set,
+  // aggregation code should prefer this over signalCategory. Populated manually
+  // (or via future admin UI) after the cluster reaches a stable pattern.
+  canonicalSignalCategory     String?
+  firstDetectedAt             DateTime                 // earliest article publication timestamp
+  lastUpdatedAt               DateTime @default(now())
+  currentPhase                String   @default("first_wave") // first_wave | development | consolidation | tail
+  totalAnalysesRun            Int      @default(0)
+  isBackfilled                Boolean  @default(false) // true when reconstructed from historical stories
+  // ── Step 6: denormalized arc quality cache ──
+  // Values: complete | partial | first_wave_only | incomplete | null (for non-arc clusters).
+  // Recomputed by runSignalTracking after each new analysis lands in this cluster.
+  arcCompleteness             String?
+  arcCompletenessComputedAt   DateTime?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  analyses                    Story[]
+  narrativeArc                NarrativeArc?
+  predictiveSignals           PredictiveSignal[]
+  outletAppearances           OutletAppearance[]
+  factOmissions               FactOmission[]
+  framingTags                 FramingTag[]
+  rawSignals                  RawSignalLayer[]
+  rawSignalQueue              RawSignalQueue[]
+  caseStudyEntries            CaseStudyEntry[]
 
   @@index([currentPhase])
   @@index([signalCategory])
+  @@index([canonicalSignalCategory])
+  @@index([arcCompleteness])
   @@index([firstDetectedAt])
 }
 
@@ -604,6 +615,12 @@ model PredictiveSignal {
   momentumFlag                 String                       // stable | shifting | contested
   momentumReason               String
   computedFromAnalysesCount    Int                          // how many prior analyses supported the pattern
+  // Step 6: arc quality breakdown feeding the data-quality banner in admin UI.
+  // JSON shape: { complete: N, partial: N, first_wave_only: N, incomplete: N,
+  //               skippedPhases: N, contributingArcIds: [...], umbrellas: [{id,name,arcCompleteness}] }
+  // When complete < 5 the UI surfaces an "Insufficient Data" badge regardless
+  // of framingConfidencePct.
+  contributingArcsBreakdown    String?
   generatedAt                  DateTime @default(now())
   createdAt                    DateTime @default(now())
 

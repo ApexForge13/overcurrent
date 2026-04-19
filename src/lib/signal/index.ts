@@ -36,6 +36,7 @@ import { recomputeCategoryPattern } from './category-pattern'
 import { regenerateNarrativeArc } from './narrative-arc'
 import { computePredictiveSignal } from './predictive-signal'
 import { recomputeUmbrellaProfiles } from '@/lib/umbrella-outlet-profile'
+import { recomputeClusterCompleteness } from '@/lib/arc-completeness'
 
 export interface SignalTrackingInput {
   storyId: string
@@ -183,6 +184,16 @@ export async function runSignalTracking(
       await bumpClusterOnAnalysis(clusterId)
     } catch (err) {
       result.errors.push(`bumpCluster: ${err instanceof Error ? err.message : err}`)
+    }
+
+    // ── 6b. Recompute arc completeness for this cluster (Step 6) ──
+    try {
+      const level = await recomputeClusterCompleteness(clusterId)
+      if (level) {
+        console.log(`[signal] arcCompleteness: ${level} for cluster ${clusterId}`)
+      }
+    } catch (err) {
+      result.errors.push(`arcCompleteness: ${err instanceof Error ? err.message : err}`)
     }
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
 import { prisma } from '@/lib/db'
+import { classifyCompleteness } from '@/lib/arc-completeness'
 
 /**
  * GET /api/admin/umbrellas/[id]/contents
@@ -79,8 +80,8 @@ export async function GET(
     for (const sched of a.arcPhaseSchedules) {
       if (sched.status === 'completed') completedPhases.add(sched.targetPhase)
     }
-    // Arc completeness indicator
-    const completeness = arcCompleteness(completedPhases)
+    // Arc completeness indicator (shared helper — same logic as signal tracker)
+    const completeness = classifyCompleteness(completedPhases)
 
     // Next scheduled re-analysis (pending, non-skipped, soonest)
     const nextScheduled = a.arcPhaseSchedules
@@ -122,27 +123,3 @@ export async function GET(
   })
 }
 
-function arcCompleteness(completed: Set<string>): 'complete' | 'partial' | 'first_wave_only' | 'incomplete' {
-  const phases = ['first_wave', 'development', 'consolidation', 'tail']
-  const completedInOrder = phases.map(p => completed.has(p))
-  const count = completedInOrder.filter(Boolean).length
-
-  if (count === 4) return 'complete'
-  if (count === 1 && completedInOrder[0]) return 'first_wave_only'
-
-  // Check if completed phases are contiguous from first_wave (partial) or have gaps (incomplete)
-  let inSequence = true
-  let seenCompleted = false
-  for (let i = 0; i < completedInOrder.length; i++) {
-    if (completedInOrder[i]) seenCompleted = true
-    else if (seenCompleted) {
-      // A gap after a completed phase = not contiguous
-      // Unless all following are false (trailing tail-etc absent is OK)
-      const restTrue = completedInOrder.slice(i).some(x => x)
-      if (restTrue) { inSequence = false; break }
-    }
-  }
-
-  if (count >= 2 && inSequence) return 'partial'
-  return 'incomplete'
-}

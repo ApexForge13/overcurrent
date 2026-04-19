@@ -33,6 +33,24 @@ export async function recomputeCategoryPattern(
   const storyIds = [...new Set(appearances.map((a) => a.storyId).filter((id): id is string => !!id))]
   const totalAnalyses = storyIds.length
 
+  // Step 6: log contributing clusters' arc-quality breakdown as audit trail.
+  // Category-pattern itself does not gate by arc quality — it is a descriptive
+  // aggregate across all analyses in the category. Downstream consumers
+  // (predictive-signal) apply the 60%+ arc-quality gate.
+  const contributingClusterIds = [...new Set(appearances.map(a => a.storyClusterId).filter((x): x is string => !!x))]
+  if (contributingClusterIds.length > 0) {
+    const clusterQuality = await prisma.storyCluster.findMany({
+      where: { id: { in: contributingClusterIds } },
+      select: { id: true, arcCompleteness: true },
+    })
+    const qualityCounts = { complete: 0, partial: 0, first_wave_only: 0, incomplete: 0, unclassified: 0 }
+    for (const c of clusterQuality) {
+      const key = c.arcCompleteness ?? 'unclassified'
+      qualityCounts[key as keyof typeof qualityCounts] = (qualityCounts[key as keyof typeof qualityCounts] ?? 0) + 1
+    }
+    console.log(`[categoryPattern] category=${signalCategory} contributing=${contributingClusterIds.length} arcs (complete=${qualityCounts.complete}, partial=${qualityCounts.partial}, first_wave_only=${qualityCounts.first_wave_only}, incomplete=${qualityCounts.incomplete}, unclassified=${qualityCounts.unclassified}) @ ${new Date().toISOString()}`)
+  }
+
   // ── 2. avgAnalysesUntilStabilization — stub; needs arc data to compute properly ──
   // For now: 0 when <3 clusters, else average totalAnalysesRun of clusters in this category
   let avgAnalysesUntilStabilization = 0

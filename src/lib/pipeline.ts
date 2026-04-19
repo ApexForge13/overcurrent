@@ -17,6 +17,7 @@ import { runRegionalDebate, moderatorToRegionalAnalysis, resetModelFailureTracki
 import type { DebateRoundData } from '@/lib/debate'
 import { runSignalTracking } from '@/lib/signal'
 import { bumpUmbrellaCounters } from '@/lib/umbrella-counters'
+import { handleNewArcSchedule, handleArcRerunSchedule } from '@/lib/arc-schedule'
 // Social draft generation removed from pipeline — drafts written manually
 // import { generateSocialDrafts } from '@/agents/social-drafts'
 import { fetchRedditDiscourse } from '@/ingestion/reddit-discourse'
@@ -43,6 +44,8 @@ interface ResolvedArcOptions {
   arcPhaseAtCreation: string | null
   // For arc_rerun: the existing cluster to attach to
   attachToClusterId: string | null
+  // For arc_rerun: the initiating new_arc Story ID (used for schedule lookups)
+  arcRootStoryId: string | null
   // Error from validation (null if clean)
   error: string | null
 }
@@ -66,6 +69,7 @@ async function resolveArcOptions(options: Partial<{
     arcImportance: null,
     arcPhaseAtCreation: null,
     attachToClusterId: null,
+    arcRootStoryId: null,
     error: null,
   }
 
@@ -157,6 +161,7 @@ async function resolveArcOptions(options: Partial<{
     arcImportance: analysisType === 'new_arc' ? arcImportance : null,
     arcPhaseAtCreation,
     attachToClusterId,
+    arcRootStoryId: analysisType === 'arc_rerun' ? options.arcRerunTargetStoryId ?? null : null,
     error: null,
   }
 }
@@ -1352,6 +1357,28 @@ export async function runVerifyPipeline(
     // ── Bump UmbrellaArc counters (in same transaction) ──
     if (arcOptions.umbrellaArcId) {
       await bumpUmbrellaCounters(tx, arcOptions.umbrellaArcId, arcOptions.analysisType)
+    }
+
+    // ── ArcPhaseSchedule lifecycle (Step 3) ──
+    // new_arc (core) → create initial First Wave pending schedule
+    // arc_rerun     → mark current pending schedule completed + create next
+    if (arcOptions.umbrellaArcId && arcOptions.analysisType === 'new_arc') {
+      await handleNewArcSchedule(tx, {
+        storyArcId: story.id,
+        umbrellaArcId: arcOptions.umbrellaArcId,
+        arcImportance: arcOptions.arcImportance,
+      })
+    } else if (
+      arcOptions.umbrellaArcId &&
+      arcOptions.analysisType === 'arc_rerun' &&
+      arcOptions.arcRootStoryId
+    ) {
+      await handleArcRerunSchedule(tx, {
+        rerunStoryId: story.id,
+        arcRootStoryId: arcOptions.arcRootStoryId,
+        umbrellaArcId: arcOptions.umbrellaArcId,
+        storyClusterId: arcOptions.attachToClusterId,
+      })
     }
 
     // Sources

@@ -35,8 +35,27 @@
  */
 
 import { fetchWithTimeout } from '@/lib/utils'
-import type { VesselPosition } from './vesselfinder'
 import type { BoundingBox } from '../types'
+
+// Local vessel shape — was previously imported from vesselfinder.ts.
+// vesselfinder.ts has been removed; Datalastic (datadocked.ts) is the
+// registered primary. Kept as a local type so this dormant scaffold
+// remains self-contained.
+interface VesselPosition {
+  mmsi: string
+  name?: string
+  callsign?: string
+  imo?: string
+  type?: string
+  typeLabel?: string
+  lat: number
+  lon: number
+  speedKn?: number
+  courseDeg?: number
+  heading?: number
+  timestamp?: string
+  source: string
+}
 
 const TIMEOUT_MS = 15_000
 const MT_API_URL = 'https://services.marinetraffic.com/api/exportvessels/v:8'

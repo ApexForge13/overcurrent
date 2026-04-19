@@ -63,15 +63,18 @@ import { openAerialMapRunner } from './openaerialmap'
 import { portStateControlRunner } from './port-state-control'
 import { shippingRatesRunner } from './shipping-rates'
 
-// Phase 7 — credentialed free tier
-import { aisHubRunner } from './aishub'
+// Phase 7 — credentialed tier (mixed free + paid)
+import { datadockedRunner } from './datadocked'
 import { globalFishingWatchRunner } from './global-fishing-watch'
 import { spaceTrackRunner } from './space-track'
 import { nasaEarthdataRunner } from './nasa-earthdata'
-// vesselfinder.ts and marinetraffic.ts are DORMANT upgrade-path scaffolds —
-// not imported, not registered. VesselFinder is the mid-tier upgrade (paid
-// volume); MarineTraffic/Kpler is the enterprise-tier upgrade. See their
-// header files for when to activate.
+// aishub.ts remains as a free-tier dormant option (not imported, not
+// registered). marinetraffic.ts is the enterprise-tier dormant scaffold
+// (MarineTraffic / Kpler). vesselfinder.ts has been removed — replaced by
+// Datalastic. Priority order when promoting a fallback:
+//   Datalastic (primary, paid ~$87/mo — registered) →
+//   AIS Hub (free, dormant) →
+//   MarineTraffic / Kpler (enterprise tier, dormant).
 // opensky.ts is a helper imported by adsb-exchange.ts as fallback.
 
 // Remaining
@@ -132,8 +135,8 @@ registerIntegration('shipping_rates', shippingRatesRunner)
 registerIntegration('copernicus_emergency', copernicusEmergencyRunner)
 registerIntegration('financial_crypto', coinGeckoRunner)
 
-// ── Phase 7 — credentialed free tier ──────────────────────────────────
-registerIntegration('maritime_ais', aisHubRunner)               // AIS Hub primary (VesselFinder + MarineTraffic/Kpler deferred)
+// ── Phase 7 — credentialed tier (mixed free + paid) ────────────────────
+registerIntegration('maritime_ais', datadockedRunner)           // Datalastic / Data Docked primary (~$87/mo paid tier; AIS Hub + VesselFinder + MarineTraffic/Kpler all dormant)
 registerIntegration('maritime_fishing', globalFishingWatchRunner)
 registerIntegration('space_track', spaceTrackRunner)
 registerIntegration('nasa_earthdata', nasaEarthdataRunner)

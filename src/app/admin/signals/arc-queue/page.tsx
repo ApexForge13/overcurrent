@@ -139,21 +139,22 @@ export default function ArcQueuePage() {
             onClick={runBackfill}
             style={{
               fontFamily: 'var(--font-mono)',
-              fontSize: 11,
-              padding: '6px 12px',
-              background: 'transparent',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border-primary)',
+              fontSize: 12,
+              padding: '8px 16px',
+              background: 'var(--accent-amber)',
+              color: '#0A0A0B',
+              border: 'none',
               borderRadius: 3,
               cursor: 'pointer',
               whiteSpace: 'nowrap',
+              fontWeight: 600,
             }}
             title="One-off fix for arcs that existed before Step 3 was deployed"
           >
             Backfill existing arcs
           </button>
           {backfillStatus && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-tertiary)', maxWidth: 280, textAlign: 'right' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', maxWidth: 320, textAlign: 'right', padding: '4px 8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', borderRadius: 3 }}>
               {backfillStatus}
             </span>
           )}
@@ -173,6 +174,24 @@ export default function ArcQueuePage() {
 
       {schedules && !loading && (
         <>
+          {schedules.counts.overdue === 0 && schedules.counts.dueToday === 0 && schedules.counts.upcoming === 0 && (
+            <div style={{
+              border: '1px dashed var(--border-primary)',
+              borderRadius: 4,
+              padding: '32px 24px',
+              textAlign: 'center',
+              marginBottom: 32,
+            }}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                No arc schedules found yet.
+              </p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.6, maxWidth: 520, margin: '0 auto' }}>
+                Either no core story arcs have been created yet, or your existing arcs pre-date the Step 3 deploy. <br />
+                Click <strong style={{ color: 'var(--text-secondary)' }}>Backfill existing arcs</strong> above to create schedules for pre-existing arcs.
+              </p>
+            </div>
+          )}
+
           <QueueSection
             title="OVERDUE"
             count={schedules.counts.overdue}
@@ -217,7 +236,7 @@ export default function ArcQueuePage() {
 
 function RatioBar({ stats }: { stats: StatsResponse }) {
   const statusColor =
-    stats.target.status === 'above' ? 'var(--accent-teal)' :
+    stats.target.status === 'above' ? 'var(--accent-green)' :
     stats.target.status === 'on' ? 'var(--accent-amber)' :
     'var(--accent-red)'
   const statusLabel =
@@ -230,7 +249,7 @@ function RatioBar({ stats }: { stats: StatsResponse }) {
       borderRadius: 4,
       padding: '16px 20px',
       marginBottom: '32px',
-      background: 'var(--bg-elevated, rgba(255,255,255,0.02))',
+      background: 'var(--bg-secondary)',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>
@@ -242,7 +261,7 @@ function RatioBar({ stats }: { stats: StatsResponse }) {
       </div>
 
       <div style={{ display: 'flex', gap: 24 }}>
-        <RatioCell label="Story arcs" count={stats.storyArc.count} pct={stats.storyArc.pct} color="var(--accent-teal)" />
+        <RatioCell label="Story arcs" count={stats.storyArc.count} pct={stats.storyArc.pct} color="var(--accent-green)" />
         <RatioCell label="Umbrella-tagged" count={stats.umbrellaTagged.count} pct={stats.umbrellaTagged.pct} color="var(--accent-blue)" />
         <RatioCell label="Standalone" count={stats.standalone.count} pct={stats.standalone.pct} color="var(--text-tertiary)" />
       </div>
@@ -363,7 +382,7 @@ function ScheduleRow({ item, accent, onSkip }: { item: ScheduleItem; accent: str
             fontFamily: 'var(--font-mono)',
             fontSize: 11,
             padding: '6px 12px',
-            background: 'var(--accent-teal)',
+            background: 'var(--accent-green)',
             color: '#000',
             borderRadius: 3,
             textDecoration: 'none',

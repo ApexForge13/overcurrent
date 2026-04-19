@@ -24,11 +24,36 @@ interface CostData {
 
 function getProvider(model: string): string {
   const m = model.toLowerCase();
-  if (m.includes("claude") || m.includes("haiku")) return "Anthropic";
+  if (m.includes("claude") || m.includes("haiku") || m.includes("opus") || m.includes("sonnet")) return "Anthropic";
   if (m.includes("gpt")) return "OpenAI";
   if (m.includes("gemini")) return "Google";
   if (m.includes("grok")) return "xAI";
   return "Other";
+}
+
+function getModelShortLabel(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes("haiku")) return "Haiku";
+  if (m.includes("opus")) return "Opus";
+  if (m.includes("sonnet")) return "Sonnet";
+  if (m.includes("gpt-5")) return "GPT-5.4";
+  if (m.includes("gpt-4")) return "GPT-4";
+  if (m.includes("gpt")) return "GPT";
+  if (m.includes("gemini")) return "Gemini";
+  if (m.includes("grok")) return "Grok";
+  return model.split("/").pop() ?? model; // fallback: last path segment
+}
+
+function getModelBadgeClass(model: string): string {
+  const provider = getProvider(model);
+  if (provider === "Anthropic" && model.toLowerCase().includes("haiku")) {
+    return "bg-accent-blue/10 text-accent-blue";
+  }
+  if (provider === "Anthropic") return "bg-accent-purple/10 text-accent-purple";
+  if (provider === "OpenAI") return "bg-accent-green/10 text-accent-green";
+  if (provider === "Google") return "bg-accent-amber/10 text-accent-amber";
+  if (provider === "xAI") return "bg-accent-red/10 text-accent-red";
+  return "bg-border text-text-secondary";
 }
 
 export default function CostsPage() {
@@ -153,13 +178,10 @@ export default function CostsPage() {
                 </td>
                 <td className="py-2 pr-4">
                   <span
-                    className={`text-xs px-1.5 py-0.5 rounded ${
-                      log.model.includes("haiku")
-                        ? "bg-accent-blue/10 text-accent-blue"
-                        : "bg-accent-purple/10 text-accent-purple"
-                    }`}
+                    className={`text-xs px-1.5 py-0.5 rounded ${getModelBadgeClass(log.model)}`}
+                    title={log.model}
                   >
-                    {log.model.includes("haiku") ? "Haiku" : "Sonnet"}
+                    {getModelShortLabel(log.model)}
                   </span>
                 </td>
                 <td className="py-2 pr-4 text-text-muted text-xs">

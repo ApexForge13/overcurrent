@@ -447,7 +447,24 @@ export function StoryDetail({ story }: StoryDetailProps) {
     if (weightedSupport <= 0.5) maxPct = 25; else if (weightedSupport <= 1) maxPct = 40;
     else if (weightedSupport <= 2) maxPct = 55; else if (weightedSupport <= 4) maxPct = 70;
     else if (weightedSupport <= 7) maxPct = 85; else maxPct = 95;
-    const displayPct = claim.consensusPct > 0 ? Math.min(claim.consensusPct, maxPct) : Math.min(rawPct, maxPct);
+    // Confidence display with fallbacks:
+    //   1. If synthesis provided consensusPct, use it (capped at maxPct)
+    //   2. Else if we have supporters/contradictors parsed, use rawPct (capped)
+    //   3. Else fall back to the claim's confidence enum (HIGH/MEDIUM/LOW)
+    //   4. Floor at 25% when we have at least one supporter — never show 0%
+    //      for a claim the synthesis saw fit to include.
+    let displayPct: number;
+    if (claim.consensusPct > 0) {
+      displayPct = Math.min(claim.consensusPct, maxPct);
+    } else if (total > 0) {
+      displayPct = Math.min(rawPct, maxPct);
+    } else {
+      // No parsed supporters/contradictors — use confidence enum as fallback
+      const confUpper = String(claim.confidence ?? '').toUpperCase();
+      displayPct = confUpper === 'HIGH' ? 70 : confUpper === 'MEDIUM' ? 45 : 25;
+      displayPct = Math.min(displayPct, maxPct);
+    }
+    if (supporters.length > 0 && displayPct < 25) displayPct = 25;
     const weightedLabel = weightedSupport !== supporters.length
       ? ` (weighted: ${weightedSupport.toFixed(1)}${wireCopyCount > 0 ? ` · ${wireCopyCount} wire` : ''})` : '';
 

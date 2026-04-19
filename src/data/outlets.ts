@@ -698,7 +698,9 @@ export const outlets: OutletInfo[] = [
     politicalLean: "state-controlled",
     reliability: "low",
     language: "en",
-    rssUrl: "https://www.rt.com/rss/news/",
+    // Direct feed (rt.com/rss/news/) is blocked in EU/US by upstream networks.
+    // Google News proxy indexes the domain without geographic restrictions.
+    rssUrl: "https://news.google.com/rss/search?q=when:24h+allinurl:rt.com&ceid=US:en&hl=en-US&gl=US",
   },
   {
     name: "Tagesschau",
@@ -1159,8 +1161,11 @@ export const outlets: OutletInfo[] = [
     type: "state",
     politicalLean: "state-controlled",
     reliability: "low",
-    language: "zh",
-    rssUrl: "http://www.xinhuanet.com/english/rss/worldrss.xml",
+    language: "en",
+    // Direct feed (xinhuanet.com/english/rss/worldrss.xml) frequently 404s and
+    // is served without HTTPS. Google News proxy indexes the English domain
+    // reliably; language set to en because that's what we're pulling.
+    rssUrl: "https://news.google.com/rss/search?q=when:24h+allinurl:xinhuanet.com&ceid=US:en&hl=en-US&gl=US",
   },
   {
     name: "CGTN",
@@ -1588,7 +1593,9 @@ export const outlets: OutletInfo[] = [
     politicalLean: "state-controlled",
     reliability: "low",
     language: "en",
-    rssUrl: "https://www.presstv.ir/rss.xml",
+    // Direct feed (presstv.ir/rss.xml) is frequently blocked/geo-fenced.
+    // Google News proxy indexes the domain reliably from any IP.
+    rssUrl: "https://news.google.com/rss/search?q=when:24h+allinurl:presstv.ir&ceid=US:en&hl=en-US&gl=US",
   },
   {
     name: "IRNA",

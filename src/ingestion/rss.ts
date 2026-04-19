@@ -423,6 +423,18 @@ export async function scanRssFeeds(
   console.log(`[RSS] Scanned ${diagnostics.total} feeds. ${diagnostics.success} returned results, ${diagnostics.empty} empty. ${results.length} total articles.`)
   console.log(`[RSS] By region:`, JSON.stringify(diagnostics.byRegion))
 
+  // State media health check — surface which of the known-difficult outlets
+  // returned results this run. Helps diagnose whether a problem is ingestion
+  // (our fault) or source unavailability (their fault).
+  const STATE_MEDIA_DOMAINS = ['presstv.ir', 'rt.com', 'xinhuanet.com', 'tasnimnews.com', 'farsnews.ir']
+  const stateMediaHealth: Record<string, number> = {}
+  for (const domain of STATE_MEDIA_DOMAINS) {
+    stateMediaHealth[domain] = results.filter(r => {
+      try { return new URL(r.url).hostname.replace(/^www\./, '').endsWith(domain) } catch { return false }
+    }).length
+  }
+  console.log(`[RSS] State media results:`, JSON.stringify(stateMediaHealth))
+
   // ── WEB SEARCH FALLBACK for high-priority outlets without RSS ────────
   // State media outlets that block RSS or are unreachable from US IPs.
   // Search Google for their recent articles matching story keywords.

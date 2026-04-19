@@ -1,13 +1,17 @@
 import { prisma } from '@/lib/db'
 import { getDailyCost, getTotalCost } from '@/lib/anthropic'
+import { requireAdmin } from '@/lib/auth-guard'
 
 export async function GET() {
+  const auth = await requireAdmin()
+  if (auth.error) return auth.error
+
   const [dailyCost, totalCost, costLogs] = await Promise.all([
     getDailyCost(),
     getTotalCost(),
     prisma.costLog.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take: 100, // raised from 50 so Provider Summary has a fuller picture
     }),
   ])
 

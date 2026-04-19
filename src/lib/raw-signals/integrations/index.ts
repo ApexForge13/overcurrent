@@ -64,12 +64,15 @@ import { portStateControlRunner } from './port-state-control'
 import { shippingRatesRunner } from './shipping-rates'
 
 // Phase 7 — credentialed free tier
-import { marineTrafficRunner } from './marinetraffic'
+import { aisHubRunner } from './aishub'
 import { globalFishingWatchRunner } from './global-fishing-watch'
 import { spaceTrackRunner } from './space-track'
 import { nasaEarthdataRunner } from './nasa-earthdata'
-// vesselfinder + opensky are HELPER modules — imported by marinetraffic +
-// adsb-exchange respectively and used as fallbacks. Not registered directly.
+// vesselfinder.ts and marinetraffic.ts are DORMANT upgrade-path scaffolds —
+// not imported, not registered. VesselFinder is the mid-tier upgrade (paid
+// volume); MarineTraffic/Kpler is the enterprise-tier upgrade. See their
+// header files for when to activate.
+// opensky.ts is a helper imported by adsb-exchange.ts as fallback.
 
 // Remaining
 import { copernicusEmergencyRunner } from './copernicus-emergency'
@@ -130,7 +133,7 @@ registerIntegration('copernicus_emergency', copernicusEmergencyRunner)
 registerIntegration('financial_crypto', coinGeckoRunner)
 
 // ── Phase 7 — credentialed free tier ──────────────────────────────────
-registerIntegration('maritime_ais', marineTrafficRunner)        // primary + VesselFinder fallback
+registerIntegration('maritime_ais', aisHubRunner)               // AIS Hub primary (VesselFinder + MarineTraffic/Kpler deferred)
 registerIntegration('maritime_fishing', globalFishingWatchRunner)
 registerIntegration('space_track', spaceTrackRunner)
 registerIntegration('nasa_earthdata', nasaEarthdataRunner)

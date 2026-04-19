@@ -1,15 +1,32 @@
 /**
- * VesselFinder — maritime_ais backup provider.
+ * VesselFinder — paid upgrade path (DORMANT, NOT REGISTERED).
  *
- * ── Environment Variables: VESSELFINDER_API_KEY (required, free tier).
- * ── Cost: Free tier (per-day limits).
- * ── What: Used as the fallback fetch when MarineTraffic returns empty.
- *    Exports `vesselFinderFetch` as a helper — NOT registered as a standalone
- *    runner. maritime_ais is served by marinetraffic.ts which calls this
- *    on fallback and deduplicates by MMSI.
+ * ── Status: NOT USED AT RUNTIME.
+ *    maritime_ais is served by aishub.ts (AIS Hub free tier supports
+ *    bounding-box queries with generous limits). VesselFinder's free
+ *    tier has tighter per-day volume limits and the paid tiers are
+ *    only worthwhile at enterprise revenue. This file retains the
+ *    VesselPosition shared type and a dormant fetch helper so the
+ *    module can be promoted quickly if AIS Hub's free tier becomes
+ *    insufficient.
  *
- * Register free key at: https://api.vesselfinder.com/signup
- * Supports bounding-box queries on the free tier (limited volume).
+ * ── When to activate:
+ *    When AIS Hub per-day rate limits become a production constraint
+ *    OR when the customer mix demands higher-resolution data than AIS
+ *    Hub provides. At that point:
+ *      1. Register VESSELFINDER_API_KEY
+ *      2. Restore the runner export (git history has the promoted
+ *         version from commit 842ca10 if needed)
+ *      3. Flip maritime_ais registration in integrations/index.ts
+ *         from aisHubRunner to vesselFinderRunner, or chain both
+ *         (AIS Hub primary, VesselFinder fallback)
+ *
+ * ── Environment Variables (when activated): VESSELFINDER_API_KEY
+ * ── Cost (when activated): Free tier with tight per-day limits; paid
+ *    tiers scale with volume.
+ *
+ * MarineTraffic / Kpler is the enterprise-tier upgrade path above this —
+ * see marinetraffic.ts.
  */
 
 import { fetchWithTimeout } from '@/lib/utils'
@@ -18,52 +35,42 @@ import type { BoundingBox } from '../types'
 const TIMEOUT_MS = 15_000
 const API_URL = 'https://api.vesselfinder.com/vesselslist'
 
+/** Shared vessel-position shape used across all maritime_ais providers. */
 export interface VesselPosition {
   mmsi: string
   name?: string
   callsign?: string
   imo?: string
-  type?: string        // AIS ship type code (e.g. 80-89 = tanker, 70-79 = cargo)
-  typeLabel?: string   // human label
+  type?: string
+  typeLabel?: string
   lat: number
   lon: number
   speedKn?: number
   courseDeg?: number
   heading?: number
-  timestamp?: string   // position timestamp
+  timestamp?: string
   source: 'vesselfinder'
 }
 
-// AIS ship type ranges that matter for narrative cross-reference:
-// 30-39: fishing, special craft
-// 60-69: passenger
-// 70-79: cargo
-// 80-89: tanker (petroleum, chemical, LNG, LPG)
-// 35: military (reserved in some jurisdictions)
-// 53: port tender
 function classifyShipType(type: number): string {
   if (type >= 80 && type <= 89) return 'tanker'
   if (type >= 70 && type <= 79) return 'cargo'
-  if (type >= 30 && type <= 39) return 'fishing_or_special'
   if (type === 35) return 'military'
+  if (type >= 30 && type <= 39) return 'fishing_or_special'
   if (type >= 60 && type <= 69) return 'passenger'
   if (type === 53) return 'port_tender'
   return 'other'
 }
 
 /**
- * Fetch vessel positions in a bounding box via VesselFinder free-tier API.
- * Returns [] on missing key or fetch failure (never throws).
+ * Dormant fetch helper. Retained for quick re-activation. Not registered
+ * with any runner today. Returns [] without a key — expected, no warning.
  */
 export async function vesselFinderFetch(bbox: BoundingBox | null): Promise<VesselPosition[]> {
   if (!bbox) return []
   const key = process.env.VESSELFINDER_API_KEY
-  if (!key) {
-    console.warn('[raw-signals/vesselfinder] VESSELFINDER_API_KEY missing — returning empty')
-    return []
-  }
+  if (!key) return [] // dormant — no warn
 
-  // VesselFinder bbox format: minLon,minLat,maxLon,maxLat
   const bboxParam = `${bbox.swLng},${bbox.swLat},${bbox.neLng},${bbox.neLat}`
   const url = `${API_URL}?userkey=${encodeURIComponent(key)}&bbox=${encodeURIComponent(bboxParam)}&format=json`
 
@@ -71,10 +78,7 @@ export async function vesselFinderFetch(bbox: BoundingBox | null): Promise<Vesse
     const res = await fetchWithTimeout(url, TIMEOUT_MS, {
       headers: { Accept: 'application/json' },
     })
-    if (!res.ok) {
-      console.warn(`[raw-signals/vesselfinder] HTTP ${res.status}`)
-      return []
-    }
+    if (!res.ok) return []
     const data = (await res.json()) as Array<Record<string, unknown>>
     if (!Array.isArray(data)) return []
     return data.slice(0, 200).map((v) => {
@@ -95,8 +99,7 @@ export async function vesselFinderFetch(bbox: BoundingBox | null): Promise<Vesse
         source: 'vesselfinder' as const,
       }
     }).filter((v) => Number.isFinite(v.lat) && Number.isFinite(v.lon))
-  } catch (err) {
-    console.warn('[raw-signals/vesselfinder] fetch failed:', err instanceof Error ? err.message : err)
+  } catch {
     return []
   }
 }

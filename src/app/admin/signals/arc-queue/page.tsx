@@ -75,6 +75,7 @@ export default function ArcQueuePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [skipModal, setSkipModal] = useState<ScheduleItem | null>(null)
+  const [backfillStatus, setBackfillStatus] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -101,19 +102,62 @@ export default function ArcQueuePage() {
     fetchAll()
   }, [fetchAll])
 
+  async function runBackfill() {
+    if (!confirm('Backfill ArcPhaseSchedule records for existing arcs that pre-date Step 3? Idempotent — skips any arc that already has schedules.')) return
+    setBackfillStatus('Running...')
+    try {
+      const res = await fetch('/api/admin/arc-schedules/backfill', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Backfill failed')
+      setBackfillStatus(
+        `Backfilled ${data.backfilled} of ${data.totalNewArcs} new_arc stories. ` +
+        `${data.alreadyHadSchedules} already had schedules. ${data.tailReached} at tail.`,
+      )
+      await fetchAll()
+    } catch (e) {
+      setBackfillStatus(`Error: ${e instanceof Error ? e.message : 'unknown'}`)
+    }
+  }
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '32px 24px' }}>
       {/* Header */}
-      <div style={{ marginBottom: '32px' }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.12em', color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: '8px' }}>
-          Admin · Signals
+      <div style={{ marginBottom: '32px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.12em', color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: '8px' }}>
+            Admin · Signals
+          </div>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+            Arc Queue
+          </h1>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-secondary)' }}>
+            Primary daily operational tool — story arc re-analyses by due date.
+          </p>
         </div>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '32px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
-          Arc Queue
-        </h1>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: '14px', color: 'var(--text-secondary)' }}>
-          Primary daily operational tool — story arc re-analyses by due date.
-        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <button
+            onClick={runBackfill}
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              padding: '6px 12px',
+              background: 'transparent',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-primary)',
+              borderRadius: 3,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+            title="One-off fix for arcs that existed before Step 3 was deployed"
+          >
+            Backfill existing arcs
+          </button>
+          {backfillStatus && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-tertiary)', maxWidth: 280, textAlign: 'right' }}>
+              {backfillStatus}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Ratio stats bar */}

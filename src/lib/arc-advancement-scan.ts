@@ -149,6 +149,33 @@ Has this story materially advanced? JSON only.`
     },
   })
 
+  // ── PHASE 2 (Session 4): IMMUTABLE TIMELINE HOOK ──────────────────────
+  // Fire-and-forget ArcTimelineEvent write. Every scan lands on the
+  // cluster's immutable timeline (including low-confidence — it's a
+  // permanent record of everything the system looked at). Never blocks.
+  const clusterIdForTimeline = arc.storyCluster?.id
+  if (clusterIdForTimeline) {
+    ;(async () => {
+      try {
+        const { writeAdvancementDetectionEvent } = await import('@/lib/publish-hooks/arc-timeline')
+        await writeAdvancementDetectionEvent({
+          scanId: scan.id,
+          storyClusterId: clusterIdForTimeline,
+          storyArcId,
+          umbrellaArcId: arc.umbrellaArcId,
+          confidenceLevel,
+          rationale,
+          advancementDetected,
+        })
+      } catch (err) {
+        console.warn(
+          '[arc-advancement-scan] Timeline hook failed (non-blocking):',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })()
+  }
+
   const shouldNotifyUI =
     advancementDetected && (confidenceLevel === 'medium' || confidenceLevel === 'high')
 

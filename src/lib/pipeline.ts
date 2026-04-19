@@ -1739,17 +1739,69 @@ export async function runVerifyPipeline(
     console.log(`[pipeline] Signal tracking: cluster=${signalResult.clusterId?.substring(0, 8)}, phase=${signalResult.storyPhase}, category=${signalResult.signalCategory}, cost=$${signalResult.totalCostUsd.toFixed(4)}`)
     totalCost += signalResult.totalCostUsd
 
+    // ── PHASE 2 (Session 4): PUBLISH HOOKS ────────────────────────────
+    // Fire-and-forget. Runs geographic extraction, entity extraction +
+    // EntityMention writes, narrative-stream graph population, and
+    // analysis_run ArcTimelineEvent. Non-blocking; errors swallowed.
+    // Kept as a promise reference so the raw-signal enrichment block below
+    // can await it — entities/graph must exist before integrations start
+    // writing RawSignalLayer so EntitySignalIndex can connect them.
+    console.log(`[pipeline] SESSION4_PHASE2 creating publishHooksPromise for story=${story.id.substring(0, 8)}`)
+    const publishHooksPromise = (async () => {
+      try {
+        console.log(`[pipeline] SESSION4_PHASE2 publishHooksPromise IIFE executing, importing @/lib/publish-hooks`)
+        const { runPublishHooks } = await import('@/lib/publish-hooks')
+        console.log(`[pipeline] SESSION4_PHASE2 publish-hooks module imported, calling runPublishHooks(${story.id.substring(0, 8)})`)
+        await runPublishHooks(story.id)
+        console.log(`[pipeline] SESSION4_PHASE2 runPublishHooks returned for story=${story.id.substring(0, 8)}`)
+      } catch (err) {
+        console.error(
+          '[pipeline] Publish hooks failed (non-blocking):',
+          err instanceof Error ? err.message : err,
+          err instanceof Error && err.stack ? `\n${err.stack}` : '',
+        )
+      }
+    })()
+
+    // ── PHASE 3 (Session 4): QUALITY REVIEW ───────────────────────────
+    // Independent adversarial reviewer runs in parallel with publish hooks
+    // and raw-signal enrichment. It reads ONLY the final analysis text —
+    // no pipeline context, no outlet fingerprints. Kill verdicts auto-
+    // archive the story without it ever reaching /admin/review.
+    // Fire-and-forget; errors swallowed; never blocks analysis delivery.
+    ;(async () => {
+      try {
+        const { runQualityReview } = await import('@/lib/quality-review')
+        await runQualityReview(story.id)
+      } catch (err) {
+        console.error(
+          '[pipeline] Quality review failed (non-blocking):',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })()
+
     // ── PHASE 8: RAW SIGNAL LAYER ENRICHMENT ──────────────────────────
     // Fire-and-forget. Must NOT block or delay analysis delivery.
     // Runs the 3-layer trigger system (category/entity/keyword), populates
     // RawSignalQueue, then processes the queue via registered integrations.
+    // Awaits publishHooksPromise first so Entity + EntityMention rows exist
+    // when integrations write RawSignalLayer — enables EntitySignalIndex
+    // fan-out and ground_truth-stream graph edges.
     // Errors here are logged and swallowed.
     if (signalResult.clusterId) {
       const clusterId = signalResult.clusterId
+      console.log(`[pipeline] SESSION4_PHASE2 scheduling raw-signal IIFE for cluster=${clusterId.substring(0, 8)}`)
       ;(async () => {
         try {
+          console.log(`[pipeline] SESSION4_PHASE2 raw-signal IIFE awaiting publishHooksPromise`)
+          await publishHooksPromise
+          console.log(`[pipeline] SESSION4_PHASE2 publishHooksPromise settled, calling queueRawSignalEnrichment`)
           const { queueRawSignalEnrichment } = await import('@/lib/raw-signals/queue')
           const queueResult = await queueRawSignalEnrichment(clusterId)
+          console.log(
+            `[pipeline] SESSION4_PHASE2 queueRawSignalEnrichment returned queued=${queueResult?.queued.length ?? 0}`,
+          )
           if (queueResult && queueResult.queued.length > 0) {
             // Import registers all integrations as a side effect
             const { processClusterQueue } = await import('@/lib/raw-signals/integrations')
@@ -1759,9 +1811,14 @@ export async function runVerifyPipeline(
           console.error(
             '[pipeline] Raw signal enrichment failed (non-blocking):',
             err instanceof Error ? err.message : err,
+            err instanceof Error && err.stack ? `\n${err.stack}` : '',
           )
         }
       })()
+    } else {
+      console.warn(
+        `[pipeline] SESSION4_PHASE2 signal tracking produced no clusterId — raw-signal IIFE SKIPPED`,
+      )
     }
   } catch (err) {
     console.error('[pipeline] Signal tracking failed (non-blocking):', err instanceof Error ? err.message : err)

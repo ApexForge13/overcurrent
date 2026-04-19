@@ -1,0 +1,89 @@
+{
+  "mode": "test",
+  "generatedAt": "2026-04-19T05:28:34.783Z",
+  "products": [
+    {
+      "lookupKey": "consumer_paid",
+      "productId": "prod_UMWyW4dkfRQPUV",
+      "prices": [
+        {
+          "lookupKey": "consumer_paid_monthly",
+          "priceId": "price_1TNnuJE2LSpWCzFT1i2CDEqU",
+          "unitAmountCents": 1999,
+          "interval": "month"
+        },
+        {
+          "lookupKey": "consumer_paid_founding_monthly",
+          "priceId": "price_1TNnuKE2LSpWCzFTbuZttIq3",
+          "unitAmountCents": 1499,
+          "interval": "month"
+        },
+        {
+          "lookupKey": "consumer_paid_annual",
+          "priceId": "price_1TNnuKE2LSpWCzFT8ZHgGady",
+          "unitAmountCents": 19900,
+          "interval": "year"
+        }
+      ],
+      "metadata": {
+        "tier": "consumer_paid",
+        "signup_bonus_credits": "1",
+        "signup_bonus_once": "true",
+        "monthly_credits": "0",
+        "monthly_credits_usd": "0",
+        "overage_markup_percent": "50",
+        "overage_cost_basis_usd_per_credit": "4.50",
+        "founding_price_lookup_key": "consumer_paid_founding_monthly",
+        "founding_cap_total": "500"
+      }
+    },
+    {
+      "lookupKey": "b2b_researcher",
+      "productId": "prod_UMWyMrz0tJjMrq",
+      "prices": [
+        {
+          "lookupKey": "b2b_researcher_monthly",
+          "priceId": "price_1TNnuLE2LSpWCzFTNjDmMv3Z",
+          "unitAmountCents": 9900,
+          "interval": "month"
+        }
+      ],
+      "metadata": {
+        "tier": "b2b_researcher",
+        "signup_bonus_credits": "0",
+        "signup_bonus_once": "false",
+        "monthly_credits": "11",
+        "monthly_credits_usd": "50",
+        "overage_markup_percent": "50",
+        "overage_cost_basis_usd_per_credit": "4.50"
+      }
+    },
+    {
+      "lookupKey": "b2b_organization",
+      "productId": "prod_UMWy6DonZLBOTp",
+      "prices": [
+        {
+          "lookupKey": "b2b_organization_monthly",
+          "priceId": "price_1TNnuME2LSpWCzFTA0mPw2U1",
+          "unitAmountCents": 49900,
+          "interval": "month"
+        }
+      ],
+      "metadata": {
+        "tier": "b2b_organization",
+        "signup_bonus_credits": "0",
+        "signup_bonus_once": "false",
+        "monthly_credits": "55",
+        "monthly_credits_usd": "250",
+        "overage_markup_percent": "50",
+        "overage_cost_basis_usd_per_credit": "4.50"
+      }
+    }
+  ],
+  "founding": {
+    "promoCode": "FOUNDING",
+    "capTotal": 500,
+    "foundingPriceLookupKey": "consumer_paid_founding_monthly",
+    "enforcement": "app_level_count_of_subscription_rows"
+  }
+}

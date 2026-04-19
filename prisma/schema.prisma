@@ -57,6 +57,9 @@ model Story {
   arcImportance                String?     // core | reference (only set when analysisType='new_arc')
   arcPhaseAtCreation           String?     // phase this analysis was designated to cover (first_wave | development | consolidation | tail)
   arcDesignatedAt              DateTime?   // timestamp when this analysis was tagged to the arc/umbrella
+  // ── Session 4: geographic extraction ──
+  coordinatesJson              Json?       // {swLat, swLng, neLat, neLng} — extracted at publish time via Haiku
+  primaryCountry               String?     // ISO 3166-1 alpha-2 — primary geographic locus
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   sources           Source[]
@@ -83,6 +86,11 @@ model Story {
   umbrellaArc         UmbrellaArc?        @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
   arcPhaseSchedules   ArcPhaseSchedule[]
   advancementScans    ArcAdvancementScan[]
+  // ── Session 4 back-relations ──
+  entityMentions       EntityMention[]
+  qualityReviewCards   QualityReviewCard[]
+  publicationRequests  PublicationRequest[] @relation("OriginalStory")
+  publishedFromRequest PublicationRequest?  @relation("PublishedStory")
 
   @@index([status, createdAt])
   @@index([primaryCategory])
@@ -447,6 +455,9 @@ model StoryCluster {
   rawSignals                  RawSignalLayer[]
   rawSignalQueue              RawSignalQueue[]
   caseStudyEntries            CaseStudyEntry[]
+  // ── Session 4 back-relations ──
+  socialSignals               SocialSignal[]
+  arcTimelineEvents           ArcTimelineEvent[]
 
   @@index([currentPhase])
   @@index([signalCategory])
@@ -474,14 +485,18 @@ model Outlet {
   priority        String?                       // must-have | high | standard (mirror of OutletInfo.priority)
   tierOverriddenBy  String?                     // admin email who manually overrode tier
   tierOverriddenAt  DateTime?
+  // ── Session 4: entity link ──
+  entityId        String?                       // FK to Entity — null when outlet has no canonical entity record
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  entity          Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
   appearances     OutletAppearance[]
   fingerprint     OutletFingerprint?
 
   @@index([tier])
   @@index([region])
   @@index([editorialType])
+  @@index([entityId])
 }
 
 // Aggregated behavioral fingerprint per outlet.
@@ -709,6 +724,10 @@ model UmbrellaArc {
   rawSignals                RawSignalLayer[]
   rawSignalQueue            RawSignalQueue[]
   caseStudyEntries          CaseStudyEntry[]
+  // ── Session 4 back-relations ──
+  socialSignals                SocialSignal[]
+  arcTimelineEvents            ArcTimelineEvent[]
+  historicalSatelliteBaselines HistoricalSatelliteBaseline[]
 
   @@index([status])
   @@index([signalCategory])
@@ -843,6 +862,7 @@ model RawSignalLayer {
   reviewedByAdmin      Boolean  @default(false)
   adminNotes           String?
   caseStudyEntries     CaseStudyEntry[]
+  entitySignalEntries  EntitySignalIndex[]
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -912,4 +932,563 @@ model CaseStudyEntry {
   @@index([signalType])
   @@index([isPublishable])
   @@index([divergenceType])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 4 — SUBSCRIPTIONS & BILLING (System F)
+//
+// New tables only. Does NOT modify the existing email gate (email_captures +
+// client-side localStorage) — unauth users and authenticated-without-
+// subscription users are both treated as "free" tier by UserPermissions.
+// Full credit consumption tracking (CreditBalance, CreditLedger, overage
+// billing) lands in Phase 22 — this phase only persists who has what tier.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique        // Supabase auth user id
+  userEmail            String                  // denormalized for admin display
+  tier                 String   @default("free") // free | consumer_paid | b2b_researcher | b2b_organization | enterprise_small | enterprise_mid | enterprise_large | enterprise_trophy
+  status               String   @default("active") // active | past_due | canceled | trialing | incomplete | incomplete_expired | unpaid
+  stripeCustomerId     String?                 // cus_XXX
+  stripeSubscriptionId String?  @unique        // sub_XXX
+  stripePriceId        String?                 // price_XXX — monthly vs annual variant
+  billingInterval      String?                 // month | year | null (enterprise / free)
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean  @default(false)
+  canceledAt           DateTime?
+  // ── Consumer tier one-time signup bonus ──
+  // Consumer paid ($14.99 founding / $19.99 standard) includes exactly one
+  // free analysis credit granted on subscription.created, non-recurring.
+  // After this single run, further analyses are billed at cost+50% overage.
+  // B2B tiers never set this flag — they get monthly_credits_usd allocations instead.
+  signupBonusGranted   Boolean  @default(false)
+  signupBonusGrantedAt DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([userId])
+  @@index([stripeCustomerId])
+  @@index([tier, status])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — ENTITY INTELLIGENCE LAYER (System G)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Entity {
+  id             String   @id @default(cuid())
+  name           String
+  type           String                       // person | organization | location | vessel | country | company
+  signalCategory String?
+  slug           String   @unique
+  description    String?
+  isPublic       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  mentions       EntityMention[]
+  signalIndex    EntitySignalIndex[]
+  tickerMappings TickerEntityMap[]
+  outlets        Outlet[]
+  socialSignals  SocialSignal[]
+  monitoredBy    MonitoredEntity[]
+  historicalEquityBaselines HistoricalEquityBaseline[]
+
+  @@index([slug])
+  @@index([name])
+  @@index([type])
+}
+
+model EntityMention {
+  id             String   @id @default(cuid())
+  entityId       String
+  entity         Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  storyId        String
+  story          Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  mentionContext String
+  createdAt      DateTime @default(now())
+
+  @@index([entityId])
+  @@index([storyId])
+}
+
+model EntitySignalIndex {
+  id               String   @id @default(cuid())
+  entityId         String
+  entity           Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  signalType       String
+  rawSignalLayerId String?
+  rawSignalLayer   RawSignalLayer? @relation(fields: [rawSignalLayerId], references: [id], onDelete: SetNull)
+  signalDate       DateTime
+  signalSummary    String
+  sourceUrl        String?
+  confidenceLevel  String   @default("low")   // low | medium | high
+  createdAt        DateTime @default(now())
+
+  @@index([entityId])
+  @@index([signalType])
+  @@index([signalDate])
+}
+
+model TickerEntityMap {
+  id           String   @id @default(cuid())
+  ticker       String   @unique
+  entityId     String
+  entity       Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  exchangeName String
+  createdAt    DateTime @default(now())
+
+  @@index([entityId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — KNOWLEDGE GRAPH (System D)
+// Admin-only. streamType tags every node: narrative | ground_truth | psychological.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model GraphNode {
+  id            String   @id @default(cuid())
+  nodeType      String                         // story_cluster | outlet | entity | raw_signal | umbrella_arc | data_source | signal_category | geographic_region | social_signal
+  nodeLabel     String
+  nodeWeight    Float    @default(1.0)
+  metadata      Json
+  streamType    String?                        // narrative | ground_truth | psychological
+  createdAt     DateTime @default(now())
+  outgoingEdges GraphEdge[] @relation("SourceNode")
+  incomingEdges GraphEdge[] @relation("TargetNode")
+
+  @@index([nodeType])
+  @@index([nodeLabel])
+  @@index([streamType])
+}
+
+model GraphEdge {
+  id                     String   @id @default(cuid())
+  sourceNodeId           String
+  sourceNode             GraphNode @relation("SourceNode", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNodeId           String
+  targetNode             GraphNode @relation("TargetNode", fields: [targetNodeId], references: [id], onDelete: Cascade)
+  edgeType               String                  // mentions | corroborates | contradicts | precedes | follows | contains | fingerprint_match | entity_match | geographic_overlap | temporal_proximity
+  edgeWeight             Float
+  temporalProximityHours Int?
+  createdAt              DateTime @default(now())
+
+  @@index([sourceNodeId])
+  @@index([targetNodeId])
+  @@index([edgeType])
+  @@index([edgeWeight])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — ALERTS (System C)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model AlertMonitor {
+  id                    String   @id @default(cuid())
+  userId                String
+  monitorType           String                   // entity | outlet | category | region | keyword | ticker
+  monitorValue          String
+  notificationFrequency String   @default("daily") // realtime | daily | weekly
+  lastFiredAt           DateTime?
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+
+  @@index([userId])
+  @@index([monitorType])
+  @@index([isActive])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — B2B USAGE, QUALITY REVIEW, PUBLICATION (Systems E, F)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model B2BUsageRecord {
+  id             String   @id @default(cuid())
+  accountId      String
+  storyId        String
+  apiCostClaude  Float
+  apiCostHaiku   Float
+  rawSignalCosts Json
+  totalCost      Float
+  markup         Float
+  billedAmount   Float
+  createdAt      DateTime @default(now())
+
+  @@index([accountId])
+  @@index([storyId])
+  @@index([createdAt])
+}
+
+model QualityReviewCard {
+  id                      String   @id @default(cuid())
+  storyId                 String
+  story                   Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  overallRecommendation   String                 // approved | approved_with_edits | hold | kill
+  verificationSummary     Json
+  patternVerified         Boolean  @default(false)
+  patternStressTestDetail String
+  editorialScores         Json
+  sensitivityFlags        Json
+  suggestedEdits          String?
+  reviewCost              Float
+  reviewDurationSeconds   Int
+  webSearchesRun          Int
+  createdAt               DateTime @default(now())
+
+  @@index([storyId])
+  @@index([overallRecommendation])
+}
+
+model PublicationRequest {
+  id                    String   @id @default(cuid())
+  b2bAccountId          String
+  storyId               String
+  story                 Story    @relation("OriginalStory", fields: [storyId], references: [id], onDelete: Cascade)
+  requestedAt           DateTime @default(now())
+  attributionPreference String                   // attributed | anonymous | do_not_publish
+  status                String   @default("pending") // pending | approved | declined
+  reviewedAt            DateTime?
+  reviewedBy            String?
+  publishedStoryId      String?  @unique
+  publishedStory        Story?   @relation("PublishedStory", fields: [publishedStoryId], references: [id], onDelete: SetNull)
+  createdAt             DateTime @default(now())
+
+  @@index([b2bAccountId])
+  @@index([status])
+  @@index([storyId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — ENTERPRISE ACCOUNTS + DEPLOYMENT (System H)
+// ClientNamespace <-> EnterpriseAccount is 1:1 via @unique on namespace side
+// (single FK cleaner than bidirectional — approved in Phase 1 checkpoint).
+// ═══════════════════════════════════════════════════════════════════════════
+
+model EnterpriseAccount {
+  id                        String   @id @default(cuid())
+  organizationName          String
+  contactName               String
+  contactEmail              String
+  monthlyRate               Float
+  contractStartDate         DateTime
+  contractEndDate           DateTime
+  ndaSigned                 Boolean  @default(false)
+  features                  Json
+  dataResidencyModel        String   @default("api_only") // api_only | private_namespace | hybrid | onpremise
+  allowsClientDataIngestion Boolean  @default(false)
+  deploymentFingerprint     String?
+  licenseKey                String?  @unique
+  licenseScope              Json?
+  notes                     String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  clientNamespace           ClientNamespace?
+  outputTemplates           ClientOutputTemplate[]
+  monitoredPortfolios       MonitoredPortfolio[]
+  monitoredEntities         MonitoredEntity[]
+  monitoringScans           MonitoringScan[]
+  intelligenceBriefs        IntelligenceBrief[]
+
+  @@index([organizationName])
+  @@index([contractEndDate])
+}
+
+model ClientNamespace {
+  id                   String   @id @default(cuid())
+  enterpriseAccountId  String   @unique
+  enterpriseAccount    EnterpriseAccount @relation(fields: [enterpriseAccountId], references: [id], onDelete: Cascade)
+  namespaceName        String
+  storageQuotaGb       Int      @default(0)
+  dataIngestionEnabled Boolean  @default(false)
+  telemetryOptIn       Boolean  @default(false)
+  createdAt            DateTime @default(now())
+}
+
+model ClientOutputTemplate {
+  id                  String   @id @default(cuid())
+  enterpriseAccountId String
+  enterpriseAccount   EnterpriseAccount @relation(fields: [enterpriseAccountId], references: [id], onDelete: Cascade)
+  templateName        String
+  outputFormat        String                 // trading_desk_brief | policy_memo | crisis_comms | analyst_report | executive_summary | custom
+  templateConfig      Json
+  createdAt           DateTime @default(now())
+
+  @@index([enterpriseAccountId])
+}
+
+model DataLicense {
+  id                            String   @id @default(cuid())
+  organizationName              String
+  licenseType                   String                 // fingerprint_library | framing_archive | arc_database | full_dataset | api_feed
+  annualRate                    Float
+  startDate                     DateTime
+  endDate                       DateTime
+  dataDeliveryMethod            String                 // api | bulk_export | isolated_deployment | both
+  usageRestrictions             String
+  reverseEngineeringProhibition Boolean  @default(true)
+  extractionProhibition         Boolean  @default(true)
+  auditRightRetained            Boolean  @default(true)
+  killSwitchProvision           Boolean  @default(true)
+  createdAt                     DateTime @default(now())
+
+  @@index([endDate])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — HISTORICAL BACKFILL (System B)
+// NON-NEGOTIABLE RULE: isHistoricalBackfill defaults to true on all three
+// Historical* tables. Historical data NEVER feeds trajectory scores,
+// momentum flags, or predictive confidence percentages. Enforced in every
+// fingerprint aggregation and pattern library function.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// HistoricalSpendingBaseline — USASpending.gov two-year backfill.
+// NEVER feeds trajectory scores, momentum flags, or predictive confidence percentages.
+model HistoricalSpendingBaseline {
+  id                   String   @id @default(cuid())
+  awardee              String
+  amount               Float
+  agency               String
+  awardDate            DateTime
+  description          String
+  isHistoricalBackfill Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  @@index([awardee])
+  @@index([agency])
+  @@index([awardDate])
+}
+
+// HistoricalEquityBaseline — Yahoo Finance six-month OHLCV backfill.
+// NEVER feeds trajectory scores, momentum flags, or predictive confidence percentages.
+model HistoricalEquityBaseline {
+  id                   String   @id @default(cuid())
+  ticker               String
+  entityId             String?
+  entity               Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  date                 DateTime
+  open                 Float
+  high                 Float
+  low                  Float
+  close                Float
+  volume               BigInt
+  isHistoricalBackfill Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  @@index([ticker, date])
+  @@index([entityId])
+}
+
+// HistoricalSatelliteBaseline — Sentinel Hub twelve-month imagery per active umbrella region.
+// NEVER feeds trajectory scores, momentum flags, or predictive confidence percentages.
+model HistoricalSatelliteBaseline {
+  id                   String   @id @default(cuid())
+  umbrellaArcId        String?
+  umbrellaArc          UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  coordinates          Json
+  captureDate          DateTime
+  imageDescription     String
+  cloudCoverPct        Float?
+  isHistoricalBackfill Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  @@index([umbrellaArcId])
+  @@index([captureDate])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — SOCIAL LAYER — STREAM 3 (System I)
+// Unfiltered psychological signals. credibilityScore + isVerifiedOfficial
+// govern weighting. Never surface unverified social as primary finding
+// without Stream 1 or Stream 2 corroboration.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model SocialChannel {
+  id                 String   @id @default(cuid())
+  platform           String                 // twitter | telegram | reddit | wechat | linkedin
+  channelIdentifier  String
+  channelName        String
+  region             String?
+  signalCategories   String[]
+  followerCount      Int?
+  credibilityScore   Float    @default(0.5)
+  isVerifiedOfficial Boolean  @default(false)
+  lastCrawledAt      DateTime?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  socialSignals      SocialSignal[]
+
+  @@unique([platform, channelIdentifier])
+  @@index([platform])
+  @@index([region])
+  @@index([isActive])
+}
+
+model SocialSignal {
+  id                    String   @id @default(cuid())
+  socialChannelId       String
+  socialChannel         SocialChannel @relation(fields: [socialChannelId], references: [id], onDelete: Cascade)
+  storyClusterId        String?
+  storyCluster          StoryCluster? @relation(fields: [storyClusterId], references: [id], onDelete: SetNull)
+  umbrellaArcId         String?
+  umbrellaArc           UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  entityId              String?
+  entity                Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  postUrl               String
+  postContent           String
+  postDate              DateTime
+  engagementCount       Int?
+  engagementVelocity    Float?
+  language              String
+  translatedContent     String?
+  sentimentScore        Float?
+  framingAngle          String?
+  haikuSummary          String
+  divergesFromNarrative Boolean  @default(false)
+  divergenceDescription String?
+  createdAt             DateTime @default(now())
+
+  @@index([storyClusterId])
+  @@index([entityId])
+  @@index([socialChannelId])
+  @@index([postDate])
+  @@index([divergesFromNarrative])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — AMBIENT MONITORING (System J) + INTELLIGENCE BRIEFS (System K)
+// ═══════════════════════════════════════════════════════════════════════════
+
+model MonitoredPortfolio {
+  id                  String   @id @default(cuid())
+  enterpriseAccountId String
+  enterpriseAccount   EnterpriseAccount @relation(fields: [enterpriseAccountId], references: [id], onDelete: Cascade)
+  portfolioName       String
+  positionData        Json?
+  lastSyncedAt        DateTime?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([enterpriseAccountId])
+}
+
+model MonitoredEntity {
+  id                  String   @id @default(cuid())
+  enterpriseAccountId String
+  enterpriseAccount   EnterpriseAccount @relation(fields: [enterpriseAccountId], references: [id], onDelete: Cascade)
+  entityId            String
+  entity              Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  monitoringIntensity String                 // low | medium | high | critical
+  positionSize        Float?
+  customContext       String?
+  alertThreshold      String   @default("significant_divergence") // any_divergence | significant_divergence | major_divergence
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  monitoringScans     MonitoringScan[]
+  intelligenceBriefs  IntelligenceBrief[]
+
+  @@unique([enterpriseAccountId, entityId])
+  @@index([enterpriseAccountId])
+  @@index([entityId])
+  @@index([monitoringIntensity])
+}
+
+model MonitoringScan {
+  id                       String   @id @default(cuid())
+  enterpriseAccountId      String
+  enterpriseAccount        EnterpriseAccount @relation(fields: [enterpriseAccountId], references: [id], onDelete: Cascade)
+  monitoredEntityId        String
+  monitoredEntity          MonitoredEntity @relation(fields: [monitoredEntityId], references: [id], onDelete: Cascade)
+  scanCycle                DateTime
+  streamsChecked           String[]
+  divergencesFound         Int      @default(0)
+  materialDivergencesFound Int      @default(0)
+  briefGenerated           Boolean  @default(false)
+  briefId                  String?
+  brief                    IntelligenceBrief? @relation(fields: [briefId], references: [id], onDelete: SetNull)
+  scanDurationMs           Int
+  scanCostCents            Int
+  createdAt                DateTime @default(now())
+
+  @@index([enterpriseAccountId])
+  @@index([scanCycle])
+  @@index([materialDivergencesFound])
+}
+
+model IntelligenceBrief {
+  id                    String   @id @default(cuid())
+  enterpriseAccountId   String
+  enterpriseAccount     EnterpriseAccount @relation(fields: [enterpriseAccountId], references: [id], onDelete: Cascade)
+  monitoredEntityId     String?
+  monitoredEntity       MonitoredEntity? @relation(fields: [monitoredEntityId], references: [id], onDelete: SetNull)
+  triggeringSignals     Json
+  briefType             String                 // portfolio_alert | entity_alert | geographic_alert | category_alert
+  urgencyLevel          String                 // informational | notable | significant | critical
+  headline              String
+  bodyText              String
+  narrativeContext      String
+  physicalGroundTruth   String
+  psychologicalSignal   String?
+  priorSimilarCases     Json?
+  probabilityAssessment String?
+  recommendedActions    String?
+  outputFormat          String
+  deliveredAt           DateTime?
+  readAt                DateTime?
+  acknowledgedAt        DateTime?
+  createdAt             DateTime @default(now())
+  deliveries            BriefDelivery[]
+  scans                 MonitoringScan[]
+
+  @@index([enterpriseAccountId])
+  @@index([urgencyLevel])
+  @@index([deliveredAt])
+}
+
+model BriefDelivery {
+  id                  String   @id @default(cuid())
+  intelligenceBriefId String
+  intelligenceBrief   IntelligenceBrief @relation(fields: [intelligenceBriefId], references: [id], onDelete: Cascade)
+  deliveryMethod      String                 // email | webhook | in_app | api
+  deliveryAddress     String
+  deliveredAt         DateTime?
+  status              String   @default("pending") // pending | delivered | failed
+  failureReason       String?
+  createdAt           DateTime @default(now())
+
+  @@index([intelligenceBriefId])
+  @@index([status])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION 4 PHASE 1 — IMMUTABLE ARC TIMELINE (System L)
+// Append-only. Nothing ever deleted. Every event from every stream writes here.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model ArcTimelineEvent {
+  id                    String   @id @default(cuid())
+  storyClusterId        String
+  storyCluster          StoryCluster @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
+  umbrellaArcId         String?
+  umbrellaArc           UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  eventType             String                 // analysis_run | raw_signal | social_signal | source_surge | outlet_tier_entry | framing_shift | advancement_detection | correction | social_velocity_spike
+  eventTimestamp        DateTime
+  eventData             Json
+  streamType            String                 // narrative | ground_truth | psychological
+  isWildFinding         Boolean  @default(false)
+  wildFindingPercentile Float?
+  isCorrectionEvent     Boolean  @default(false)
+  correctionDescription String?
+  correctionImpact      String?
+  isPublic              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+
+  @@index([storyClusterId])
+  @@index([eventType])
+  @@index([eventTimestamp])
+  @@index([isWildFinding])
+  @@index([isCorrectionEvent])
 }

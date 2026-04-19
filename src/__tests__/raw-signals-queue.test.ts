@@ -8,7 +8,7 @@ import {
 
 describe('Raw Signal trigger logic', () => {
   describe('Layer 1: category_trigger', () => {
-    it('military_conflict triggers 8 satellite/aviation/maritime/gdelt/etc. sources', () => {
+    it('military_conflict triggers satellite/aviation/maritime/gdelt + social Stream 3 sources', () => {
       const entries = buildQueueEntries('military_conflict', [], '')
       const types = entries.map((e) => e.signalType).sort()
       expect(types).toEqual(
@@ -21,6 +21,14 @@ describe('Raw Signal trigger logic', () => {
           'gdelt',
           'copernicus_emergency',
           'sanctions_ofac',
+          'seismic_usgs',
+          'internet_cloudflare',
+          'energy_eia',
+          'arms_transfer_sipri',
+          'displacement_unhcr',
+          'space_track',
+          'social_twitter',
+          'social_telegram',
         ].sort(),
       )
       // All should be category_trigger
@@ -140,6 +148,54 @@ describe('Raw Signal trigger logic', () => {
     it('no triggers fired → empty entries list', () => {
       const entries = buildQueueEntries(null, [], 'Random unrelated text.')
       expect(entries).toHaveLength(0)
+    })
+  })
+
+  describe('Stream 3 social layer fan-out', () => {
+    it('civil_unrest triggers Twitter + Telegram via category_trigger', () => {
+      const entries = buildQueueEntries('civil_unrest', [], '')
+      const types = new Set(entries.map((e) => e.signalType))
+      expect(types.has('social_twitter')).toBe(true)
+      expect(types.has('social_telegram')).toBe(true)
+    })
+
+    it('corporate_scandal triggers Twitter + Reddit + LinkedIn via category_trigger', () => {
+      const entries = buildQueueEntries('corporate_scandal', [], '')
+      const types = new Set(entries.map((e) => e.signalType))
+      expect(types.has('social_twitter')).toBe(true)
+      expect(types.has('social_reddit')).toBe(true)
+      expect(types.has('social_linkedin')).toBe(true)
+    })
+
+    it('trade_dispute triggers Twitter + Reddit + WeChat (China-relevant)', () => {
+      const entries = buildQueueEntries('trade_dispute', [], '')
+      const types = new Set(entries.map((e) => e.signalType))
+      expect(types.has('social_twitter')).toBe(true)
+      expect(types.has('social_reddit')).toBe(true)
+      expect(types.has('social_wechat')).toBe(true)
+    })
+
+    it('"leaked" keyword fans out to Twitter + Telegram + Reddit', () => {
+      const results = scanKeywords('A leaked memo showed the full details.')
+      const types = new Set(results.map((r) => r.signalType))
+      expect(types.has('social_twitter')).toBe(true)
+      expect(types.has('social_telegram')).toBe(true)
+      expect(types.has('social_reddit')).toBe(true)
+    })
+
+    it('"CEO" keyword fans out to LinkedIn + Twitter', () => {
+      const results = scanKeywords('The CEO resigned under pressure.')
+      const types = new Set(results.map((r) => r.signalType))
+      expect(types.has('social_linkedin')).toBe(true)
+      expect(types.has('social_twitter')).toBe(true)
+    })
+
+    it('"viral" keyword only fires Twitter (not other platforms)', () => {
+      const results = scanKeywords('The clip went viral overnight.')
+      const types = new Set(results.map((r) => r.signalType))
+      expect(types.has('social_twitter')).toBe(true)
+      expect(types.has('social_telegram')).toBe(false)
+      expect(types.has('social_reddit')).toBe(false)
     })
   })
 })

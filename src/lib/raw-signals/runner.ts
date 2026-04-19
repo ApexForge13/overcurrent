@@ -216,6 +216,22 @@ export async function processQueueEntry(queueId: string): Promise<void> {
         resultSignalLayerId: signalLayer.id,
       },
     })
+
+    // ── PHASE 2 (Session 4): POST-WRITE HOOKS ─────────────────────────
+    // Fire-and-forget. Writes ground_truth-stream GraphNode/GraphEdge,
+    // ArcTimelineEvent(raw_signal), and EntitySignalIndex rows for every
+    // entity currently linked to this cluster. Never blocks the runner.
+    ;(async () => {
+      try {
+        const { onRawSignalWritten } = await import('@/lib/raw-signal-hooks')
+        await onRawSignalWritten(signalLayer.id)
+      } catch (err) {
+        console.warn(
+          '[raw-signals/runner] Post-write hooks failed (non-blocking):',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })()
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(

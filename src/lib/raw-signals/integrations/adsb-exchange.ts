@@ -1,23 +1,22 @@
 /**
- * ADS-B Exchange — aircraft ADS-B tracking.
+ * ADS-B Exchange (primary) + OpenSky Network (fallback) — aviation_adsb.
  *
- * ── Environment Variables: ADSBX_API_KEY (optional; paid tiers unlock
- *    higher rate limits. Public tier is free but rate-limited.)
- * ── Cost: Free tier.
+ * ── Environment Variables:
+ *     ADSBX_API_KEY       (optional; paid tiers unlock higher rate limits)
+ *     OPENSKY_USERNAME    (optional; recommended — authenticated OpenSky has
+ *     OPENSKY_PASSWORD     higher rate limits; anonymous access works but
+ *                          is aggressively throttled)
+ * ── Cost: Free tiers for both.
  * ── What: Queries ADSBX for aircraft active in the story's bounding box
- *    over the last 48 hours. Flags military / government / special-mission
- *    aircraft presence unmentioned by the narrative.
- *
- * Notes: ADSBX's public data endpoint is https://adsbexchange.com/api
- * but the live tracking endpoints typically require authentication.
- * OpenSky Network (Phase 7) is a credentialled free fallback. For Phase 6
- * this runner performs a best-effort probe against the public endpoint
- * and degrades gracefully when access is denied.
+ *    over the last 48h. Flags military / government / special-mission
+ *    aircraft presence unmentioned by the narrative. When ADSBX returns
+ *    empty or rate-limits, falls back to OpenSky for coverage continuity.
  */
 
 import { callClaude, HAIKU, parseJSON } from '@/lib/anthropic'
 import { fetchWithTimeout } from '@/lib/utils'
 import { extractGeoForSignal } from '../haiku-geo'
+import { openSkyFetch } from './opensky'
 import type { IntegrationRunner } from '../runner'
 
 const TIMEOUT_MS = 15_000
@@ -85,13 +84,34 @@ Return JSON only:
 export const adsbExchangeRunner: IntegrationRunner = async (ctx) => {
   const { cluster, signalType } = ctx
   const geo = await extractGeoForSignal(signalType, cluster.entities, cluster.headline, cluster.synopsis)
-  const aircraft = await fetchAircraft(geo.boundingBox)
+  let aircraft = await fetchAircraft(geo.boundingBox)
+  let source: 'adsb-exchange' | 'opensky' = 'adsb-exchange'
+
+  // Fallback to OpenSky when ADSBX is empty (rate-limit, auth, or nothing in region)
+  if (aircraft.length === 0) {
+    const openSky = await openSkyFetch(geo.boundingBox)
+    if (openSky.length > 0) {
+      source = 'opensky'
+      // Map OpenSky shape -> our Aircraft shape. Military flag unknown from
+      // OpenSky (no built-in flag); rely on callsign heuristics in Haiku.
+      aircraft = openSky.map((a) => ({
+        hex: a.hex,
+        flight: a.callsign,
+        regCountry: a.originCountry,
+        type: undefined,
+        alt: typeof a.altMeters === 'number' ? Math.round(a.altMeters * 3.281) : undefined, // m -> ft
+        lat: a.lat,
+        lon: a.lon,
+        military: undefined,
+      }))
+    }
+  }
 
   if (aircraft.length === 0) {
     return {
-      rawContent: { bbox: geo.boundingBox, aircraft: [] },
-      haikuSummary: 'No ADS-B aircraft retrieved for region.',
-      signalSource: 'adsb-exchange', captureDate: cluster.firstDetectedAt, coordinates: geo.boundingBox,
+      rawContent: { bbox: geo.boundingBox, aircraft: [], note: 'ADSBX + OpenSky both empty' },
+      haikuSummary: 'No ADS-B aircraft retrieved for region (ADSBX + OpenSky empty).',
+      signalSource: source, captureDate: cluster.firstDetectedAt, coordinates: geo.boundingBox,
       divergenceFlag: false, divergenceDescription: null, confidenceLevel: 'low' as const,
     }
   }
@@ -113,9 +133,9 @@ export const adsbExchangeRunner: IntegrationRunner = async (ctx) => {
   const divergenceFlag = (assessment.militaryCount > 0 || assessment.specialMissionCount > 0) && assessment.narrativeGap
 
   return {
-    rawContent: { aircraft: aircraft.slice(0, 15), assessment, haikuCostUsd: haikuCost },
-    haikuSummary: `${assessment.militaryCount} military + ${assessment.specialMissionCount} special-mission aircraft`,
-    signalSource: 'adsb-exchange', captureDate: cluster.firstDetectedAt, coordinates: geo.boundingBox,
+    rawContent: { aircraft: aircraft.slice(0, 15), source, assessment, haikuCostUsd: haikuCost },
+    haikuSummary: `${assessment.militaryCount} military + ${assessment.specialMissionCount} special-mission aircraft (via ${source})`,
+    signalSource: source, captureDate: cluster.firstDetectedAt, coordinates: geo.boundingBox,
     divergenceFlag,
     divergenceDescription: divergenceFlag ? assessment.description : null,
     confidenceLevel: assessment.militaryCount >= 3 ? 'high' : assessment.militaryCount >= 1 ? 'medium' : 'low',

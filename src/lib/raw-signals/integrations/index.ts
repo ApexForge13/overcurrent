@@ -63,6 +63,14 @@ import { openAerialMapRunner } from './openaerialmap'
 import { portStateControlRunner } from './port-state-control'
 import { shippingRatesRunner } from './shipping-rates'
 
+// Phase 7 — credentialed free tier
+import { marineTrafficRunner } from './marinetraffic'
+import { globalFishingWatchRunner } from './global-fishing-watch'
+import { spaceTrackRunner } from './space-track'
+import { nasaEarthdataRunner } from './nasa-earthdata'
+// vesselfinder + opensky are HELPER modules — imported by marinetraffic +
+// adsb-exchange respectively and used as fallbacks. Not registered directly.
+
 // Remaining
 import { copernicusEmergencyRunner } from './copernicus-emergency'
 import { coinGeckoRunner } from './coingecko-crypto'
@@ -121,11 +129,15 @@ registerIntegration('shipping_rates', shippingRatesRunner)
 registerIntegration('copernicus_emergency', copernicusEmergencyRunner)
 registerIntegration('financial_crypto', coinGeckoRunner)
 
-// ── Future (Phase 7+) — register here as they land ────────────────────
-// registerIntegration('maritime_ais', marineTrafficRunner)       // Phase 7
-// registerIntegration('maritime_fishing', gfwRunner)              // Phase 7
-// registerIntegration('nasa_earthdata', nasaEarthdataRunner)      // Phase 7
-// registerIntegration('space_track', spaceTrackRunner)            // Phase 7
+// ── Phase 7 — credentialed free tier ──────────────────────────────────
+registerIntegration('maritime_ais', marineTrafficRunner)        // primary + VesselFinder fallback
+registerIntegration('maritime_fishing', globalFishingWatchRunner)
+registerIntegration('space_track', spaceTrackRunner)
+registerIntegration('nasa_earthdata', nasaEarthdataRunner)
+// aviation_adsb is still served by adsbExchangeRunner (registered above),
+// now with opensky.ts as its fallback helper — no separate registration.
+
+// ── Future (Phase 8+) — register here as they land ────────────────────
 // registerIntegration('legal_pacer', pacerRunner)                 // Phase 8 (GATED)
 // registerIntegration('financial_equity', polygonEquityRunner)    // Phase 8
 // registerIntegration('financial_options', polygonOptionsRunner)  // Phase 8

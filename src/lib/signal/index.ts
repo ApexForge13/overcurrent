@@ -35,6 +35,7 @@ import { recomputeFingerprintsForStory } from './outlet-fingerprint'
 import { recomputeCategoryPattern } from './category-pattern'
 import { regenerateNarrativeArc } from './narrative-arc'
 import { computePredictiveSignal } from './predictive-signal'
+import { recomputeUmbrellaProfiles } from '@/lib/umbrella-outlet-profile'
 
 export interface SignalTrackingInput {
   storyId: string
@@ -329,6 +330,20 @@ export async function runSignalTracking(
     } catch (err) {
       result.errors.push(`predictiveSignal: ${err instanceof Error ? err.message : err}`)
     }
+  }
+
+  // ── 15. Recompute OutletUmbrellaProfile if Story is filed under an umbrella ──
+  try {
+    const story = await prisma.story.findUnique({
+      where: { id: input.storyId },
+      select: { umbrellaArcId: true },
+    })
+    if (story?.umbrellaArcId) {
+      const profiles = await recomputeUmbrellaProfiles(story.umbrellaArcId)
+      console.log(`[signal] outletUmbrellaProfile: recomputed ${profiles.length} outlets for umbrella ${story.umbrellaArcId}`)
+    }
+  } catch (err) {
+    result.errors.push(`outletUmbrellaProfile: ${err instanceof Error ? err.message : err}`)
   }
 
   console.log(`━━━ [signal] Tracking complete. Cost: $${result.totalCostUsd.toFixed(4)}. Errors: ${result.errors.length} ━━━\n`)

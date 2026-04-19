@@ -1,29 +1,28 @@
 /**
- * Datalastic / Data Docked — maritime_ais PRIMARY provider.
+ * Data Docked — maritime_ais PRIMARY provider.
  *
  * ── Environment Variables: DATADOCKED_API_KEY (required, paid account).
  * ── Cost: paid at ~$87/month, covers bounding box geographic queries for
- *    vessel positions. Self-serve signup at datalastic.com.
+ *    vessel positions. Self-serve signup at datadocked.com.
  *    Subscription tier gives predictable rate limits + commercial-use rights
- *    which the AIS Hub / VesselFinder free tiers do not.
- * ── What: Queries vessel positions in the story's bounding box via
- *    Datalastic's vessel_inarea endpoint. Returns full AIS fields (MMSI,
- *    IMO, name, callsign, ship type code, position, speed, course, flag,
+ *    which the AIS Hub free tier does not.
+ * ── What: Queries vessel positions in the story's bounding box via Data
+ *    Docked's vessel_inarea endpoint. Returns full AIS fields (MMSI, IMO,
+ *    name, callsign, ship type code, position, speed, course, flag,
  *    destination). Classifies ship-type codes into labels (tanker / cargo
  *    / military / fishing / passenger) and Haiku-assesses whether vessel
  *    positioning contradicts or adds material context the narrative omits
  *    (e.g. tankers still transiting a "closed" strait).
  *
  *    Priority order for maritime_ais data providers:
- *      1. Datalastic (this runner) — registered primary, $87/month
+ *      1. Data Docked (this runner) — registered primary, ~$87/month
  *      2. AIS Hub (aishub.ts) — dormant free-tier option, can be promoted
- *         if Datalastic is unreachable during a run (Phase 10 could wire
- *         as a fallback if that failure mode shows up in practice)
+ *         if Data Docked is unreachable during a run
  *      3. VesselFinder — replaced by this integration; file removed
  *      4. MarineTraffic / Kpler (marinetraffic.ts) — enterprise upgrade
  *         path for when the $87 tier becomes insufficient
  *
- * Sign up: https://datalastic.com/
+ * Sign up: https://datadocked.com/
  */
 
 import { callClaude, HAIKU, parseJSON } from '@/lib/anthropic'
@@ -33,10 +32,10 @@ import type { IntegrationRunner } from '../runner'
 import type { BoundingBox } from '../types'
 
 const TIMEOUT_MS = 15_000
-// Datalastic v0 bounding-box endpoint. Accepts lat_min / lat_max / lon_min
+// Data Docked bounding-box endpoint. Accepts lat_min / lat_max / lon_min
 // / lon_max and api-key in query params. Response contains `data` array of
-// vessel objects.
-const API_URL = 'https://api.datalastic.com/api/v0/vessel_inarea'
+// vessel objects. Base URL is api.datadocked.com.
+const API_URL = 'https://api.datadocked.com/api/v0/vessel_inarea'
 
 export interface DatadockedVessel {
   uuid?: string

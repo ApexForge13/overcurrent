@@ -336,6 +336,9 @@ function ScheduleRow({ item, accent, onSkip }: { item: ScheduleItem; accent: str
   rerunUrl.set('type', 'arc_rerun')
   if (item.arc) rerunUrl.set('arc', item.arc.storyId)
   rerunUrl.set('phase', item.targetPhase)
+  // Pass the query directly so the form fills it synchronously on mount
+  // (avoids waiting for the arcs API → selectedArc resolution chain).
+  if (item.arc?.searchQuery) rerunUrl.set('query', item.arc.searchQuery)
 
   return (
     <div style={{

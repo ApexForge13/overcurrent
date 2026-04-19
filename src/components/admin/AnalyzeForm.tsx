@@ -103,10 +103,15 @@ export function AnalyzeForm({ onStoryReady }: AnalyzeFormProps) {
     const type = params.get('type')
     const arc = params.get('arc')
     const phase = params.get('phase')
+    const qparam = params.get('query')
     if (umb) setUmbrellaId(umb)
     if (type && (ANALYSIS_TYPES as readonly string[]).includes(type)) setAnalysisType(type as AnalysisType)
     if (arc) setArcRerunTargetStoryId(arc)
     if (phase && (STORY_PHASES as readonly string[]).includes(phase)) setArcPhaseAtCreation(phase as StoryPhase)
+    if (qparam) {
+      setQuery(qparam)
+      setQueryAutoFilledFromArc(true)
+    }
   }, [])
 
   // ── Load arcs for selected umbrella (only if arc_rerun might be used) ──

@@ -37,9 +37,14 @@ import { prisma } from '@/lib/db'
 import { parseJSON, SONNET } from '@/lib/anthropic'
 
 // Separate client — quality review is architecturally independent from the
-// main callClaude wrapper. Keeping a distinct instance underlines that
-// independence and simplifies any future client-specific retry tuning.
-const client = new Anthropic()
+// main callClaude wrapper. Instantiated lazily per-call (not at module load)
+// so env vars loaded by scripts that import this module via dotenv/config
+// are guaranteed to be in process.env before the SDK reads ANTHROPIC_API_KEY.
+// The SDK is lightweight; per-call instantiation has no meaningful overhead
+// and eliminates import-timing fragility.
+function getAnthropicClient(): Anthropic {
+  return new Anthropic()
+}
 
 // Web search pricing estimate. Actual billing comes through the API response
 // usage metadata; this constant is used only for pre-flight budgeting/logging.
@@ -338,7 +343,20 @@ function normalizeReview(raw: unknown): ParsedReview {
 // Main entry — load story, call Sonnet + web_search, persist, auto-archive
 // ─────────────────────────────────────────────────────────────────────────
 
-export async function runQualityReview(storyId: string): Promise<QualityReviewResult | null> {
+export interface RunQualityReviewOptions {
+  /**
+   * Bypass the "already reviewed" + "status must be review" guards. Used by
+   * the admin API route when an operator deliberately re-submits a story
+   * (e.g., after revising the Pattern following a kill). A new QualityReviewCard
+   * row is created — prior cards are preserved (append-only).
+   */
+  force?: boolean
+}
+
+export async function runQualityReview(
+  storyId: string,
+  options: RunQualityReviewOptions = {},
+): Promise<QualityReviewResult | null> {
   const started = Date.now()
 
   const story = await prisma.story.findUnique({
@@ -373,21 +391,28 @@ export async function runQualityReview(storyId: string): Promise<QualityReviewRe
 
   // Only review stories currently in 'review' status. Already-published or
   // already-archived stories should not be re-reviewed automatically.
-  if (story.status !== 'review') {
-    console.log(`[quality-review] Story ${storyId.substring(0, 8)} status=${story.status}; skipping auto-review`)
+  // force=true bypasses this guard for admin-triggered re-submissions.
+  if (!options.force && story.status !== 'review') {
+    console.log(`[quality-review] Story ${storyId.substring(0, 8)} status=${story.status}; skipping auto-review (pass force:true to override)`)
     return null
   }
 
   // Skip if a QualityReviewCard already exists (idempotent — re-running is
   // explicitly admin-initiated via the API route, not auto-retry).
-  const existing = await prisma.qualityReviewCard.findFirst({
-    where: { storyId },
-    orderBy: { createdAt: 'desc' },
-    select: { id: true },
-  })
-  if (existing) {
-    console.log(`[quality-review] Story ${storyId.substring(0, 8)} already has review card ${existing.id.substring(0, 8)}; skipping`)
-    return null
+  // force=true bypasses this guard — the new card appends; prior cards stay
+  // as the immutable history of kill/approve decisions on this story.
+  if (!options.force) {
+    const existing = await prisma.qualityReviewCard.findFirst({
+      where: { storyId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    })
+    if (existing) {
+      console.log(`[quality-review] Story ${storyId.substring(0, 8)} already has review card ${existing.id.substring(0, 8)}; skipping (pass force:true to override)`)
+      return null
+    }
+  } else {
+    console.log(`[quality-review] Story ${storyId.substring(0, 8)} force-review requested — appending new QualityReviewCard`)
   }
 
   const userPrompt = buildUserPrompt(story as StorySnapshot)
@@ -397,6 +422,7 @@ export async function runQualityReview(storyId: string): Promise<QualityReviewRe
     // We use the non-streaming create() call. The web_search tool is a
     // server-side tool — Anthropic executes searches internally and returns
     // the final response in one shot. No client-side tool loop needed.
+    const client = getAnthropicClient()
     response = await client.messages.create({
       model: SONNET,
       max_tokens: 4096,

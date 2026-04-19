@@ -125,15 +125,26 @@ export default function UmbrellasPage() {
     }
   }
 
-  function handleRunScan(id: string) {
-    // Intelligence scan endpoint ships in Step 4. Placeholder until then.
-    setScanStatus((prev) => ({ ...prev, [id]: 'Intelligence scan arrives in Step 4' }))
+  async function handleRunScan(id: string) {
+    setScanStatus((prev) => ({ ...prev, [id]: 'Running scan…' }))
+    try {
+      const r = await fetch(`/api/admin/umbrellas/${id}/intelligence-scan`, { method: 'POST' })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
+      const n = Array.isArray(data.recommendations) ? data.recommendations.length : 0
+      setScanStatus((prev) => ({ ...prev, [id]: `${n} recommendation${n === 1 ? '' : 's'}` }))
+    } catch (e) {
+      setScanStatus((prev) => ({
+        ...prev,
+        [id]: `Error: ${e instanceof Error ? e.message : 'unknown'}`,
+      }))
+    }
     setTimeout(() => {
       setScanStatus((prev) => {
         const { [id]: _removed, ...rest } = prev
         return rest
       })
-    }, 3000)
+    }, 5000)
   }
 
   const categoryCounts = useMemo(() => {

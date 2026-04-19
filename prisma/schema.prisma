@@ -82,6 +82,7 @@ model Story {
   // ── Story arc system relations ──
   umbrellaArc         UmbrellaArc?        @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
   arcPhaseSchedules   ArcPhaseSchedule[]
+  advancementScans    ArcAdvancementScan[]
 
   @@index([status, createdAt])
   @@index([primaryCategory])
@@ -685,6 +686,7 @@ model UmbrellaArc {
   updatedAt                 DateTime @updatedAt
   analyses                  Story[]
   intelligenceScans         UmbrellaIntelligenceScan[]
+  advancementScans          ArcAdvancementScan[]
   outletProfiles            OutletUmbrellaProfile[]
   phaseSchedules            ArcPhaseSchedule[]
   rawSignals                RawSignalLayer[]
@@ -740,6 +742,30 @@ model UmbrellaIntelligenceScan {
   createdAt                DateTime @default(now())
 
   @@index([umbrellaArcId, ranAt])
+}
+
+// Lightweight Haiku scan per active core story arc. Detects whether a story has
+// materially advanced since its most recent analysis. Medium+ confidence
+// detections surface as notification banners on /admin/signals/arc-queue.
+// MIN_SIGNAL: advancement detection confidence below medium must NEVER surface
+//             a UI notification. Low-confidence scans are logged here but
+//             silently discarded from the admin-facing UI.
+model ArcAdvancementScan {
+  id                  String   @id @default(cuid())
+  storyArcId          String
+  storyArc            Story    @relation(fields: [storyArcId], references: [id], onDelete: Cascade)
+  umbrellaArcId       String
+  umbrellaArc         UmbrellaArc @relation(fields: [umbrellaArcId], references: [id], onDelete: Cascade)
+  scannedAt           DateTime @default(now())
+  advancementDetected Boolean  @default(false)
+  confidenceLevel     String                         // low | medium | high
+  rationale           String?
+  triggeredAnalysis   Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  @@index([advancementDetected, confidenceLevel])
+  @@index([storyArcId, scannedAt])
+  @@index([umbrellaArcId])
 }
 
 // Cross-event outlet behavior profile scoped to a single umbrella.

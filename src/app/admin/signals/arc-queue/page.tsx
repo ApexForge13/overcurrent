@@ -46,6 +46,24 @@ interface StatsResponse {
   }
 }
 
+interface AdvancementItem {
+  scanId: string
+  storyArcId: string
+  umbrellaArcId: string
+  arcLabel: string
+  umbrellaName: string
+  confidenceLevel: 'medium' | 'high'
+  rationale: string | null
+  scannedAt: string
+  searchQuery: string
+  arcPhaseAtCreation: string | null
+}
+
+interface AdvancementsResponse {
+  items: AdvancementItem[]
+  count: number
+}
+
 const PHASE_LABELS: Record<string, string> = {
   first_wave: 'First Wave',
   development: 'Development',
@@ -72,6 +90,7 @@ function formatRelativeDate(iso: string): string {
 export default function ArcQueuePage() {
   const [schedules, setSchedules] = useState<SchedulesResponse | null>(null)
   const [stats, setStats] = useState<StatsResponse | null>(null)
+  const [advancements, setAdvancements] = useState<AdvancementsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [skipModal, setSkipModal] = useState<ScheduleItem | null>(null)
@@ -81,22 +100,34 @@ export default function ArcQueuePage() {
     setLoading(true)
     setError(null)
     try {
-      const [schedRes, statsRes] = await Promise.all([
+      const [schedRes, statsRes, advRes] = await Promise.all([
         fetch('/api/admin/arc-schedules'),
         fetch('/api/admin/arc-queue-stats'),
+        fetch('/api/admin/arc-advancement-scans'),
       ])
       if (!schedRes.ok) throw new Error(`schedules: ${schedRes.status}`)
       if (!statsRes.ok) throw new Error(`stats: ${statsRes.status}`)
+      // advancement is optional — don't fail everything if it 500s
       const schedData: SchedulesResponse = await schedRes.json()
       const statsData: StatsResponse = await statsRes.json()
+      const advData: AdvancementsResponse = advRes.ok ? await advRes.json() : { items: [], count: 0 }
       setSchedules(schedData)
       setStats(statsData)
+      setAdvancements(advData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
       setLoading(false)
     }
   }, [])
+
+  async function markAdvancementTriggered(scanId: string) {
+    try {
+      await fetch(`/api/admin/arc-advancement-scans/${scanId}`, { method: 'PATCH' })
+    } catch {
+      // non-fatal — banner will disappear after next page refresh
+    }
+  }
 
   useEffect(() => {
     fetchAll()
@@ -163,6 +194,19 @@ export default function ArcQueuePage() {
 
       {/* Ratio stats bar */}
       {stats && <RatioBar stats={stats} />}
+
+      {/* Advancement detected banners (Step 4 — medium+ confidence only) */}
+      {advancements && advancements.count > 0 && (
+        <div style={{ marginBottom: 32, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {advancements.items.map(item => (
+            <AdvancementBanner
+              key={item.scanId}
+              item={item}
+              onTrigger={() => markAdvancementTriggered(item.scanId)}
+            />
+          ))}
+        </div>
+      )}
 
       {error && (
         <div style={{ padding: '12px 16px', background: 'var(--accent-red)', color: '#fff', borderRadius: 4, marginBottom: 24 }}>
@@ -570,6 +614,65 @@ function SkipModal({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function AdvancementBanner({ item, onTrigger }: { item: AdvancementItem; onTrigger: () => void }) {
+  // Pre-fill URL for full re-analysis — same pattern as arc-queue rerun button
+  const params = new URLSearchParams()
+  params.set('umbrella', item.umbrellaArcId)
+  params.set('type', 'arc_rerun')
+  params.set('arc', item.storyArcId)
+  if (item.arcPhaseAtCreation) params.set('phase', item.arcPhaseAtCreation)
+  if (item.searchQuery) params.set('query', item.searchQuery)
+
+  const confidenceColor = item.confidenceLevel === 'high' ? 'var(--accent-red)' : 'var(--accent-amber)'
+
+  return (
+    <div style={{
+      border: '1px solid ' + confidenceColor,
+      borderLeft: `4px solid ${confidenceColor}`,
+      padding: '14px 16px',
+      background: 'var(--bg-secondary)',
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 16,
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '2px 6px', background: confidenceColor, color: '#0A0A0B', borderRadius: 2, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Advancement Detected · {item.confidenceLevel}
+          </span>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+            {item.arcLabel}
+          </span>
+        </div>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.4, marginBottom: 4 }}>
+          {item.rationale ?? '(no rationale)'}
+        </p>
+        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-tertiary)' }}>
+          {item.umbrellaName} · scanned {new Date(item.scannedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+        </p>
+      </div>
+      <a
+        href={`/admin?${params.toString()}`}
+        onClick={onTrigger}
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          padding: '8px 14px',
+          background: confidenceColor,
+          color: '#0A0A0B',
+          borderRadius: 3,
+          textDecoration: 'none',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        }}
+      >
+        Run full analysis now
+      </a>
     </div>
   )
 }

@@ -9,7 +9,7 @@
  * ── Cost ──────────────────────────────────────────────────────────────
  * Flat $29/mo unlimited calls. Per-call cost in CostLog is $0.
  *
- * ── What It Does ──────────────────────────────────────────────────────
+ * ── Target behavior (Tasks 4-7) ───────────────────────────────────────
  * Always-on per cluster. Resolves cluster.entities through TickerEntityMap;
  * for each resolved ticker, pulls EOD bar + delayed snapshot + reference
  * data, runs Haiku assessment for >2σ price move within 72h of
@@ -32,7 +32,7 @@
  * Haiku divergence assessment.
  */
 
-import type { IntegrationRunner, IntegrationResult } from '../runner'
+import type { IntegrationRunner } from '../runner'
 
 export const polygonRunner: IntegrationRunner = async (ctx) => {
   const apiKey = process.env.POLYGON_API_KEY
@@ -50,7 +50,7 @@ export const polygonRunner: IntegrationRunner = async (ctx) => {
       coordinates: null,
       divergenceFlag: false,
       divergenceDescription: null,
-      confidenceLevel: 'unavailable' as IntegrationResult['confidenceLevel'],
+      confidenceLevel: 'unavailable',
     }
   }
 
@@ -63,6 +63,6 @@ export const polygonRunner: IntegrationRunner = async (ctx) => {
     coordinates: null,
     divergenceFlag: false,
     divergenceDescription: null,
-    confidenceLevel: 'unavailable' as IntegrationResult['confidenceLevel'],
+    confidenceLevel: 'unavailable',
   }
 }

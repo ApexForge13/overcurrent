@@ -38,7 +38,7 @@ describe('polygonRunner', () => {
     const result = await polygonRunner(baseCtx)
     expect(result).not.toBeNull()
     expect(result!.signalSource).toBe('polygon')
-    expect(result!.confidenceLevel).toBe('unavailable' as never)
+    expect(result!.confidenceLevel).toBe('unavailable')
     expect(result!.divergenceFlag).toBe(false)
     expect(result!.haikuSummary).toMatch(/Polygon.*not.*provisioned/i)
   })

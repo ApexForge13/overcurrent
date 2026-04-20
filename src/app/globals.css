@@ -2,10 +2,12 @@
 @import "tailwindcss";
 
 :root {
-  --bg-primary: #0A0A0B;
-  --bg-secondary: #131315;
-  --bg-tertiary: #1A1A1E;
-  --bg-hover: #222228;
+  /* Site bg aligned to the neural-net hero's canvas bg so the fixed-position
+     galaxy fades seamlessly into feed content below the 88vh hero (Phase 13). */
+  --bg-primary: #080C14;
+  --bg-secondary: #131721;
+  --bg-tertiary: #1A1E28;
+  --bg-hover: #222631;
 
   --text-primary: #E8E6E3;
   --text-secondary: #9A9894;

@@ -212,23 +212,19 @@ export default function HomePage() {
       {/* ═══════════════ NEURAL NETWORK HERO (Phase 13) ═══════════════ */}
       {/* Tactical intel galaxy. 88vh leaves a peek of the feed below the fold */}
       {/* so users know to scroll; wheel scrolls the page (shift+wheel zooms).  */}
-      <div style={{ width: "100vw", height: "88vh", marginLeft: "calc(50% - 50vw)", marginRight: "calc(50% - 50vw)" }}>
+      {/* The 3D canvas inside renders as a position:fixed fullscreen layer    */}
+      {/* (z-index:0), so the galaxy visibly extends past this 88vh wrapper    */}
+      {/* and fades into the feed below via the hero's internal bottom-fade.   */}
+      <div style={{ width: "100vw", height: "88vh", marginLeft: "calc(50% - 50vw)", marginRight: "calc(50% - 50vw)", position: "relative" }}>
         <NeuralNetworkHero interactive={heroInteractive || isAdmin} story={heroStory} />
       </div>
 
-      {/* Top tagline — minimal, centered */}
-      <div className="max-w-[1200px] mx-auto px-6 py-8">
-        <p
-          style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: '13px',
-            color: 'var(--text-tertiary)',
-            letterSpacing: '0.01em',
-          }}
-        >
-          Every outlet shows you their version. <span style={{ color: 'var(--text-secondary)' }}>We show you everyone&apos;s.</span>
-        </p>
-      </div>
+      {/* ═══════════════ FEED CONTAINER (opaque over the fixed canvas) ══════ */}
+      {/* Everything below the hero lives in this opaque navy wrapper so the  */}
+      {/* fullscreen canvas underneath doesn't bleed through behind text. The */}
+      {/* bg color matches the site/canvas bg so there's no seam; position:   */}
+      {/* relative + z-index:1 puts it above the fixed canvas stacking layer. */}
+      <div style={{ position: "relative", zIndex: 1, background: "#080C14" }}>
 
       {/* Analysis progress (admin only, when triggered) */}
       {events.length > 0 && (
@@ -353,6 +349,9 @@ export default function HomePage() {
 
       {/* ═══════════════ SUBSCRIBE ═══════════════ */}
       <SubscribeBar />
+
+      </div>
+      {/* ═══════════════ END FEED CONTAINER ═══════════════════════════════ */}
 
       {/* Page-level animations + hover effects */}
       <style jsx global>{`

@@ -702,6 +702,10 @@ export function NeuralNetworkHero({
   story = null,
 }: NeuralNetworkHeroProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  // HUD wrapper — bounded to the 88vh page-level slot. Orbit controls + hover
+  // raycast attach to THIS element (not the fullscreen canvas), so interaction
+  // only fires within the hero area. Feed clicks below pass through cleanly.
+  const hudWrapRef = useRef<HTMLDivElement | null>(null);
   const fpsRef = useRef<HTMLDivElement | null>(null);
   const coordsRef = useRef<HTMLDivElement | null>(null);
   const [annPositions, setAnnPositions] = useState<AnnPos>({});
@@ -736,10 +740,13 @@ export function NeuralNetworkHero({
 
   useEffect(() => {
     const mount = mountRef.current;
-    if (!mount) return;
+    const hudWrap = hudWrapRef.current;
+    if (!mount || !hudWrap) return;
 
-    const W = () => mount.clientWidth || window.innerWidth;
-    const H = () => mount.clientHeight || window.innerHeight;
+    // Canvas is now a fullscreen fixed layer (background of the whole site),
+    // so dimensions always match the viewport — not the hero wrapper.
+    const W = () => window.innerWidth;
+    const H = () => window.innerHeight;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(BG);
@@ -759,7 +766,10 @@ export function NeuralNetworkHero({
     renderer.domElement.style.touchAction = "pan-y";
     mount.appendChild(renderer.domElement);
 
-    const controls = makeOrbitControls(camera, renderer.domElement, {
+    // Orbit controls attach to the HUD wrapper (88vh area) — not the
+    // canvas — so drag/wheel/contextmenu only fire in the hero region. Below
+    // that, clicks pass to feed content because canvas has pointer-events:none.
+    const controls = makeOrbitControls(camera, hudWrap, {
       enabled: interactiveRef.current,
     });
     controlsSetEnabledRef.current = (v: boolean) => controls.setEnabled(v);
@@ -1150,16 +1160,19 @@ export function NeuralNetworkHero({
     }
     kickoffRef.current = kickoffQuery;
 
-    // Wait up to 5s for the story fetch, then fire regardless. If the story
+    // Wait up to 10s for the story fetch, then fire regardless. If the story
     // arrives before the deadline, fire immediately with the real query.
-    // Single-shot via kickedOff; never fires twice from this scheduler.
+    // Extended from 5s → 10s because Neon serverless cold-starts on the
+    // /api/stories/[slug] fetch can take 6-7s; if we fire demo before that,
+    // the typewriter shows a random sample query while the verdict card
+    // later snaps to the real story's stats — a visible inconsistency.
     const mountTs = performance.now();
     let kickedOff = false;
     let pollTid = 0;
     function tryKickoff() {
       if (kickedOff) return;
       const waited = performance.now() - mountTs;
-      if (storyRef.current || waited >= 5000) {
+      if (storyRef.current || waited >= 10_000) {
         kickedOff = true;
         kickoffQuery();
       } else {
@@ -1416,6 +1429,7 @@ export function NeuralNetworkHero({
     const mouseNDC = new THREE.Vector2(-2, -2);
 
     function onPointerMove(e: PointerEvent) {
+      // Canvas is fullscreen-fixed, so its rect always matches the viewport.
       const rect = renderer.domElement.getBoundingClientRect();
       mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1423,7 +1437,8 @@ export function NeuralNetworkHero({
         coordsRef.current.textContent = `X ${(mouseNDC.x * 100).toFixed(1).padStart(6)}  Y ${(mouseNDC.y * 100).toFixed(1).padStart(6)}`;
       }
     }
-    renderer.domElement.addEventListener("pointermove", onPointerMove);
+    // Listen on the HUD wrapper, not the canvas — canvas has pointer-events:none.
+    hudWrap.addEventListener("pointermove", onPointerMove);
 
     function onResize() {
       const w = W();
@@ -1617,8 +1632,31 @@ export function NeuralNetworkHero({
     }
     animate();
 
+    // Pause rAF when the hero wrapper scrolls fully out of view (user is
+    // reading the feed below). Zero visible difference — galaxy picks up
+    // from last frame when they scroll back. Meaningful battery/GPU savings
+    // on long pages, especially mobile. Threshold: 0 intersection ratio means
+    // *fully* out of view; partially visible still animates.
+    let animPaused = false;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        const inView = entry.isIntersecting;
+        if (!inView && !animPaused) {
+          animPaused = true;
+          cancelAnimationFrame(rafId);
+        } else if (inView && animPaused) {
+          animPaused = false;
+          animate();
+        }
+      },
+      { threshold: 0 },
+    );
+    io.observe(hudWrap);
+
     return () => {
       kickedOff = true; // prevent any pending tryKickoff from firing after unmount
+      io.disconnect();
       document.removeEventListener("visibilitychange", onVisChange);
       window.clearInterval(typewriterTid);
       cancelAnimationFrame(rafId);
@@ -1627,7 +1665,7 @@ export function NeuralNetworkHero({
       ro.disconnect();
       controls.dispose();
       window.removeEventListener("resize", onResize);
-      renderer.domElement.removeEventListener("pointermove", onPointerMove);
+      hudWrap.removeEventListener("pointermove", onPointerMove);
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
       }
@@ -1652,16 +1690,36 @@ export function NeuralNetworkHero({
 
   // ═══════════════ HUD ═══════════════
   return (
-    <div
-      className="relative w-full h-full overflow-hidden"
-      style={{ background: "#080C14" }}
-    >
+    <>
+      {/* Canvas layer — fixed to the viewport so the galaxy is a site-wide
+          background. Extends past the 88vh hero wrapper so the fringe dots
+          visibly taper into the feed bg rather than hard-cropping at 88vh.
+          pointer-events:none lets clicks on the feed (rendered over this)
+          pass through cleanly. Orbit/hover listeners live on hudWrapRef. */}
       <div
         ref={mountRef}
-        className="absolute inset-0"
-        style={{ cursor: interactive ? "grab" : "default" }}
+        aria-hidden
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 0,
+          pointerEvents: "none",
+          touchAction: "pan-y",
+        }}
       />
 
+      {/* HUD layer — fills the 88vh slot set by page.tsx. Everything HUD-
+          related (top bar, phase readout, zoom, annotations, grid overlay,
+          scan line, vignette) is bounded here. Transparent bg so the fixed
+          canvas shows through. z-index:1 keeps it above the canvas. */}
+      <div
+        ref={hudWrapRef}
+        className="relative w-full h-full overflow-hidden"
+        style={{
+          zIndex: 1,
+          cursor: interactive ? "grab" : "default",
+        }}
+      >
       {/* subtle dotted grid */}
       <div
         className="pointer-events-none absolute inset-0"
@@ -1691,6 +1749,21 @@ export function NeuralNetworkHero({
         style={{
           background:
             "radial-gradient(ellipse at center, transparent 50%, rgba(8,12,20,0.85) 100%)",
+        }}
+      />
+
+      {/* Bottom gradient fade — dots taper into the feed bg instead of hard-
+          cropping at the 88vh line. Fades the bottom ~22% of the hero from
+          transparent into the unified #080C14 site bg. Sits above the canvas
+          (which is outside this wrapper) but the whole hero wrapper has
+          overflow:hidden, so this gradient is only painted inside the 88vh
+          region — just what we want. */}
+      <div
+        className="pointer-events-none absolute left-0 right-0 bottom-0"
+        style={{
+          height: "22%",
+          background:
+            "linear-gradient(to bottom, rgba(8,12,20,0) 0%, rgba(8,12,20,0.6) 55%, rgba(8,12,20,1) 100%)",
         }}
       />
 
@@ -1876,7 +1949,8 @@ export function NeuralNetworkHero({
         @keyframes ocGeoPop { 0% { transform: scale(0.4); opacity: 0 } 60% { transform: scale(1.4) } 100% { transform: scale(1); opacity: 1 } }
         @keyframes ocExcIn  { 0% { opacity: 0; transform: translateX(6px) } 100% { opacity: 1; transform: translateX(0) } }
       `}</style>
-    </div>
+      </div>
+    </>
   );
 }
 

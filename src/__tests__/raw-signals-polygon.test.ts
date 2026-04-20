@@ -73,4 +73,54 @@ describe('polygonRunner', () => {
     expect(payload.message).toContain('DB connection lost')
     expect(payload.context).toBeDefined()
   })
+
+  it('fetches EOD + snapshot + reference per ticker and writes high-confidence row when all endpoints succeed', async () => {
+    process.env.POLYGON_API_KEY = 'pk_test'
+    const { prisma } = await import('@/lib/db')
+    vi.spyOn(prisma.tickerEntityMap, 'findMany').mockResolvedValue([
+      { ticker: 'AAPL', entity: { name: 'Apple Inc' } } as never,
+    ])
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/v2/aggs/ticker/AAPL/prev')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              results: [{ c: 175.5, o: 170.0, h: 176.0, l: 169.0, v: 50_000_000, t: 1734000000000 }],
+            }),
+        })
+      }
+      if (url.includes('/v2/snapshot/locale/us/markets/stocks/tickers/AAPL')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ ticker: { lastQuote: { p: 176.1, P: 176.2 }, lastTrade: { p: 176.0 } } }),
+        })
+      }
+      if (url.includes('/v3/reference/tickers/AAPL')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              results: { name: 'Apple Inc.', sic_description: 'Electronic Computers', market_cap: 2_700_000_000_000, primary_exchange: 'XNAS' },
+            }),
+        })
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await polygonRunner(baseCtx)
+    expect(result!.signalSource).toBe('polygon')
+    expect(result!.confidenceLevel).toBe('high')
+    const payload = result!.rawContent as { tickers: Array<{ ticker: string; eod?: unknown; snapshot?: unknown; reference?: unknown; errors: string[] }> }
+    expect(payload.tickers).toHaveLength(1)
+    expect(payload.tickers[0].ticker).toBe('AAPL')
+    expect(payload.tickers[0].eod).toBeDefined()
+    expect(payload.tickers[0].snapshot).toBeDefined()
+    expect(payload.tickers[0].reference).toBeDefined()
+    expect(payload.tickers[0].errors).toEqual([])
+  })
 })

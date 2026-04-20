@@ -32,9 +32,84 @@
  * Haiku divergence assessment.
  */
 
-import type { IntegrationRunner } from '../runner'
+import type { IntegrationResult, IntegrationRunner } from '../runner'
 import { safeErrorRow } from '../error-shape'
 import { prisma } from '@/lib/db'
+import { fetchWithTimeout } from '@/lib/utils'
+
+const POLYGON_BASE = 'https://api.polygon.io'
+const POLYGON_TIMEOUT_MS = 8_000
+
+interface TickerData {
+  ticker: string
+  entityName: string
+  eod?: { open: number; high: number; low: number; close: number; volume: number; ts: number }
+  snapshot?: { lastPrice: number | null; lastQuote: number | null }
+  reference?: { name: string; sicDescription: string | null; marketCap: number | null; primaryExchange: string | null }
+  errors: string[]
+}
+
+async function fetchEod(ticker: string, apiKey: string): Promise<TickerData['eod'] | undefined> {
+  const url = `${POLYGON_BASE}/v2/aggs/ticker/${encodeURIComponent(ticker)}/prev?apiKey=${apiKey}`
+  try {
+    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS)
+    if (!res.ok) return undefined
+    const data = (await res.json()) as { results?: Array<{ c: number; o: number; h: number; l: number; v: number; t: number }> }
+    const r = data.results?.[0]
+    if (!r) return undefined
+    return { open: r.o, high: r.h, low: r.l, close: r.c, volume: r.v, ts: r.t }
+  } catch {
+    return undefined
+  }
+}
+
+async function fetchSnapshot(ticker: string, apiKey: string): Promise<TickerData['snapshot'] | undefined> {
+  const url = `${POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(ticker)}?apiKey=${apiKey}`
+  try {
+    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS)
+    if (!res.ok) return undefined
+    const data = (await res.json()) as { ticker?: { lastQuote?: { p?: number; P?: number }; lastTrade?: { p?: number } } }
+    if (!data.ticker) return undefined
+    return {
+      lastPrice: data.ticker.lastTrade?.p ?? null,
+      lastQuote: data.ticker.lastQuote?.p ?? data.ticker.lastQuote?.P ?? null,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+async function fetchReference(ticker: string, apiKey: string): Promise<TickerData['reference'] | undefined> {
+  const url = `${POLYGON_BASE}/v3/reference/tickers/${encodeURIComponent(ticker)}?apiKey=${apiKey}`
+  try {
+    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS)
+    if (!res.ok) return undefined
+    const data = (await res.json()) as { results?: { name?: string; sic_description?: string; market_cap?: number; primary_exchange?: string } }
+    const r = data.results
+    if (!r) return undefined
+    return {
+      name: r.name ?? ticker,
+      sicDescription: r.sic_description ?? null,
+      marketCap: r.market_cap ?? null,
+      primaryExchange: r.primary_exchange ?? null,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+async function fetchTicker(t: ResolvedTicker, apiKey: string): Promise<TickerData> {
+  const [eod, snapshot, reference] = await Promise.all([
+    fetchEod(t.ticker, apiKey),
+    fetchSnapshot(t.ticker, apiKey),
+    fetchReference(t.ticker, apiKey),
+  ])
+  const errors: string[] = []
+  if (!eod) errors.push('eod_unavailable')
+  if (!snapshot) errors.push('snapshot_unavailable')
+  if (!reference) errors.push('reference_unavailable')
+  return { ticker: t.ticker, entityName: t.entityName, eod, snapshot, reference, errors }
+}
 
 export interface ResolvedTicker {
   ticker: string
@@ -148,15 +223,28 @@ export const polygonRunner: IntegrationRunner = async (ctx) => {
     }
   }
 
-  // TODO Task 5+: per-ticker endpoint fetches + Haiku assessment.
+  const tickerData = await Promise.all(tickers.map((t) => fetchTicker(t, apiKey)))
+
+  const allEndpointsHealthy = tickerData.every((t) => t.errors.length === 0)
+  const allEndpointsDead = tickerData.every((t) => t.errors.length === 3)
+
+  let confidence: IntegrationResult['confidenceLevel']
+  if (allEndpointsDead) confidence = 'unavailable'
+  else if (allEndpointsHealthy) confidence = 'high'
+  else confidence = 'medium'
+
+  // TODO Task 7: Haiku divergence assessment lands here; for now, leave divergence unflagged.
   return {
-    rawContent: { note: 'Per-ticker fetch pending', resolvedTickers: tickers },
-    haikuSummary: 'Financial signal unavailable — fetch implementation incomplete.',
+    rawContent: { tickers: tickerData },
+    haikuSummary:
+      confidence === 'unavailable'
+        ? 'Financial signal unavailable — all Polygon endpoints failed for resolved tickers.'
+        : `Polygon captured ${tickerData.length} ticker${tickerData.length === 1 ? '' : 's'}; divergence assessment pending.`,
     signalSource: 'polygon',
     captureDate: ctx.cluster.firstDetectedAt,
     coordinates: null,
     divergenceFlag: false,
     divergenceDescription: null,
-    confidenceLevel: 'unavailable',
+    confidenceLevel: confidence,
   }
 }

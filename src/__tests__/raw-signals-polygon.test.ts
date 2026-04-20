@@ -141,4 +141,92 @@ describe('polygonRunner', () => {
       expect(call[0]).not.toContain('apiKey=')
     }
   })
+
+  it('writes medium confidence when EOD succeeds but snapshot + reference fail', async () => {
+    process.env.POLYGON_API_KEY = 'pk_test'
+    const { prisma } = await import('@/lib/db')
+    vi.spyOn(prisma.tickerEntityMap, 'findMany').mockResolvedValue([
+      { ticker: 'AAPL', entity: { name: 'Apple Inc' } } as never,
+    ])
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/v2/aggs/')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ results: [{ c: 175, o: 170, h: 176, l: 169, v: 1, t: 1 }] }),
+        })
+      }
+      return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) })
+    }))
+
+    const result = await polygonRunner(baseCtx)
+    expect(result!.confidenceLevel).toBe('medium')
+    const tickers = (result!.rawContent as { tickers: Array<{ errors: string[] }> }).tickers
+    expect(tickers[0].errors).toEqual(expect.arrayContaining(['snapshot_status_5xx', 'reference_status_5xx']))
+    expect(tickers[0].errors).not.toContain(expect.stringContaining('eod_'))
+  })
+
+  it('writes unavailable when ticker is not in Polygon universe (all 3 return 404)', async () => {
+    process.env.POLYGON_API_KEY = 'pk_test'
+    const { prisma } = await import('@/lib/db')
+    vi.spyOn(prisma.tickerEntityMap, 'findMany').mockResolvedValue([
+      { ticker: 'NOPE', entity: { name: 'Nonexistent Inc' } } as never,
+    ])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve({}) }))
+
+    const result = await polygonRunner(baseCtx)
+    expect(result!.confidenceLevel).toBe('unavailable')
+    const tickers = (result!.rawContent as { tickers: Array<{ errors: string[] }> }).tickers
+    expect(tickers[0].errors).toEqual([
+      'eod_status_404',
+      'snapshot_status_404',
+      'reference_status_404',
+    ])
+  })
+
+  it('writes unavailable when fetch throws on every endpoint (network failure)', async () => {
+    process.env.POLYGON_API_KEY = 'pk_test'
+    const { prisma } = await import('@/lib/db')
+    vi.spyOn(prisma.tickerEntityMap, 'findMany').mockResolvedValue([
+      { ticker: 'AAPL', entity: { name: 'Apple Inc' } } as never,
+    ])
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNRESET')))
+
+    const result = await polygonRunner(baseCtx)
+    expect(result!.confidenceLevel).toBe('unavailable')
+    const tickers = (result!.rawContent as { tickers: Array<{ errors: string[] }> }).tickers
+    // classifyCaughtError returns 'network' for ECONNRESET-style errors
+    expect(tickers[0].errors).toEqual([
+      'eod_network',
+      'snapshot_network',
+      'reference_network',
+    ])
+  })
+
+  it('correctly constructs URLs for dotted tickers like BRK.A class shares', async () => {
+    process.env.POLYGON_API_KEY = 'pk_test'
+    const { prisma } = await import('@/lib/db')
+    vi.spyOn(prisma.tickerEntityMap, 'findMany').mockResolvedValue([
+      { ticker: 'BRK.A', entity: { name: 'Berkshire Hathaway Inc' } } as never,
+    ])
+    const fetchMock = vi.fn().mockImplementation((_url: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ results: [{ c: 600000, o: 599000, h: 601000, l: 598000, v: 100, t: 1 }] }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await polygonRunner(baseCtx)
+
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string)
+    // Polygon accepts literal dots in path segments (RFC 3986 unreserved).
+    // Confirm our encoding preserves the dot exactly — not encoded as %2E.
+    expect(urls.some((u) => u.includes('/v2/aggs/ticker/BRK.A/prev'))).toBe(true)
+    expect(urls.some((u) => u.includes('/v2/snapshot/locale/us/markets/stocks/tickers/BRK.A'))).toBe(true)
+    expect(urls.some((u) => u.includes('/v3/reference/tickers/BRK.A'))).toBe(true)
+    // Negative assertion: no percent-encoded dot variants
+    for (const u of urls) {
+      expect(u).not.toContain('BRK%2EA')
+    }
+  })
 })

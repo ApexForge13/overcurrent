@@ -49,72 +49,131 @@ interface TickerData {
   errors: string[]
 }
 
-async function fetchEod(ticker: string, apiKey: string): Promise<TickerData['eod'] | undefined> {
+/**
+ * Per-endpoint fetch outcome. Failure reasons are granular so Task 7's Haiku
+ * divergence assessment can distinguish "ticker not in universe" (404) from
+ * "provider down" (5xx), and /admin/signals debugging can tell rate-limits
+ * from auth failures from parse errors. Tokens get prefixed by endpoint name
+ * before landing in the per-ticker errors[] array (e.g. 'eod_status_404').
+ */
+type FetchOutcome<T> = { ok: true; value: T } | { ok: false; reason: string }
+
+function classifyHttpStatus(status: number): string {
+  if (status === 404) return 'status_404'
+  if (status === 429) return 'status_429'
+  if (status === 401) return 'status_401'
+  if (status === 403) return 'status_403'
+  if (status >= 500 && status < 600) return 'status_5xx'
+  return `status_${status}`
+}
+
+/**
+ * Classify a thrown error from fetchWithTimeout.
+ *
+ * fetchWithTimeout aborts via AbortController.abort() after timeoutMs. In
+ * Node 20+ (and the undici fetch Next.js uses), an aborted fetch rejects
+ * with a DOMException whose name is 'AbortError'. We also defensively match
+ * /timeout/i in the message in case the runtime surfaces it differently.
+ * Everything else is bucketed as 'network' (ECONNRESET, DNS, TLS, generic
+ * fetch failures) — one bucket is enough for telemetry; Task 7 doesn't need
+ * finer granularity than "couldn't reach Polygon at all."
+ */
+function classifyCaughtError(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.name === 'AbortError' || /timeout/i.test(err.message)) return 'timeout'
+    if (/network|ECONN|ENOTFOUND|fetch failed/i.test(err.message)) return 'network'
+  }
+  return 'network'
+}
+
+async function fetchEod(
+  ticker: string,
+  apiKey: string,
+): Promise<FetchOutcome<NonNullable<TickerData['eod']>>> {
   const url = `${POLYGON_BASE}/v2/aggs/ticker/${encodeURIComponent(ticker)}/prev`
   try {
     const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
-    if (!res.ok) return undefined
+    if (!res.ok) return { ok: false, reason: classifyHttpStatus(res.status) }
     const data = (await res.json()) as { results?: Array<{ c: number; o: number; h: number; l: number; v: number; t: number }> }
     const r = data.results?.[0]
-    if (!r) return undefined
-    return { open: r.o, high: r.h, low: r.l, close: r.c, volume: r.v, ts: r.t }
-  } catch {
-    return undefined
+    if (!r) return { ok: false, reason: 'empty' }
+    return { ok: true, value: { open: r.o, high: r.h, low: r.l, close: r.c, volume: r.v, ts: r.t } }
+  } catch (err) {
+    return { ok: false, reason: classifyCaughtError(err) }
   }
 }
 
-async function fetchSnapshot(ticker: string, apiKey: string): Promise<TickerData['snapshot'] | undefined> {
+async function fetchSnapshot(
+  ticker: string,
+  apiKey: string,
+): Promise<FetchOutcome<NonNullable<TickerData['snapshot']>>> {
   const url = `${POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(ticker)}`
   try {
     const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
-    if (!res.ok) return undefined
+    if (!res.ok) return { ok: false, reason: classifyHttpStatus(res.status) }
     const data = (await res.json()) as { ticker?: { lastQuote?: { p?: number; P?: number }; lastTrade?: { p?: number } } }
-    if (!data.ticker) return undefined
+    if (!data.ticker) return { ok: false, reason: 'empty' }
     return {
-      lastPrice: data.ticker.lastTrade?.p ?? null,
-      lastQuote: data.ticker.lastQuote?.p ?? data.ticker.lastQuote?.P ?? null,
+      ok: true,
+      value: {
+        lastPrice: data.ticker.lastTrade?.p ?? null,
+        lastQuote: data.ticker.lastQuote?.p ?? data.ticker.lastQuote?.P ?? null,
+      },
     }
-  } catch {
-    return undefined
+  } catch (err) {
+    return { ok: false, reason: classifyCaughtError(err) }
   }
 }
 
-async function fetchReference(ticker: string, apiKey: string): Promise<TickerData['reference'] | undefined> {
+async function fetchReference(
+  ticker: string,
+  apiKey: string,
+): Promise<FetchOutcome<NonNullable<TickerData['reference']>>> {
   const url = `${POLYGON_BASE}/v3/reference/tickers/${encodeURIComponent(ticker)}`
   try {
     const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
-    if (!res.ok) return undefined
+    if (!res.ok) return { ok: false, reason: classifyHttpStatus(res.status) }
     const data = (await res.json()) as { results?: { name?: string; sic_description?: string; market_cap?: number; primary_exchange?: string } }
     const r = data.results
-    if (!r) return undefined
+    if (!r) return { ok: false, reason: 'empty' }
     return {
-      name: r.name ?? ticker,
-      sicDescription: r.sic_description ?? null,
-      marketCap: r.market_cap ?? null,
-      primaryExchange: r.primary_exchange ?? null,
+      ok: true,
+      value: {
+        name: r.name ?? ticker,
+        sicDescription: r.sic_description ?? null,
+        marketCap: r.market_cap ?? null,
+        primaryExchange: r.primary_exchange ?? null,
+      },
     }
-  } catch {
-    return undefined
+  } catch (err) {
+    return { ok: false, reason: classifyCaughtError(err) }
   }
 }
 
 async function fetchTicker(t: ResolvedTicker, apiKey: string): Promise<TickerData> {
-  const [eod, snapshot, reference] = await Promise.all([
+  const [eodResult, snapshotResult, referenceResult] = await Promise.all([
     fetchEod(t.ticker, apiKey),
     fetchSnapshot(t.ticker, apiKey),
     fetchReference(t.ticker, apiKey),
   ])
   const errors: string[] = []
-  if (!eod) errors.push('eod_unavailable')
-  if (!snapshot) errors.push('snapshot_unavailable')
-  if (!reference) errors.push('reference_unavailable')
-  return { ticker: t.ticker, entityName: t.entityName, eod, snapshot, reference, errors }
+  if (!eodResult.ok) errors.push(`eod_${eodResult.reason}`)
+  if (!snapshotResult.ok) errors.push(`snapshot_${snapshotResult.reason}`)
+  if (!referenceResult.ok) errors.push(`reference_${referenceResult.reason}`)
+  return {
+    ticker: t.ticker,
+    entityName: t.entityName,
+    eod: eodResult.ok ? eodResult.value : undefined,
+    snapshot: snapshotResult.ok ? snapshotResult.value : undefined,
+    reference: referenceResult.ok ? referenceResult.value : undefined,
+    errors,
+  }
 }
 
 export interface ResolvedTicker {

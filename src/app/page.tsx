@@ -12,6 +12,14 @@ const NeuralNetworkHero = dynamic(
   { ssr: false, loading: () => <div style={{ width: "100%", height: "100%", background: "#080C14" }} /> },
 );
 
+// Hero showcase story — dogfooding the published Hormuz analysis. When this
+// story is fetched, the hero locks its verdict to the real stats + links the
+// "OPEN DOSSIER" button to /story/<slug>. Hardcoded slug for now; Phase 17
+// will move this to admin-curated.
+const HERO_STORY_SLUG =
+  "iran-re-closes-strait-of-hormuz-after-24-hour-reopening-fires-on-tankers-global-";
+const HERO_QUERY = "Has Iran re-closed the Strait of Hormuz and how did global markets respond?";
+
 // ── Types ──────────────────────────────────────────────────────────────────
 interface StoryItem {
   id: string;
@@ -97,6 +105,16 @@ export default function HomePage() {
   const [isAdmin, setIsAdmin] = useState(false);
   // Phase 13 hero — `interactive` gates drag/zoom/pan + hover. Paid tier + admin get full controls.
   const [heroInteractive, setHeroInteractive] = useState(false);
+  const [heroStory, setHeroStory] = useState<{
+    query: string;
+    sourceCount: number;
+    pageCount: number;
+    verdictLabel: string;
+    verdictColor: string;
+    confidence: number;
+    divergence: number;
+    dossierUrl: string;
+  } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -113,6 +131,38 @@ export default function HomePage() {
         const p = await res.json();
         setHeroInteractive(Boolean(p.isAdmin || p.isPaid));
       } catch { /* free tier default */ }
+    })();
+    // Fetch the showcase story. If the fetch fails the hero falls back to demo.
+    (async () => {
+      try {
+        const res = await fetch(`/api/stories/${HERO_STORY_SLUG}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const s = await res.json();
+        // Map HIGH/MEDIUM/DEVELOPING/LOW → verdict label + acid-green/amber color.
+        const verdictLabel = s.confidenceLevel === 'HIGH'
+          ? 'CORROBORATED'
+          : s.confidenceLevel === 'MEDIUM' || s.confidenceLevel === 'DEVELOPING'
+            ? 'DISPUTED'
+            : 'UNVERIFIED';
+        const verdictColor = s.confidenceLevel === 'HIGH'
+          ? '#B6FF3C'
+          : s.confidenceLevel === 'MEDIUM' || s.confidenceLevel === 'DEVELOPING'
+            ? '#FFB627'
+            : '#A8E8FF';
+        // Divergence stat = count of editorial discrepancies + omissions (the
+        // structural coverage gaps the analysis flagged). Falls back to 0.
+        const divergence = (s.discrepancies?.length ?? 0) + (s.omissions?.length ?? 0);
+        setHeroStory({
+          query: HERO_QUERY,
+          sourceCount: s.sourceCount ?? 0,
+          pageCount: 42,
+          verdictLabel,
+          verdictColor,
+          confidence: s.consensusScore ?? 0,
+          divergence,
+          dossierUrl: `/story/${s.slug}`,
+        });
+      } catch { /* demo fallback */ }
     })();
   }, []);
 
@@ -160,9 +210,10 @@ export default function HomePage() {
   return (
     <div>
       {/* ═══════════════ NEURAL NETWORK HERO (Phase 13) ═══════════════ */}
-      {/* Full-viewport tactical intel galaxy; feed starts below the fold. */}
-      <div style={{ width: "100vw", height: "100vh", marginLeft: "calc(50% - 50vw)", marginRight: "calc(50% - 50vw)" }}>
-        <NeuralNetworkHero interactive={heroInteractive || isAdmin} />
+      {/* Tactical intel galaxy. 88vh leaves a peek of the feed below the fold */}
+      {/* so users know to scroll; wheel scrolls the page (shift+wheel zooms).  */}
+      <div style={{ width: "100vw", height: "88vh", marginLeft: "calc(50% - 50vw)", marginRight: "calc(50% - 50vw)" }}>
+        <NeuralNetworkHero interactive={heroInteractive || isAdmin} story={heroStory} />
       </div>
 
       {/* Top tagline — minimal, centered */}

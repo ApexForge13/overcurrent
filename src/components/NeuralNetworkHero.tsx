@@ -540,6 +540,10 @@ function makeOrbitControls(
   }
   function onWheel(e: WheelEvent) {
     if (!enabled) return;
+    // Only zoom when Shift is held — otherwise let the wheel scroll the page
+    // so users can reach the feed below the hero. UX affordance: the bottom-
+    // right hint line documents "SHIFT+SCROLL · ZOOM".
+    if (!e.shiftKey) return;
     e.preventDefault();
     spherical.radius *= 1 + e.deltaY * 0.001;
     spherical.radius = Math.max(30, Math.min(480, spherical.radius));
@@ -589,12 +593,33 @@ type Verdict = {
   divergence: number;
 };
 
+/**
+ * Real-story overlay. When passed, the sequencer uses this story's query +
+ * locks its verdict stats on completion; "VIEW DOSSIER" links to `dossierUrl`.
+ * When null/undefined, the hero runs the demo reel with random sample queries.
+ */
+export interface HeroStory {
+  query: string;
+  sourceCount: number;
+  pageCount: number;
+  verdictLabel: string;
+  verdictColor: string;
+  confidence: number;
+  divergence: number;
+  dossierUrl: string;
+}
+
 export interface NeuralNetworkHeroProps {
   /** Gates drag/zoom/pan + hover raycast. Wire to tier check. */
   interactive?: boolean;
+  /** Optional real-story override. When omitted, runs the demo reel. */
+  story?: HeroStory | null;
 }
 
-export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps) {
+export function NeuralNetworkHero({
+  interactive = true,
+  story = null,
+}: NeuralNetworkHeroProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const fpsRef = useRef<HTMLDivElement | null>(null);
   const coordsRef = useRef<HTMLDivElement | null>(null);
@@ -612,6 +637,18 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
   const [geoHits, setGeoHits] = useState<GeoHit[]>([]);
   const [sourcesRead, setSourcesRead] = useState(0);
   const kickoffRef = useRef<(() => void) | null>(null);
+  // Keep live refs so the (expensive) Three.js effect only mounts once —
+  // prop changes update refs, not the effect's deps.
+  const storyRef = useRef<HeroStory | null>(story);
+  const interactiveRef = useRef(interactive);
+  const controlsSetEnabledRef = useRef<((v: boolean) => void) | null>(null);
+  useEffect(() => {
+    storyRef.current = story;
+  }, [story]);
+  useEffect(() => {
+    interactiveRef.current = interactive;
+    controlsSetEnabledRef.current?.(interactive);
+  }, [interactive]);
   const devMode =
     typeof window !== "undefined" && /[?&]dev=1/.test(window.location.search);
 
@@ -636,8 +673,9 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
     mount.appendChild(renderer.domElement);
 
     const controls = makeOrbitControls(camera, renderer.domElement, {
-      enabled: interactive,
+      enabled: interactiveRef.current,
     });
+    controlsSetEnabledRef.current = (v: boolean) => controls.setEnabled(v);
 
     // build graph
     const innerNodes = buildInner(50);
@@ -971,13 +1009,26 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
         }
       }
       if (to === "verdict") {
-        const states: Verdict[] = [
-          { label: "CORROBORATED", color: "#B6FF3C", confidence: 92, divergence: 3 },
-          { label: "DISPUTED", color: "#FFB627", confidence: 64, divergence: 48 },
-          { label: "CONTRADICTED", color: "#FF2E88", confidence: 81, divergence: 127 },
-          { label: "UNVERIFIED", color: "#A8E8FF", confidence: 38, divergence: 12 },
-        ];
-        setVerdict(states[Math.floor(Math.random() * states.length)]);
+        const s = storyRef.current;
+        if (s) {
+          // Real-story mode: lock in the story's verdict + snap final counters.
+          setVerdict({
+            label: s.verdictLabel,
+            color: s.verdictColor,
+            confidence: s.confidence,
+            divergence: s.divergence,
+          });
+          setSourcesRead(s.sourceCount);
+          setPageCount(s.pageCount);
+        } else {
+          const states: Verdict[] = [
+            { label: "CORROBORATED", color: "#B6FF3C", confidence: 92, divergence: 3 },
+            { label: "DISPUTED", color: "#FFB627", confidence: 64, divergence: 48 },
+            { label: "CONTRADICTED", color: "#FF2E88", confidence: 81, divergence: 127 },
+            { label: "UNVERIFIED", color: "#A8E8FF", confidence: 38, divergence: 12 },
+          ];
+          setVerdict(states[Math.floor(Math.random() * states.length)]);
+        }
       }
       if (to !== "verdict") setVerdict(null);
       if (to !== "debate") setDebateModel(null);
@@ -985,7 +1036,10 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
 
     function kickoffQuery() {
       const now = performance.now();
-      const q = SAMPLE_QUERIES[Math.floor(Math.random() * SAMPLE_QUERIES.length)];
+      // Prefer the real-story query when available; otherwise rotate demo samples.
+      const q =
+        storyRef.current?.query ??
+        SAMPLE_QUERIES[Math.floor(Math.random() * SAMPLE_QUERIES.length)];
       setTypedQuery("");
       setQueryStartT(now);
       setPageCount(0);
@@ -1003,7 +1057,23 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
     }
     kickoffRef.current = kickoffQuery;
 
-    const startTimer = window.setTimeout(() => kickoffQuery(), 900);
+    // Wait up to 5s for the story fetch, then fire regardless. If the story
+    // arrives before the deadline, fire immediately with the real query.
+    // Single-shot via kickedOff; never fires twice from this scheduler.
+    const mountTs = performance.now();
+    let kickedOff = false;
+    let pollTid = 0;
+    function tryKickoff() {
+      if (kickedOff) return;
+      const waited = performance.now() - mountTs;
+      if (storyRef.current || waited >= 5000) {
+        kickedOff = true;
+        kickoffQuery();
+      } else {
+        pollTid = window.setTimeout(tryKickoff, 150);
+      }
+    }
+    const startTimer = window.setTimeout(tryKickoff, 300);
 
     function tickSequencer(now: number) {
       const def = getPhaseDef(seq.phase);
@@ -1288,6 +1358,7 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
 
     function animate() {
       rafId = requestAnimationFrame(animate);
+      try {
       const now = performance.now();
       const tSec = (now - clockStart) / 1000;
 
@@ -1325,7 +1396,7 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
         globalActivations[i] = Math.max(globalActivations[i], 0.6);
 
       // hover raycast (paid tier only)
-      if (interactive) {
+      if (interactiveRef.current) {
         raycaster.setFromCamera(mouseNDC, camera);
         let best: { hit: THREE.Intersection; tier: TierObj } | null = null;
         let bestDist = Infinity;
@@ -1410,12 +1481,20 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
       }
 
       renderer.render(scene, camera);
+      } catch (err) {
+        // Log once and let it bubble — devs get the stack, users see a dead
+        // canvas but the rest of the page keeps working.
+        console.error("[NeuralNetworkHero] animate error:", err);
+        throw err;
+      }
     }
     animate();
 
     return () => {
+      kickedOff = true; // prevent any pending tryKickoff from firing after unmount
       cancelAnimationFrame(rafId);
       window.clearTimeout(startTimer);
+      window.clearTimeout(pollTid);
       ro.disconnect();
       controls.dispose();
       window.removeEventListener("resize", onResize);
@@ -1437,7 +1516,10 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
       pulseMat.dispose();
       glowTex.dispose();
     };
-  }, [interactive]);
+    // Intentionally mount-once: all props read via refs to avoid reinitializing
+    // the Three.js scene on every prop tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ═══════════════ HUD ═══════════════
   return (
@@ -1584,6 +1666,7 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
             queryStartT ? (performance.now() - queryStartT) * DEMO_TIME_SCALE : 0
           }
           onReset={() => kickoffRef.current?.()}
+          dossierUrl={story?.dossierUrl ?? null}
         />
       )}
 
@@ -1605,7 +1688,7 @@ export function NeuralNetworkHero({ interactive = true }: NeuralNetworkHeroProps
         </div>
         <div>
           {interactive
-            ? "DRAG · ORBIT | SCROLL · ZOOM | R-CLICK · PAN"
+            ? "DRAG · ORBIT | SHIFT+SCROLL · ZOOM | R-CLICK · PAN"
             : "READ-ONLY · UPGRADE TO INTERACT"}
         </div>
       </div>
@@ -2281,12 +2364,15 @@ function VerdictCard({
   sourcesRead,
   elapsed,
   onReset,
+  dossierUrl,
 }: {
   verdict: Verdict;
   pageCount: number;
   sourcesRead: number;
   elapsed: number;
   onReset: () => void;
+  /** When non-null, the "OPEN DOSSIER" button becomes a link to this URL. */
+  dossierUrl?: string | null;
 }) {
   return (
     <div
@@ -2352,22 +2438,44 @@ function VerdictCard({
         <VerdictStat label="DIVERGENCE" v={verdict.divergence} c="#FF2E88" />
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
-        <button
-          style={{
-            flex: 1,
-            background: verdict.color,
-            color: "#0a0f18",
-            border: "none",
-            padding: "9px 12px",
-            fontSize: 9,
-            letterSpacing: "0.3em",
-            fontFamily: "inherit",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
-        >
-          ◇ OPEN DOSSIER
-        </button>
+        {dossierUrl ? (
+          <a
+            href={dossierUrl}
+            style={{
+              flex: 1,
+              background: verdict.color,
+              color: "#0a0f18",
+              border: "none",
+              padding: "9px 12px",
+              fontSize: 9,
+              letterSpacing: "0.3em",
+              fontFamily: "inherit",
+              cursor: "pointer",
+              fontWeight: 600,
+              textAlign: "center",
+              textDecoration: "none",
+            }}
+          >
+            ◇ OPEN DOSSIER
+          </a>
+        ) : (
+          <button
+            style={{
+              flex: 1,
+              background: verdict.color,
+              color: "#0a0f18",
+              border: "none",
+              padding: "9px 12px",
+              fontSize: 9,
+              letterSpacing: "0.3em",
+              fontFamily: "inherit",
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+          >
+            ◇ OPEN DOSSIER
+          </button>
+        )}
         <button
           onClick={onReset}
           style={{

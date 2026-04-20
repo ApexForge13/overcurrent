@@ -24,6 +24,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <a href="/admin" className="text-text-secondary hover:text-accent-green">Dashboard</a>
           <a href="/admin/review" className="text-text-secondary hover:text-accent-green">Review</a>
           <a href="/admin/review/killed" className="text-text-secondary hover:text-accent-red">Killed</a>
+          <a href="/admin/case-studies" className="text-text-secondary hover:text-accent-blue">Case Studies</a>
           <a href="/admin/signals/umbrellas" className="text-text-secondary hover:text-accent-teal">Umbrellas</a>
           <a href="/admin/signals/arc-queue" className="text-text-secondary hover:text-accent-teal">Arc Queue</a>
           <a href="/admin/signals/predictive" className="text-text-secondary hover:text-accent-teal">Predictive</a>

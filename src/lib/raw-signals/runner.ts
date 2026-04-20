@@ -49,7 +49,7 @@ export interface IntegrationResult {
   coordinates: { swLat: number; swLng: number; neLat: number; neLng: number } | null
   divergenceFlag: boolean
   divergenceDescription: string | null
-  confidenceLevel: 'low' | 'medium' | 'high'
+  confidenceLevel: 'low' | 'medium' | 'high' | 'unavailable'
 }
 
 // Registry — integrations register themselves here

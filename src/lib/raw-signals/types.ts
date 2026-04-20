@@ -116,7 +116,7 @@ export type DivergenceType =
   | 'raw_corroborates_narrative'   // raw data backs up coverage (still useful)
 
 // ── Confidence level ──────────────────────────────────────────────────
-export type ConfidenceLevel = 'low' | 'medium' | 'high'
+export type ConfidenceLevel = 'low' | 'medium' | 'high' | 'unavailable'
 
 // ── Bounding box (stored in RawSignalLayer.coordinates JSONB) ─────────
 export interface BoundingBox {

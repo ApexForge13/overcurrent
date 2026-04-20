@@ -58,6 +58,11 @@ interface TickerData {
  */
 type FetchOutcome<T> = { ok: true; value: T } | { ok: false; reason: string }
 
+// INVARIANT: every classifier must emit tokens in [a-z0-9_] only —
+// fetchTicker concatenates `${endpoint}_${reason}` into a telemetry array
+// that downstream (Task 7 Haiku divergence, /admin/signals) parses with
+// string matching. Slashes, whitespace, or control chars in a reason
+// would pollute the channel.
 function classifyHttpStatus(status: number): string {
   if (status === 404) return 'status_404'
   if (status === 429) return 'status_429'

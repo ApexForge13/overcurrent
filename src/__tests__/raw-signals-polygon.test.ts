@@ -163,7 +163,7 @@ describe('polygonRunner', () => {
     expect(result!.confidenceLevel).toBe('medium')
     const tickers = (result!.rawContent as { tickers: Array<{ errors: string[] }> }).tickers
     expect(tickers[0].errors).toEqual(expect.arrayContaining(['snapshot_status_5xx', 'reference_status_5xx']))
-    expect(tickers[0].errors).not.toContain(expect.stringContaining('eod_'))
+    expect(tickers[0].errors.every((e) => !e.startsWith('eod_'))).toBe(true)
   })
 
   it('writes unavailable when ticker is not in Polygon universe (all 3 return 404)', async () => {

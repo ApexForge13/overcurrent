@@ -1,9 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { CATEGORIES, getCategoryColor } from "@/data/categories";
 import { createClient } from "@/lib/supabase/client";
+
+// Three.js hero is client-only and lazy — don't block SSR or the feed render.
+const NeuralNetworkHero = dynamic(
+  () => import("@/components/NeuralNetworkHero").then((m) => m.NeuralNetworkHero),
+  { ssr: false, loading: () => <div style={{ width: "100%", height: "100%", background: "#080C14" }} /> },
+);
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface StoryItem {
@@ -88,6 +95,8 @@ export default function HomePage() {
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  // Phase 13 hero — `interactive` gates drag/zoom/pan + hover. Paid tier + admin get full controls.
+  const [heroInteractive, setHeroInteractive] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -96,6 +105,14 @@ export default function HomePage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user?.email === 'connermhecht13@gmail.com') setIsAdmin(true);
       } catch { /* not logged in */ }
+    })();
+    (async () => {
+      try {
+        const res = await fetch('/api/me/permissions', { cache: 'no-store' });
+        if (!res.ok) return;
+        const p = await res.json();
+        setHeroInteractive(Boolean(p.isAdmin || p.isPaid));
+      } catch { /* free tier default */ }
     })();
   }, []);
 
@@ -142,6 +159,12 @@ export default function HomePage() {
 
   return (
     <div>
+      {/* ═══════════════ NEURAL NETWORK HERO (Phase 13) ═══════════════ */}
+      {/* Full-viewport tactical intel galaxy; feed starts below the fold. */}
+      <div style={{ width: "100vw", height: "100vh", marginLeft: "calc(50% - 50vw)", marginRight: "calc(50% - 50vw)" }}>
+        <NeuralNetworkHero interactive={heroInteractive || isAdmin} />
+      </div>
+
       {/* Top tagline — minimal, centered */}
       <div className="max-w-[1200px] mx-auto px-6 py-8">
         <p

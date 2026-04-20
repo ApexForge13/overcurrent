@@ -46,6 +46,7 @@ const API_BASE = 'https://api.stlouisfed.org/fred/series/observations'
 const OBSERVATIONS_PER_SERIES = 30
 const LOOKBACK_DAYS = 90
 const DIVERGENCE_Z_THRESHOLD = 2.0
+const TRAILING_WINDOW = 12
 
 // Macro series that apply to every cluster regardless of signalCategory.
 const DEFAULT_SERIES = [
@@ -77,9 +78,19 @@ interface SeriesResult {
   seriesId: string
   observations: Array<{ date: string; value: number | null }>
   latest: number | null
-  yoyPctChange: number | null
-  trailingSigma: number | null
-  trailingMean3Mo: number | null
+  /**
+   * 90-day lookback from cluster.firstDetectedAt; rename to lookbackPctChange
+   * intentional — this field is NOT year-over-year. To get true YoY, widen
+   * LOOKBACK_DAYS and select the observation nearest T-365.
+   */
+  lookbackPctChange: number | null
+  /**
+   * Trailing 12 observations (~1 year monthly series / ~2.5 trading weeks
+   * daily series). Observation-count based, not calendar-time based —
+   * FRED mixes monthly and daily series in the default set.
+   */
+  trailingSigma12Obs: number | null
+  trailingMean12Obs: number | null
   zScore: number | null
 }
 
@@ -109,46 +120,52 @@ function isTimeoutError(err: unknown): boolean {
 /**
  * Compute stats over a series' observations.
  *   - latest: first non-null in the desc-sorted list (most recent)
- *   - yoyPctChange: percent change from the oldest observation (~90 days
- *     ago given the LOOKBACK_DAYS window; semantics documented as "trailing
- *     window" rather than strict 12-month since the lookback is 90d)
- *   - trailingMean3Mo / trailingSigma: mean and population stddev over the
- *     trailing 3 observations (indices 1..3 in the desc-sorted list, i.e.
- *     the 3 observations immediately before `latest`)
- *   - zScore: (latest - trailingMean3Mo) / trailingSigma, guarded for /0
+ *   - lookbackPctChange: percent change from the oldest observation (~90
+ *     days ago given the LOOKBACK_DAYS window). Explicitly NOT year-over-
+ *     year — named after the actual window.
+ *   - trailingMean12Obs / trailingSigma12Obs: mean and population stddev
+ *     over the trailing TRAILING_WINDOW observations (indices 1..12 in
+ *     the desc-sorted list, i.e. the 12 observations immediately before
+ *     `latest`)
+ *   - zScore: (latest - trailingMean12Obs) / trailingSigma12Obs, guarded for /0
  */
 function computeStats(
   observations: Array<{ date: string; value: number | null }>,
-): Pick<SeriesResult, 'latest' | 'yoyPctChange' | 'trailingSigma' | 'trailingMean3Mo' | 'zScore'> {
+): Pick<
+  SeriesResult,
+  'latest' | 'lookbackPctChange' | 'trailingSigma12Obs' | 'trailingMean12Obs' | 'zScore'
+> {
   const latest = observations[0]?.value ?? null
   const oldest = observations[observations.length - 1]?.value ?? null
 
-  let yoyPctChange: number | null = null
+  let lookbackPctChange: number | null = null
   if (latest !== null && oldest !== null && oldest !== 0) {
-    yoyPctChange = ((latest - oldest) / Math.abs(oldest)) * 100
+    lookbackPctChange = ((latest - oldest) / Math.abs(oldest)) * 100
   }
 
   const trailing = observations
-    .slice(1, 4)
+    .slice(1, 1 + TRAILING_WINDOW)
     .map((o) => o.value)
     .filter((v): v is number => v !== null)
 
-  let trailingMean3Mo: number | null = null
-  let trailingSigma: number | null = null
+  let trailingMean12Obs: number | null = null
+  let trailingSigma12Obs: number | null = null
   let zScore: number | null = null
   if (trailing.length >= 2) {
     const mean = trailing.reduce((a, b) => a + b, 0) / trailing.length
     const variance =
       trailing.reduce((acc, v) => acc + (v - mean) * (v - mean), 0) / trailing.length
     const sigma = Math.sqrt(variance)
-    trailingMean3Mo = mean
-    trailingSigma = sigma
+    trailingMean12Obs = mean
+    trailingSigma12Obs = sigma
+    // Constant series (stddev=0) are silently excluded from divergence detection
+    // — acceptable because a never-moving series can't diverge.
     if (latest !== null && sigma > 0) {
       zScore = (latest - mean) / sigma
     }
   }
 
-  return { latest, yoyPctChange, trailingSigma, trailingMean3Mo, zScore }
+  return { latest, lookbackPctChange, trailingSigma12Obs, trailingMean12Obs, zScore }
 }
 
 async function fetchSeries(
@@ -366,7 +383,7 @@ export const fredMacroRunner: IntegrationRunner = async (ctx) => {
     ? `Divergence detected: ${divergent
         .map(
           (s) =>
-            `${s.seriesId} latest=${s.latest?.toFixed(2) ?? 'n/a'} vs 3mo mean=${s.trailingMean3Mo?.toFixed(2) ?? 'n/a'} (z=${s.zScore?.toFixed(2) ?? 'n/a'})`,
+            `${s.seriesId} latest=${s.latest?.toFixed(2) ?? 'n/a'} vs 12-obs mean=${s.trailingMean12Obs?.toFixed(2) ?? 'n/a'} (z=${s.zScore?.toFixed(2) ?? 'n/a'})`,
         )
         .join('; ')}`
     : null

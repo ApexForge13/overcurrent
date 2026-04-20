@@ -37,7 +37,7 @@ function buildObservations(
   opts?: { yearAgo?: number; tail?: number[] },
 ): { observations: Array<{ date: string; value: string }> } {
   // 30 monthly-ish observations. Index 0 = newest; index 29 = oldest.
-  // If opts.tail provided, use it for indices 1..3 (trailing window).
+  // If opts.tail provided, use it for indices 1..tail.length (trailing window).
   const obs: Array<{ date: string; value: string }> = []
   const start = new Date(TODAY)
   for (let i = 0; i < 30; i++) {
@@ -45,7 +45,7 @@ function buildObservations(
     d.setUTCDate(d.getUTCDate() - i * 3) // ~3-day cadence covers 90d lookback
     let v: number
     if (i === 0) v = latest
-    else if (opts?.tail && i >= 1 && i <= 3) v = opts.tail[i - 1]
+    else if (opts?.tail && i >= 1 && i <= opts.tail.length) v = opts.tail[i - 1]
     else if (opts?.yearAgo && i === 29) v = opts.yearAgo
     else v = latest // stable series by default
     obs.push({ date: d.toISOString().split('T')[0], value: String(v) })
@@ -94,8 +94,8 @@ describe('fredMacroRunner', () => {
         seriesId: string
         observations: Array<{ date: string; value: number | null }>
         latest: number | null
-        yoyPctChange: number | null
-        trailingSigma: number | null
+        lookbackPctChange: number | null
+        trailingSigma12Obs: number | null
       }>
     }
     expect(payload.series).toHaveLength(6)
@@ -103,8 +103,8 @@ describe('fredMacroRunner', () => {
       expect(s.seriesId).toBeDefined()
       expect(Array.isArray(s.observations)).toBe(true)
       expect('latest' in s).toBe(true)
-      expect('yoyPctChange' in s).toBe(true)
-      expect('trailingSigma' in s).toBe(true)
+      expect('lookbackPctChange' in s).toBe(true)
+      expect('trailingSigma12Obs' in s).toBe(true)
     }
   })
 
@@ -225,9 +225,12 @@ describe('fredMacroRunner', () => {
     expect(payload.series.some((s) => s.seriesId === 'DHHNGSP')).toBe(true)
   })
 
-  it('raises divergenceFlag when a series latest value is > 2σ from trailing 3-month mean', async () => {
-    // FEDFUNDS latest 10, trailing 3-mo mean ~5, sigma small → huge z-score.
-    // Others stable (100).
+  it('raises divergenceFlag when a series latest value is > 2σ from trailing 12-observation mean', async () => {
+    // FEDFUNDS latest 10, trailing 12 obs clustered near 5 with small jitter
+    // (sigma ~0.02) → huge z-score. Others stable (100).
+    const FEDFUNDS_TAIL = [
+      5.0, 5.01, 4.99, 5.02, 4.98, 5.0, 5.01, 4.99, 5.0, 5.02, 4.98, 5.0,
+    ]
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       const match = url.match(/[?&]series_id=([^&]+)/)
       const seriesId = match ? decodeURIComponent(match[1]) : 'UNKNOWN'
@@ -238,7 +241,7 @@ describe('fredMacroRunner', () => {
           headers: { get: () => null },
           json: () =>
             Promise.resolve(
-              buildObservations(10, { yearAgo: 5, tail: [5.0, 5.01, 4.99] }),
+              buildObservations(10, { yearAgo: 5, tail: FEDFUNDS_TAIL }),
             ),
         })
       }

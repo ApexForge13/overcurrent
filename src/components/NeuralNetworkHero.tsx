@@ -507,16 +507,68 @@ function makeOrbitControls(
   const spinVel = { t: 0.001 };
   let userInput = 0;
 
+  // Touch: one-finger is reserved for page scroll so users can reach the feed
+  // below the hero. Two-finger gestures drive orbit (centroid delta) and pinch
+  // (distance delta → zoom). Mouse gets the existing rotate/pan behavior.
+  const activeTouches = new Map<number, { x: number; y: number }>();
+  let lastCentroid = { x: 0, y: 0 };
+  let lastPinchDist = 0;
+
   function onDown(e: PointerEvent) {
     if (!enabled) return;
+    if (e.pointerType === "touch") {
+      activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // Only engage the 3D scene when the user deliberately uses 2+ fingers.
+      if (activeTouches.size < 2) return;
+      e.preventDefault();
+      const pts = Array.from(activeTouches.values());
+      lastCentroid = {
+        x: (pts[0].x + pts[1].x) / 2,
+        y: (pts[0].y + pts[1].y) / 2,
+      };
+      lastPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      rotating = true;
+      userInput = performance.now();
+      return;
+    }
+    // Mouse / pen
     last = { x: e.clientX, y: e.clientY };
     if (e.button === 2) panning = true;
     else rotating = true;
     dom.style.cursor = "grabbing";
     userInput = performance.now();
   }
+
   function onMove(e: PointerEvent) {
     if (!enabled) return;
+    if (e.pointerType === "touch") {
+      if (!activeTouches.has(e.pointerId)) return;
+      activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activeTouches.size < 2) return; // single finger: let browser scroll
+      e.preventDefault();
+      const pts = Array.from(activeTouches.values());
+      const centroid = {
+        x: (pts[0].x + pts[1].x) / 2,
+        y: (pts[0].y + pts[1].y) / 2,
+      };
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      // Rotate by centroid delta
+      const dx = centroid.x - lastCentroid.x;
+      const dy = centroid.y - lastCentroid.y;
+      spherical.theta -= dx * 0.005;
+      spherical.phi -= dy * 0.005;
+      spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi));
+      // Pinch → zoom (distance ratio)
+      if (lastPinchDist > 0 && dist > 0) {
+        spherical.radius *= lastPinchDist / dist;
+        spherical.radius = Math.max(30, Math.min(480, spherical.radius));
+      }
+      lastCentroid = centroid;
+      lastPinchDist = dist;
+      userInput = performance.now();
+      return;
+    }
+    // Mouse / pen
     const dx = e.clientX - last.x;
     const dy = e.clientY - last.y;
     if (rotating) {
@@ -535,7 +587,22 @@ function makeOrbitControls(
     }
     last = { x: e.clientX, y: e.clientY };
   }
-  function onUp() {
+
+  function onUp(e: PointerEvent) {
+    if (e.pointerType === "touch") {
+      activeTouches.delete(e.pointerId);
+      if (activeTouches.size < 2) {
+        rotating = false;
+        lastPinchDist = 0;
+      }
+      // If one finger still down, update centroid to its position so the next
+      // 2nd-finger-down doesn't see a phantom huge delta.
+      if (activeTouches.size === 1) {
+        const only = Array.from(activeTouches.values())[0];
+        lastCentroid = only;
+      }
+      return;
+    }
     rotating = false;
     panning = false;
     dom.style.cursor = enabled ? "grab" : "default";
@@ -558,6 +625,10 @@ function makeOrbitControls(
   dom.addEventListener("pointerdown", onDown);
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
+  // pointercancel fires when the browser takes a touch away (e.g., pan-y
+  // kicks in during a scroll). Clean the same as pointerup to avoid stuck
+  // rotating=true state with no active pointers.
+  window.addEventListener("pointercancel", onUp);
   dom.addEventListener("wheel", onWheel, { passive: false });
   dom.addEventListener("contextmenu", onContext);
 
@@ -573,6 +644,7 @@ function makeOrbitControls(
       dom.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       dom.removeEventListener("wheel", onWheel as EventListener);
       dom.removeEventListener("contextmenu", onContext);
     },
@@ -680,6 +752,11 @@ export function NeuralNetworkHero({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(W(), H());
     renderer.setClearColor(BG, 1);
+    // touch-action: pan-y lets the browser handle single-finger vertical swipes
+    // as native page scroll. Two-finger gestures still reach our pointer handlers
+    // (which do the orbit/pinch). This matches mobile users' expectation that
+    // one finger scrolls and two fingers manipulate embedded 3D content.
+    renderer.domElement.style.touchAction = "pan-y";
     mount.appendChild(renderer.domElement);
 
     const controls = makeOrbitControls(camera, renderer.domElement, {
@@ -2027,6 +2104,19 @@ function fmtTime(ms: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** Reactive match-media helper. Returns true when the viewport is narrow. */
+function useNarrowViewport(maxPx = 640) {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= maxPx : false,
+  );
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth <= maxPx);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [maxPx]);
+  return narrow;
+}
+
 function PhaseReadout({
   phase,
   phaseProgress,
@@ -2315,16 +2405,22 @@ function GeoTimeline({
   hits: GeoHit[];
   phase: PhaseKey;
 }) {
+  // Narrow viewport (≤500px ≈ phone) → drop the per-region timestamp row and
+  // tighten cells so the whole timeline fits on a 375px iPhone without
+  // overflowing the right edge.
+  const narrow = useNarrowViewport(500);
   if (phase === "idle") return null;
   const hitMap = Object.fromEntries(hits.map((h) => [h.region, h.atMs]));
+  const cellMinW = narrow ? 34 : 50;
+  const connectorMinW = narrow ? 6 : 10;
   return (
     <div
       className="pointer-events-none absolute"
       style={{
         // Sits above the bottom-center phase bar (which is ~90px tall at
         // bottom:44, so its top edge is ~134). bottom:160 gives ~26px margin.
-        // Compact width (~370px) clears the 640px centered phase bar on all
-        // desktop viewports ≥1024px.
+        // Desktop compact (~370px) clears the 640px centered phase bar on
+        // all ≥1024px viewports. Narrow mode (~240px) fits a 375px phone.
         bottom: 160,
         left: 24,
         fontFamily: "'JetBrains Mono', monospace",
@@ -2333,18 +2429,18 @@ function GeoTimeline({
         color: "rgba(255,255,255,0.6)",
         background: "rgba(8,12,20,0.78)",
         border: "1px solid rgba(0,245,212,0.22)",
-        padding: "8px 11px",
+        padding: narrow ? "7px 9px" : "8px 11px",
       }}
     >
       <div
         style={{
           color: "rgba(0,245,212,0.9)",
-          marginBottom: 8,
+          marginBottom: narrow ? 6 : 8,
           letterSpacing: "0.28em",
           fontSize: 8,
         }}
       >
-        ◇ GEOGRAPHIC SPREAD
+        ◇ {narrow ? "GEO SPREAD" : "GEOGRAPHIC SPREAD"}
       </div>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 0 }}>
         {GEO_REGIONS.map((r, i) => {
@@ -2358,7 +2454,7 @@ function GeoTimeline({
               <div
                 style={{
                   textAlign: "center",
-                  minWidth: 50,
+                  minWidth: cellMinW,
                   opacity: active ? 1 : 0.35,
                   transition: "opacity 0.5s ease",
                 }}
@@ -2384,16 +2480,18 @@ function GeoTimeline({
                 >
                   {r.abbr}
                 </div>
-                <div
-                  style={{
-                    fontSize: 7,
-                    letterSpacing: "0.05em",
-                    marginTop: 2,
-                    color: active ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.2)",
-                  }}
-                >
-                  {active ? `+${fmtTime(hit)}` : "—:—"}
-                </div>
+                {!narrow && (
+                  <div
+                    style={{
+                      fontSize: 7,
+                      letterSpacing: "0.05em",
+                      marginTop: 2,
+                      color: active ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.2)",
+                    }}
+                  >
+                    {active ? `+${fmtTime(hit)}` : "—:—"}
+                  </div>
+                )}
               </div>
               {i < GEO_REGIONS.length - 1 && (
                 <div
@@ -2401,7 +2499,7 @@ function GeoTimeline({
                     flex: 1,
                     height: 1,
                     marginTop: 12,
-                    minWidth: 10,
+                    minWidth: connectorMinW,
                     background:
                       active && nextActive
                         ? `linear-gradient(90deg, ${r.color}, ${GEO_REGIONS[i + 1].color})`

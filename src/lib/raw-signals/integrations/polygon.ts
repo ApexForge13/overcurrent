@@ -33,6 +33,30 @@
  */
 
 import type { IntegrationRunner } from '../runner'
+import { prisma } from '@/lib/db'
+
+interface ResolvedTicker {
+  ticker: string
+  entityName: string
+}
+
+async function resolveTickersForCluster(entities: string[]): Promise<ResolvedTicker[]> {
+  if (entities.length === 0) return []
+  const matches = await prisma.tickerEntityMap.findMany({
+    where: { entity: { name: { in: entities } } },
+    select: { ticker: true, entity: { select: { name: true } } },
+    take: 25,
+  })
+  // Dedup by ticker (in case one ticker maps through multiple entity rows)
+  const seen = new Set<string>()
+  const out: ResolvedTicker[] = []
+  for (const m of matches) {
+    if (seen.has(m.ticker)) continue
+    seen.add(m.ticker)
+    out.push({ ticker: m.ticker, entityName: m.entity.name })
+  }
+  return out
+}
 
 export const polygonRunner: IntegrationRunner = async (ctx) => {
   const apiKey = process.env.POLYGON_API_KEY
@@ -54,10 +78,28 @@ export const polygonRunner: IntegrationRunner = async (ctx) => {
     }
   }
 
-  // TODO Task 4: ticker resolution + per-endpoint fetches land in subsequent tasks.
+  const tickers = await resolveTickersForCluster(ctx.cluster.entities)
+  if (tickers.length === 0) {
+    return {
+      rawContent: {
+        resolvedTickers: [],
+        clusterEntities: ctx.cluster.entities.slice(0, 10),
+      },
+      haikuSummary:
+        'Financial signal unavailable — no equity-tradable entities resolved for this cluster.',
+      signalSource: 'polygon',
+      captureDate: ctx.cluster.firstDetectedAt,
+      coordinates: null,
+      divergenceFlag: false,
+      divergenceDescription: null,
+      confidenceLevel: 'unavailable',
+    }
+  }
+
+  // TODO Task 5+: per-ticker endpoint fetches + Haiku assessment.
   return {
-    rawContent: { note: 'Polygon scaffolding incomplete — ticker resolution pending' },
-    haikuSummary: 'Financial signal unavailable — implementation incomplete.',
+    rawContent: { note: 'Per-ticker fetch pending', resolvedTickers: tickers },
+    haikuSummary: 'Financial signal unavailable — fetch implementation incomplete.',
     signalSource: 'polygon',
     captureDate: ctx.cluster.firstDetectedAt,
     coordinates: null,

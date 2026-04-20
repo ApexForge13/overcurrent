@@ -387,6 +387,8 @@ export async function runQualityReview(
       createdAt: true,
       status: true,
       storyClusterId: true,
+      umbrellaArcId: true,
+      storyPhase: true,
       claims: {
         select: { claim: true, confidence: true, supportedBy: true, contradictedBy: true },
         orderBy: { sortOrder: 'asc' },
@@ -541,6 +543,46 @@ export async function runQualityReview(
   } else {
     console.log(
       `[quality-review] Story ${story.id.substring(0, 8)} — ${parsed.overallRecommendation} (specificity=${parsed.editorialScores.specificity}, surprise=${parsed.editorialScores.surprise}, patternVerified=${parsed.patternVerified}, webSearches=${webSearchesRun}, cost=$${reviewCost.toFixed(3)}, ${reviewDurationSeconds}s)`,
+    )
+  }
+
+  // ── Auto-create CaseStudyEntry on kill or approved_with_edits ──
+  // Non-blocking: failures are logged but never bubble up. The hooks return
+  // null when the story has no cluster, which is the no-op path.
+  try {
+    if (parsed.overallRecommendation === 'kill' && parsed.killReason) {
+      const { createCaseStudyFromQualityKill } = await import('@/lib/case-study-hooks')
+      const entry = await createCaseStudyFromQualityKill({
+        storyId: story.id,
+        storyHeadline: story.headline,
+        storyPhase: story.storyPhase,
+        storyClusterId: story.storyClusterId,
+        umbrellaArcId: story.umbrellaArcId,
+        killReason: parsed.killReason,
+        pattern: story.thePattern,
+      })
+      if (entry) {
+        console.log(`[case-study] Auto-created kill case study ${entry.id.substring(0, 12)} for story ${story.id.substring(0, 8)}`)
+      }
+    } else if (parsed.overallRecommendation === 'approved_with_edits' && parsed.suggestedEdits) {
+      const { createCaseStudyFromQualityEdits } = await import('@/lib/case-study-hooks')
+      const entry = await createCaseStudyFromQualityEdits({
+        storyId: story.id,
+        storyHeadline: story.headline,
+        storyPhase: story.storyPhase,
+        storyClusterId: story.storyClusterId,
+        umbrellaArcId: story.umbrellaArcId,
+        pattern: story.thePattern,
+        suggestedEdits: parsed.suggestedEdits,
+      })
+      if (entry) {
+        console.log(`[case-study] Auto-created edits case study ${entry.id.substring(0, 12)} for story ${story.id.substring(0, 8)}`)
+      }
+    }
+  } catch (err) {
+    console.error(
+      '[case-study] Auto-create hook failed (non-blocking):',
+      err instanceof Error ? err.message : err,
     )
   }
 

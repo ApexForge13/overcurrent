@@ -122,5 +122,18 @@ describe('polygonRunner', () => {
     expect(payload.tickers[0].snapshot).toBeDefined()
     expect(payload.tickers[0].reference).toBeDefined()
     expect(payload.tickers[0].errors).toEqual([])
+
+    // Credential hygiene: key must travel via Authorization header, not URL query.
+    // Leaked ?apiKey=... shows up in Vercel access logs, LB logs, and error-tracker payloads.
+    const allCalls = fetchMock.mock.calls
+    expect(allCalls.length).toBeGreaterThanOrEqual(3)
+    for (const call of allCalls) {
+      const init = call[1] as RequestInit | undefined
+      const headers = init?.headers as Record<string, string> | undefined
+      expect(headers?.Authorization).toBe('Bearer pk_test')
+    }
+    for (const call of allCalls) {
+      expect(call[0]).not.toContain('apiKey=')
+    }
   })
 })

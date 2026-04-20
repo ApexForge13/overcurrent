@@ -50,9 +50,11 @@ interface TickerData {
 }
 
 async function fetchEod(ticker: string, apiKey: string): Promise<TickerData['eod'] | undefined> {
-  const url = `${POLYGON_BASE}/v2/aggs/ticker/${encodeURIComponent(ticker)}/prev?apiKey=${apiKey}`
+  const url = `${POLYGON_BASE}/v2/aggs/ticker/${encodeURIComponent(ticker)}/prev`
   try {
-    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS)
+    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
     if (!res.ok) return undefined
     const data = (await res.json()) as { results?: Array<{ c: number; o: number; h: number; l: number; v: number; t: number }> }
     const r = data.results?.[0]
@@ -64,9 +66,11 @@ async function fetchEod(ticker: string, apiKey: string): Promise<TickerData['eod
 }
 
 async function fetchSnapshot(ticker: string, apiKey: string): Promise<TickerData['snapshot'] | undefined> {
-  const url = `${POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(ticker)}?apiKey=${apiKey}`
+  const url = `${POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(ticker)}`
   try {
-    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS)
+    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
     if (!res.ok) return undefined
     const data = (await res.json()) as { ticker?: { lastQuote?: { p?: number; P?: number }; lastTrade?: { p?: number } } }
     if (!data.ticker) return undefined
@@ -80,9 +84,11 @@ async function fetchSnapshot(ticker: string, apiKey: string): Promise<TickerData
 }
 
 async function fetchReference(ticker: string, apiKey: string): Promise<TickerData['reference'] | undefined> {
-  const url = `${POLYGON_BASE}/v3/reference/tickers/${encodeURIComponent(ticker)}?apiKey=${apiKey}`
+  const url = `${POLYGON_BASE}/v3/reference/tickers/${encodeURIComponent(ticker)}`
   try {
-    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS)
+    const res = await fetchWithTimeout(url, POLYGON_TIMEOUT_MS, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
     if (!res.ok) return undefined
     const data = (await res.json()) as { results?: { name?: string; sic_description?: string; market_cap?: number; primary_exchange?: string } }
     const r = data.results

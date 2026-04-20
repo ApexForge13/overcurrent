@@ -248,11 +248,11 @@ describe('secEdgarRunner', () => {
   })
 
   it('writes resolution_failed error row when entity list is empty / all tokens too short', async () => {
-    // Entity list is degenerate (all tokens <3 chars); the adapter's
-    // existing filter (e.length > 3 && starts-with capital) rejects all
-    // entries so no full-text keywords can be formed.
+    // Entity list is degenerate (single char or lowercase-led); the
+    // adapter's filter (e.length >= 2 && starts-with capital) rejects
+    // all entries so no full-text keywords can be formed.
     const result = await secEdgarRunner(
-      makeCtx({ entities: ['AB', 'C', ''] }),
+      makeCtx({ entities: ['a', 'x', ''] }),
     )
     expect(result!.confidenceLevel).toBe('unavailable')
     const payload = result!.rawContent as {
@@ -320,5 +320,63 @@ describe('secEdgarRunner', () => {
     expect(result!.divergenceFlag).toBe(true)
     expect(result!.divergenceDescription).toBeTruthy()
     expect(result!.divergenceDescription!.toLowerCase()).toContain('insider')
+  })
+
+  it('does not silently drop 2- and 3-character tickers from the search query', async () => {
+    // entities include classic short-ticker mega-caps that the old > 3
+    // filter would have dropped (IBM, GE, F, T, KO, GM, CME, AMC …).
+    // These are the highest-signal Form 4 cohort, so the filter must
+    // admit them.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: () =>
+        Promise.resolve(
+          edgarSearchResponse([
+            {
+              form: '4',
+              adsh: '0001234567-26-000001',
+              file_date: daysBefore(TODAY, 5),
+              display_names: ['INTERNATIONAL BUSINESS MACHINES CORP (CIK 0000051143)'],
+              ciks: ['0000051143'],
+              tickers: ['IBM'],
+            },
+          ]),
+        ),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(anthropic, 'callClaude').mockResolvedValue({
+      text: JSON.stringify({
+        filingsRelevant: 1,
+        materialFilings: 0,
+        addsMissingContext: false,
+        gapDescription: '',
+      }),
+      costUsd: 0.001,
+      model: anthropic.HAIKU,
+      usage: { input_tokens: 100, output_tokens: 50 },
+    } as never)
+
+    const result = await secEdgarRunner(
+      makeCtx({ entities: ['IBM', 'GE', 'F', 'T'] }),
+    )
+
+    // Must not have been short-circuited to resolution_failed.
+    expect(result!.confidenceLevel).not.toBe('unavailable')
+    const rawContent = result!.rawContent as {
+      form4Trades?: unknown[]
+      errorType?: string
+    }
+    expect(rawContent.errorType).toBeUndefined()
+    expect(rawContent.form4Trades).toBeDefined()
+
+    // Confirm the URL passed to fetch contained at least one of the
+    // short tickers in the q param.
+    const urlsCalled = fetchMock.mock.calls.map((c) => c[0] as string)
+    const someUrlHasShortTicker = urlsCalled.some(
+      (u) => u.includes('IBM') || u.includes('GE') || u.includes('F') || u.includes('T'),
+    )
+    expect(someUrlHasShortTicker).toBe(true)
   })
 })

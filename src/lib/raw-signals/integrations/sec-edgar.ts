@@ -307,12 +307,17 @@ export const secEdgarRunner: IntegrationRunner = async (ctx) => {
 
   // ── Resolution step: filter entities to valid full-text query tokens. ──
   // SEC full-text search stems on its own side, but we still reject
-  // degenerate input (tokens <4 chars or not starting with a capital) so
+  // degenerate input (1-char tokens or not starting with a capital) so
   // we don't send noise queries. If nothing survives, that's a
   // resolution_failed error — the cluster's entities can't be resolved
   // into a meaningful EDGAR query.
+  //
+  // Keep 2+ char uppercased tokens: covers 2-letter (F, T) and 3-letter
+  // (IBM, GE, CME, AMC) tickers plus longer proper nouns. A length>3
+  // cutoff would silently drop mega-cap tickers whose insider-trade
+  // activity is the highest-signal cohort for this adapter.
   const keywords = ctx.cluster.entities
-    .filter((e) => e.length > 3 && /^[A-Z]/.test(e))
+    .filter((e) => e.length >= 2 && /^[A-Z]/.test(e))
     .slice(0, 3)
 
   if (keywords.length === 0) {
@@ -323,7 +328,7 @@ export const secEdgarRunner: IntegrationRunner = async (ctx) => {
         errorType: 'resolution_failed',
         rawSignalQueueId: ctx.queueId,
         attemptedKey,
-        message: 'No cluster entities resolvable to EDGAR full-text query (all tokens <4 chars or lowercase-led)',
+        message: 'No cluster entities resolvable to EDGAR full-text query (all tokens <2 chars or lowercase-led)',
       },
       signalSource,
       captureDate,

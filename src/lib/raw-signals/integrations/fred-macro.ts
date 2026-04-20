@@ -1,114 +1,391 @@
 /**
  * FRED — St. Louis Fed macroeconomic data.
  *
- * ── Environment Variables: FRED_API_KEY (required, free registration).
- * ── Cost: Free.
- * ── What: Pulls the latest value + 90-day change for a handful of
- *    market-moving US macro series. Flags divergence when the narrative
- *    frames macro conditions in a way the data directly contradicts.
+ * ── Environment Variables ─────────────────────────────────────────────
+ *   FRED_API_KEY (required, free registration at
+ *   https://fred.stlouisfed.org/docs/api/api_key.html)
+ *
+ * ── Cost ──────────────────────────────────────────────────────────────
+ * Free. Unlimited calls. Per-call cost in CostLog is $0.
+ *
+ * ── Normalization strategy ────────────────────────────────────────────
+ * FRED is a keyword/category-driven adapter. There is no per-entity
+ * resolution step — series IDs are selected at runtime based on
+ * cluster.signalCategory, not cluster.entities. The default macro set
+ * applies to every cluster; environmental_event and trade_dispute add
+ * category-specific series on top. No TickerEntityMap lookup, no CIK
+ * resolution, no match-time name variance to worry about.
+ *
+ * ── Error routing (canonical error-shape) ─────────────────────────────
+ * Every failure path writes a RawSignalLayer row via safeErrorRow with
+ * confidenceLevel='unavailable' and a RawSignalError discriminated-union
+ * literal:
+ *
+ *   FRED_API_KEY missing     → auth_failed          (provider: 'fred')
+ *   HTTP 429                 → rate_limited         (+ retryAfterSec)
+ *   HTTP 4xx/5xx (not 429)   → external_api_error   (+ statusCode)
+ *   AbortError / /timeout/i  → timeout              (+ timeoutMs)
+ *   JSON shape mismatch      → parse_error
+ *   Uncaught                 → unknown
+ *
+ * rawSignalQueueId is carried on every variant (Phase 11 dossier FK).
+ *
+ * ── Query-string API key (vs. Polygon's Authorization header) ─────────
+ * FRED's public API only supports the `api_key` query-string parameter.
+ * There is no header-based auth. We accept the minor leak-to-logs risk
+ * here because FRED documents it as the only supported pattern and the
+ * key is free/rotatable (no billing tie-in). Polygon remains header-based.
  */
 
-import { callClaude, HAIKU, parseJSON } from '@/lib/anthropic'
+import type { IntegrationResult, IntegrationRunner } from '../runner'
+import { safeErrorRow, safeStringify, ERROR_VERSION } from '../error-shape'
 import { fetchWithTimeout } from '@/lib/utils'
-import type { IntegrationRunner } from '../runner'
 
 const TIMEOUT_MS = 15_000
 const API_BASE = 'https://api.stlouisfed.org/fred/series/observations'
-const SERIES = [
-  'FEDFUNDS',      // Fed funds rate
-  'CPIAUCSL',      // CPI
-  'GDP',           // US GDP
-  'DCOILWTICO',    // WTI crude
-  'DGS10',         // 10-year Treasury
-  'UNRATE',        // Unemployment rate
+const OBSERVATIONS_PER_SERIES = 30
+const LOOKBACK_DAYS = 90
+const DIVERGENCE_Z_THRESHOLD = 2.0
+
+// Macro series that apply to every cluster regardless of signalCategory.
+const DEFAULT_SERIES = [
+  'FEDFUNDS',   // Fed funds rate
+  'CPIAUCSL',   // CPI (All Urban Consumers)
+  'GDP',        // US GDP
+  'DCOILWTICO', // WTI crude spot
+  'DGS10',      // 10-year Treasury constant maturity
+  'UNRATE',     // Unemployment rate (civilian)
 ] as const
 
-interface Observation {
-  series: string
-  date: string
-  value: number | null
+// Category-specific additions layered on top of DEFAULT_SERIES.
+// Note: DCOILWTICO appears in both DEFAULT_SERIES and ENV_EXTRA; we
+// deduplicate at assembly time.
+const ENV_EXTRA = ['DCOILWTICO', 'DHHNGSP'] as const       // environmental_event (oil + natural gas)
+const TRADE_EXTRA = ['IR', 'IX'] as const                  // trade_dispute (imports, exports)
+
+function seriesForCategory(category: string | null): string[] {
+  const set = new Set<string>(DEFAULT_SERIES)
+  if (category === 'environmental_event') {
+    for (const s of ENV_EXTRA) set.add(s)
+  } else if (category === 'trade_dispute') {
+    for (const s of TRADE_EXTRA) set.add(s)
+  }
+  return Array.from(set)
 }
 
-async function fetchSeries(since: Date): Promise<Observation[]> {
-  const key = process.env.FRED_API_KEY
-  if (!key) {
-    console.warn('[raw-signals/fred] FRED_API_KEY missing — skipping')
-    return []
+interface SeriesResult {
+  seriesId: string
+  observations: Array<{ date: string; value: number | null }>
+  latest: number | null
+  yoyPctChange: number | null
+  trailingSigma: number | null
+  trailingMean3Mo: number | null
+  zScore: number | null
+}
+
+type SeriesOutcome =
+  | { ok: true; value: SeriesResult }
+  | { ok: false; errorType: 'rate_limited'; retryAfterSec?: number }
+  | { ok: false; errorType: 'external_api_error'; statusCode: number }
+  | { ok: false; errorType: 'timeout' }
+  | { ok: false; errorType: 'parse_error'; message: string }
+  | { ok: false; errorType: 'unknown'; message: string }
+
+function parseRetryAfter(headers: { get: (name: string) => string | null }): number | undefined {
+  const raw = headers.get('retry-after') ?? headers.get('Retry-After')
+  if (!raw) return undefined
+  const n = parseInt(raw, 10)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+function isTimeoutError(err: unknown): boolean {
+  if (err instanceof Error) {
+    if (err.name === 'AbortError') return true
+    if (/timeout/i.test(err.message)) return true
   }
-  const start = new Date(since.getTime() - 90 * 24 * 60 * 60 * 1000)
-  const out: Observation[] = []
-  for (const series of SERIES) {
-    try {
-      const params = new URLSearchParams({
-        series_id: series,
-        api_key: key,
-        file_type: 'json',
-        observation_start: start.toISOString().split('T')[0],
-        observation_end: since.toISOString().split('T')[0],
-        sort_order: 'desc',
-        limit: '10',
-      })
-      const res = await fetchWithTimeout(`${API_BASE}?${params}`, TIMEOUT_MS, {
-        headers: { Accept: 'application/json' },
-      })
-      if (!res.ok) continue
-      const data = (await res.json()) as { observations?: Array<{ date?: string; value?: string }> }
-      for (const o of (data.observations ?? []).slice(0, 3)) {
-        const v = o.value ? parseFloat(o.value) : NaN
-        out.push({
-          series,
-          date: String(o.date ?? ''),
-          value: Number.isFinite(v) ? v : null,
-        })
-      }
-    } catch (err) {
-      console.warn(`[raw-signals/fred] ${series} fetch failed:`, err instanceof Error ? err.message : err)
+  return false
+}
+
+/**
+ * Compute stats over a series' observations.
+ *   - latest: first non-null in the desc-sorted list (most recent)
+ *   - yoyPctChange: percent change from the oldest observation (~90 days
+ *     ago given the LOOKBACK_DAYS window; semantics documented as "trailing
+ *     window" rather than strict 12-month since the lookback is 90d)
+ *   - trailingMean3Mo / trailingSigma: mean and population stddev over the
+ *     trailing 3 observations (indices 1..3 in the desc-sorted list, i.e.
+ *     the 3 observations immediately before `latest`)
+ *   - zScore: (latest - trailingMean3Mo) / trailingSigma, guarded for /0
+ */
+function computeStats(
+  observations: Array<{ date: string; value: number | null }>,
+): Pick<SeriesResult, 'latest' | 'yoyPctChange' | 'trailingSigma' | 'trailingMean3Mo' | 'zScore'> {
+  const latest = observations[0]?.value ?? null
+  const oldest = observations[observations.length - 1]?.value ?? null
+
+  let yoyPctChange: number | null = null
+  if (latest !== null && oldest !== null && oldest !== 0) {
+    yoyPctChange = ((latest - oldest) / Math.abs(oldest)) * 100
+  }
+
+  const trailing = observations
+    .slice(1, 4)
+    .map((o) => o.value)
+    .filter((v): v is number => v !== null)
+
+  let trailingMean3Mo: number | null = null
+  let trailingSigma: number | null = null
+  let zScore: number | null = null
+  if (trailing.length >= 2) {
+    const mean = trailing.reduce((a, b) => a + b, 0) / trailing.length
+    const variance =
+      trailing.reduce((acc, v) => acc + (v - mean) * (v - mean), 0) / trailing.length
+    const sigma = Math.sqrt(variance)
+    trailingMean3Mo = mean
+    trailingSigma = sigma
+    if (latest !== null && sigma > 0) {
+      zScore = (latest - mean) / sigma
     }
   }
-  return out
+
+  return { latest, yoyPctChange, trailingSigma, trailingMean3Mo, zScore }
 }
 
-const HAIKU_SYSTEM = `You assess FRED macro data against a news story.
-Given US macro series (Fed funds, CPI, GDP, oil, 10-year yield, unemployment) and a story,
-return:
-- macroDirectionMatch: true if the story's framing of macro conditions aligns with the data
-- narrativeGap: true if the data contradicts or undermines the story's framing
-- description: 1-2 sentences or empty
-Return JSON only:
-{ "macroDirectionMatch": true, "narrativeGap": false, "description": "" }`
+async function fetchSeries(
+  seriesId: string,
+  apiKey: string,
+  start: Date,
+  end: Date,
+): Promise<SeriesOutcome> {
+  const params = new URLSearchParams({
+    series_id: seriesId,
+    api_key: apiKey,
+    file_type: 'json',
+    observation_start: start.toISOString().split('T')[0],
+    observation_end: end.toISOString().split('T')[0],
+    sort_order: 'desc',
+    limit: String(OBSERVATIONS_PER_SERIES),
+  })
+
+  let res: Response
+  try {
+    res = await fetchWithTimeout(`${API_BASE}?${params}`, TIMEOUT_MS, {
+      headers: { Accept: 'application/json' },
+    })
+  } catch (err) {
+    if (isTimeoutError(err)) return { ok: false, errorType: 'timeout' }
+    return { ok: false, errorType: 'unknown', message: safeStringify(err) }
+  }
+
+  if (!res.ok) {
+    if (res.status === 429) {
+      return { ok: false, errorType: 'rate_limited', retryAfterSec: parseRetryAfter(res.headers) }
+    }
+    return { ok: false, errorType: 'external_api_error', statusCode: res.status }
+  }
+
+  let data: { observations?: Array<{ date?: string; value?: string }> }
+  try {
+    data = (await res.json()) as { observations?: Array<{ date?: string; value?: string }> }
+  } catch (err) {
+    return { ok: false, errorType: 'parse_error', message: safeStringify(err) }
+  }
+
+  if (!Array.isArray(data.observations)) {
+    return { ok: false, errorType: 'parse_error', message: 'missing observations array' }
+  }
+
+  const observations = data.observations.slice(0, OBSERVATIONS_PER_SERIES).map((o) => {
+    const raw = o.value
+    const v = raw !== undefined && raw !== '.' ? parseFloat(raw) : NaN
+    return {
+      date: String(o.date ?? ''),
+      value: Number.isFinite(v) ? v : null,
+    }
+  })
+
+  const stats = computeStats(observations)
+  return {
+    ok: true,
+    value: {
+      seriesId,
+      observations,
+      ...stats,
+    },
+  }
+}
 
 export const fredMacroRunner: IntegrationRunner = async (ctx) => {
-  const { cluster } = ctx
-  const observations = await fetchSeries(cluster.firstDetectedAt)
-  if (observations.length === 0) {
-    return {
-      rawContent: { note: 'No observations (missing key or fetch failed)' },
-      haikuSummary: 'Skipped — no FRED data available',
-      signalSource: 'fred-macro', captureDate: new Date(), coordinates: null,
-      divergenceFlag: false, divergenceDescription: null, confidenceLevel: 'low' as const,
-    }
+  const apiKey = process.env.FRED_API_KEY
+  const signalSource = 'fred-macro'
+  const captureDate = ctx.cluster.firstDetectedAt
+
+  if (!apiKey) {
+    return safeErrorRow({
+      error: {
+        errorVersion: ERROR_VERSION,
+        errorType: 'auth_failed',
+        provider: 'fred',
+        rawSignalQueueId: ctx.queueId,
+        message: 'FRED_API_KEY absent in this environment',
+      },
+      signalSource,
+      captureDate,
+      haikuSummary: 'Macro signal unavailable — FRED not provisioned for this environment.',
+    })
   }
 
-  let assessment = { macroDirectionMatch: true, narrativeGap: false, description: '' }
-  let haikuCost = 0
+  const seriesIds = seriesForCategory(ctx.cluster.signalCategory)
+  const end = ctx.cluster.firstDetectedAt
+  const start = new Date(end.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
+
+  let outcomes: SeriesOutcome[]
   try {
-    const r = await callClaude({
-      model: HAIKU, systemPrompt: HAIKU_SYSTEM,
-      userPrompt: `Story: ${cluster.headline}\n\nSummary: ${cluster.synopsis.substring(0, 1200)}\n\nFRED series (90d window):\n${observations.slice(0, 20).map((o, i) => `${i + 1}. ${o.series} | ${o.date} | ${o.value ?? 'n/a'}`).join('\n')}`,
-      agentType: 'raw_signal_fred', maxTokens: 400,
-    })
-    haikuCost = r.costUsd
-    assessment = parseJSON(r.text)
+    outcomes = await Promise.all(
+      seriesIds.map((s) => fetchSeries(s, apiKey, start, end)),
+    )
   } catch (err) {
-    console.warn('[raw-signals/fred] Haiku failed:', err instanceof Error ? err.message : err)
+    // fetchSeries catches its own errors; anything escaping here is
+    // something pathological at the Promise.all layer (shouldn't happen,
+    // but route it through the canonical shape anyway).
+    return safeErrorRow({
+      error: {
+        errorVersion: ERROR_VERSION,
+        errorType: 'unknown',
+        rawSignalQueueId: ctx.queueId,
+        message: safeStringify(err),
+      },
+      signalSource,
+      captureDate,
+      haikuSummary: 'Macro signal unavailable — unexpected error during FRED fetch.',
+    })
   }
+
+  const healthy: SeriesResult[] = []
+  for (const o of outcomes) {
+    if (o.ok) healthy.push(o.value)
+  }
+
+  // If no series came back healthy, promote the most-informative failure
+  // into a canonical error row. Priority (most actionable first):
+  //   rate_limited > timeout > external_api_error > parse_error > unknown
+  if (healthy.length === 0) {
+    const failures = outcomes.filter((o): o is Extract<SeriesOutcome, { ok: false }> => !o.ok)
+    const pick =
+      failures.find((f) => f.errorType === 'rate_limited') ??
+      failures.find((f) => f.errorType === 'timeout') ??
+      failures.find((f) => f.errorType === 'external_api_error') ??
+      failures.find((f) => f.errorType === 'parse_error') ??
+      failures.find((f) => f.errorType === 'unknown') ??
+      failures[0]
+
+    if (pick?.errorType === 'rate_limited') {
+      return safeErrorRow({
+        error: {
+          errorVersion: ERROR_VERSION,
+          errorType: 'rate_limited',
+          provider: 'fred',
+          rawSignalQueueId: ctx.queueId,
+          retryAfterSec: pick.retryAfterSec,
+          message: 'FRED rate limit hit on all requested series',
+        },
+        signalSource,
+        captureDate,
+        haikuSummary: 'Macro signal unavailable — FRED rate-limited.',
+      })
+    }
+    if (pick?.errorType === 'timeout') {
+      return safeErrorRow({
+        error: {
+          errorVersion: ERROR_VERSION,
+          errorType: 'timeout',
+          provider: 'fred',
+          rawSignalQueueId: ctx.queueId,
+          timeoutMs: TIMEOUT_MS,
+          message: 'FRED requests timed out on all requested series',
+        },
+        signalSource,
+        captureDate,
+        haikuSummary: 'Macro signal unavailable — FRED timed out.',
+      })
+    }
+    if (pick?.errorType === 'external_api_error') {
+      return safeErrorRow({
+        error: {
+          errorVersion: ERROR_VERSION,
+          errorType: 'external_api_error',
+          provider: 'fred',
+          rawSignalQueueId: ctx.queueId,
+          statusCode: pick.statusCode,
+          message: `FRED returned HTTP ${pick.statusCode} on all requested series`,
+        },
+        signalSource,
+        captureDate,
+        haikuSummary: 'Macro signal unavailable — FRED upstream error.',
+      })
+    }
+    if (pick?.errorType === 'parse_error') {
+      return safeErrorRow({
+        error: {
+          errorVersion: ERROR_VERSION,
+          errorType: 'parse_error',
+          provider: 'fred',
+          rawSignalQueueId: ctx.queueId,
+          message: `FRED response shape mismatch: ${pick.message}`,
+        },
+        signalSource,
+        captureDate,
+        haikuSummary: 'Macro signal unavailable — FRED returned unexpected shape.',
+      })
+    }
+    return safeErrorRow({
+      error: {
+        errorVersion: ERROR_VERSION,
+        errorType: 'unknown',
+        rawSignalQueueId: ctx.queueId,
+        message: pick?.errorType === 'unknown' ? pick.message : 'All FRED series failed',
+      },
+      signalSource,
+      captureDate,
+      haikuSummary: 'Macro signal unavailable — unknown FRED failure.',
+    })
+  }
+
+  // Confidence ladder by healthy-series count.
+  let confidenceLevel: IntegrationResult['confidenceLevel']
+  if (healthy.length >= 4) confidenceLevel = 'high'
+  else if (healthy.length >= 2) confidenceLevel = 'medium'
+  else confidenceLevel = 'low'
+
+  // Divergence: any series with |z| > 2.0 against trailing-3mo mean.
+  const divergent = healthy.filter(
+    (s) => s.zScore !== null && Math.abs(s.zScore) > DIVERGENCE_Z_THRESHOLD,
+  )
+  const divergenceFlag = divergent.length > 0
+  const divergenceDescription = divergenceFlag
+    ? `Divergence detected: ${divergent
+        .map(
+          (s) =>
+            `${s.seriesId} latest=${s.latest?.toFixed(2) ?? 'n/a'} vs 3mo mean=${s.trailingMean3Mo?.toFixed(2) ?? 'n/a'} (z=${s.zScore?.toFixed(2) ?? 'n/a'})`,
+        )
+        .join('; ')}`
+    : null
 
   return {
-    rawContent: { observations: observations.slice(0, 20), assessment, haikuCostUsd: haikuCost },
-    haikuSummary: assessment.narrativeGap ? `Macro data contradicts story framing` : `Macro data consistent with narrative`,
-    signalSource: 'fred-macro', captureDate: cluster.firstDetectedAt, coordinates: null,
-    divergenceFlag: assessment.narrativeGap,
-    divergenceDescription: assessment.narrativeGap ? assessment.description : null,
-    confidenceLevel: 'low' as const,
+    rawContent: {
+      series: healthy,
+      seriesRequested: seriesIds,
+      seriesHealthyCount: healthy.length,
+      lookbackDays: LOOKBACK_DAYS,
+    },
+    haikuSummary: divergenceFlag
+      ? `FRED divergence: ${divergent.length} series beyond 2σ vs trailing window.`
+      : `FRED macro captured ${healthy.length}/${seriesIds.length} series; no divergence.`,
+    signalSource,
+    captureDate,
+    coordinates: null,
+    divergenceFlag,
+    divergenceDescription,
+    confidenceLevel,
   }
 }

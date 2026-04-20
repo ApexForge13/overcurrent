@@ -12,9 +12,17 @@ import * as dotenv from 'dotenv'
 dotenv.config({ override: true })
 
 async function main() {
-  const query = process.argv.slice(2).join(' ').trim()
+  // Parse --force-full-quality flag (per-run override for the cost-optimization
+  // layer). Strip it from argv so the remaining args still join cleanly into
+  // the query. Spec: docs/plans/2026-04-19-cost-optimization-layer.md.
+  const argv = process.argv.slice(2)
+  const forceFullQualityIdx = argv.findIndex((a) => a === '--force-full-quality' || a === '--force-full')
+  const forceFullQuality = forceFullQualityIdx >= 0
+  if (forceFullQuality) argv.splice(forceFullQualityIdx, 1)
+
+  const query = argv.join(' ').trim()
   if (!query) {
-    console.error('Usage: npx tsx --tsconfig tsconfig.json scripts/run-pipeline.ts "your query here"')
+    console.error('Usage: npx tsx --tsconfig tsconfig.json scripts/run-pipeline.ts [--force-full-quality] "your query here"')
     process.exit(1)
   }
 
@@ -22,6 +30,7 @@ async function main() {
   console.log(`  OVERCURRENT LOCAL PIPELINE`)
   console.log(`  Query: ${query}`)
   console.log(`  Time:  ${new Date().toISOString()}`)
+  if (forceFullQuality) console.log(`  Mode:  --force-full-quality (cost-optimization flags bypassed)`)
   console.log(`${'═'.repeat(60)}\n`)
 
   // Check env vars
@@ -72,7 +81,7 @@ async function main() {
       if (phase === 'error') {
         console.error(`\n  ✗ ERROR: ${message}`)
       }
-    })
+    }, { forceFullQuality })
 
     console.log(`\nStory saved with slug: ${slug}`)
     console.log(`View at: https://overcurrent.news/story/${slug}`)

@@ -66,6 +66,32 @@ Nothing auto-publishes. Everything goes through admin review.
 - Check for hallucinated outlet names
 - Social media data NEVER affects confidence scores (firewall between news analysis and discourse)
 
+## Pipeline Cost-Optimization Flags (admin-configurable)
+
+Five flags + one override gate cost-optimization stage skips in `runVerifyPipeline`. All five flags default ON. The override forces full debate quality regardless of flag state. Spec: `docs/plans/2026-04-19-cost-optimization-layer.md`. Resolver: `src/lib/pipeline-flags.ts`.
+
+| Env var | Default | When OFF |
+|---|---|---|
+| `PIPELINE_TIERED_SOURCE_PROCESSING` | on | All sources get full 4-model debate regardless of outlet tier. |
+| `PIPELINE_ARC_RERUN_DIFFERENTIAL` | on | Arc reruns re-debate every continuing-coverage source. |
+| `PIPELINE_SEMANTIC_DEDUP` | on | Sources adding no new claims still enter the debate. |
+| `PIPELINE_CONFIDENCE_THRESHOLD_EXIT` | on | All claims run R2 + R3 even when R1 hit ≥85% consensus. |
+| `PIPELINE_REGIONAL_DEBATE_POOLING` | on | Every regional source gets full debate (no top-8 cap). |
+| `PIPELINE_FORCE_FULL_QUALITY` | off | When on (`=1`), all five flags are forced off for the run. Use for flagship arc analyses, enterprise demos, anything bound for the public accuracy tracker. |
+
+Per-run overrides:
+- CLI: `npx tsx scripts/run-pipeline.ts --force-full-quality "your query"`
+- Programmatic: `runVerifyPipeline(query, onProgress, { forceFullQuality: true })`
+- Per-call arg wins over env when strictly `true`; otherwise env applies.
+
+Recognized env values: `0`, `false`, `off`, `no` (case-insensitive, trimmed) → disabled. Anything else → enabled.
+
+Two non-negotiable invariants enforced by `assertTier1FullDebate` + `assertContestedClaimDebated` in the resolver — both throw on violation rather than silently degrading:
+1. Tier-1 sources (`wire_service`, `national`) always get full 4-model debate.
+2. Cross-examination (R2 + R3) never skips on contested claims.
+
+Per-analysis savings telemetry lands in `CostLog.flagBreakdown` JSON (`agentType='pipeline_savings'`); `CostLog.forceFullQualityActive` separates optimized runs from forced-full baseline runs.
+
 ## Key Database Models
 
 - `DebateRound` — stores full round JSON per model/region

@@ -391,6 +391,15 @@ model CostLog {
   costUsd             Float
   agentType           String
   region              String?
+  // ── Session 5: cost-optimization flag telemetry ──
+  // Populated only on the agentType='pipeline_savings' summary row written
+  // once per analysis. Null on every per-call row. Shape documented in
+  // docs/plans/2026-04-19-cost-optimization-layer.md.
+  flagBreakdown       Json?
+  // True on the summary row when PIPELINE_FORCE_FULL_QUALITY bypassed all five
+  // cost-optimization flags for the analysis. Lets telemetry queries
+  // separate optimized runs from forced-full baseline runs.
+  forceFullQualityActive Boolean @default(false)
   createdAt           DateTime @default(now())
 
   @@index([createdAt])

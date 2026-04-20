@@ -552,6 +552,13 @@ export interface VerifyPipelineOptions {
    *  to the same StoryCluster as the arc instead of letting the cluster-matcher
    *  decide. */
   arcRerunTargetStoryId?: string | null
+  /** Per-run override for the cost-optimization layer. When true, all five
+   *  pipeline cost-optimization flags are forced off — full 4-model debate on
+   *  every source, no semantic dedup, no early consensus exit. Use for
+   *  flagship arc analyses, enterprise demos, and anything bound for the
+   *  public accuracy tracker. Resolves on top of PIPELINE_FORCE_FULL_QUALITY env var
+   *  (per-run argument wins when strictly true; otherwise env applies). */
+  forceFullQuality?: boolean
 }
 
 export async function runVerifyPipeline(
@@ -572,6 +579,19 @@ export async function runVerifyPipeline(
   // Reset cross-region model failure tracking and global state for this run
   resetModelFailureTracking()
   resetGlobalModelState()
+
+  // ── Resolve cost-optimization flags ──
+  // Foundation only: flags are resolved and logged but not yet acted upon.
+  // Each flag's behavior lands in a subsequent turn (see
+  // docs/plans/2026-04-19-cost-optimization-layer.md). The resolved object is
+  // the typed contract every flag's call site will consume.
+  const { resolveFlags, formatForceFullQualityWarning } = await import('@/lib/pipeline-flags')
+  const pipelineFlags = resolveFlags({ forceFullQuality: options.forceFullQuality })
+  if (pipelineFlags.forceFullQualityActive) {
+    console.warn(formatForceFullQualityWarning())
+  } else {
+    console.log(`[pipeline-flags] Active: ${pipelineFlags.flagsActive.join(', ') || '(none)'} | Off: ${pipelineFlags.flagsForcedOff.join(', ') || '(none)'}`)
+  }
 
   // ── PHASE 1: SEARCH ──────────────────────────────────────────────────
 
@@ -1078,23 +1098,186 @@ export async function runVerifyPipeline(
     }
   }
 
-  // Run debate for regions with sources + silence for regions without (all in parallel)
+  // Run debate for regions with sources + silence for regions without (all in parallel).
+  //
+  // Flag 1 (tiered_source_processing) routes each source through one of three
+  // sub-paths per region: full 4-model debate (wire/national/specialty),
+  // 2-model debate (regional, Claude+Grok only), or single Haiku summary
+  // (emerging/unclassified). When the flag is off — or when
+  // PIPELINE_FORCE_FULL_QUALITY is on — every source routes to full debate
+  // (existing behavior preserved). assertTier1FullDebate fires per source so
+  // any future refactor that misclassifies a tier-1 source crashes loudly.
   let allDebateRounds: DebateRoundData[] = []
 
-  const [debateResults, silenceAnalyses] = await Promise.all([
-    // Debate: 3-round AI debate per region with sources
+  // ── Single batched DB lookup for outlet tiers ──
+  // dispatchRegionByTier expects each source to carry its `tier` field. We
+  // batch-fetch Outlet.tier for all source domains across all regions in one
+  // DB query, then attach the tier per-source. Sources whose domain is not
+  // in the Outlet table default to 'unclassified'.
+  const { lookupSourceTiers, assignSourcesByTier } = await import('@/lib/pipeline-flags')
+  const { dispatchRegionByTier } = await import('@/lib/tier-dispatch')
+  const allDispatchSources = regionsWithSources.flatMap((region) =>
+    sourcesByRegion.get(region)!.map((s) => ({ url: s.url }))
+  )
+  const tierByUrl = await lookupSourceTiers(allDispatchSources)
+
+  // ── Pre-dispatch flag chain ──
+  // Build the global source list once, classify by tier once, then chain
+  // Flag 2 (arc_rerun_differential) and Flag 3 (semantic_dedup) overrides on
+  // top. Each flag may demote non-tier-1 sources to haiku_summary; tier-1
+  // sources (wire/national/specialty) are protected by assertTier1FullDebate.
+  // The final pathOverrides map fed to dispatch is the diff between the
+  // tier-only classification and the post-chain classification.
+  const globalSources = regionsWithSources.flatMap((region) =>
+    sourcesByRegion.get(region)!.map((s) => ({
+      url: s.url,
+      outlet: s.outlet,
+      title: s.title,
+      content: s.content,
+      publishedAt: publishedAtMap.get(s.url) ?? undefined,
+    })),
+  )
+  const tierClassified = assignSourcesByTier(
+    globalSources.map((s) => ({ url: s.url, outlet: s.outlet, tier: tierByUrl[s.url] ?? 'unclassified' })),
+    pipelineFlags,
+  )
+  let currentClassified: ReturnType<typeof assignSourcesByTier> = tierClassified
+
+  // ── Flag 2 (arc_rerun_differential): pre-dispatch novelty classification ──
+  let flag2Telemetry = {
+    skippedReason: 'not_arc_rerun' as 'not_arc_rerun' | 'flag_off' | 'no_baseline' | 'classified',
+    continuingCount: 0,
+    newCount: 0,
+    sampledCount: 0,
+    demotedCount: 0,
+    classifierCostUsd: 0,
+  }
+  if (arcOptions.analysisType !== 'arc_rerun') {
+    flag2Telemetry.skippedReason = 'not_arc_rerun'
+  } else if (!pipelineFlags.arc_rerun_differential) {
+    flag2Telemetry.skippedReason = 'flag_off'
+    console.log('[pipeline-flags] Flag 2 skipped — PIPELINE_ARC_RERUN_DIFFERENTIAL=0 (or force-full active)')
+  } else {
+    const { findArcRerunBaseline, applyNoveltyToPaths, pickStabilityCheckSample, STABILITY_SAMPLE_RATE } =
+      await import('@/lib/arc-rerun-differential')
+    const { classifySourceNovelty } = await import('@/agents/source-novelty-classifier')
+
+    const baseline = await findArcRerunBaseline(arcOptions.attachToClusterId, undefined)
+    if (!baseline) {
+      flag2Telemetry.skippedReason = 'no_baseline'
+      console.log('[pipeline-flags] Flag 2 skipped — no baseline arc analysis found in cluster')
+    } else {
+      flag2Telemetry.skippedReason = 'classified'
+
+      const classifierResult = await classifySourceNovelty(globalSources, baseline, query)
+      flag2Telemetry.classifierCostUsd = classifierResult.costUsd
+      totalCost += classifierResult.costUsd
+
+      const noveltyByUrl: Record<string, 'new_since_last_run' | 'continuing_coverage'> = {}
+      for (const c of classifierResult.classifications) noveltyByUrl[c.url] = c.novelty
+      const continuingUrls = classifierResult.classifications
+        .filter((c) => c.novelty === 'continuing_coverage')
+        .map((c) => c.url)
+      flag2Telemetry.continuingCount = continuingUrls.length
+      flag2Telemetry.newCount = classifierResult.classifications.length - flag2Telemetry.continuingCount
+
+      // Stability sample (20%) — seeded by the arc-root Story id for reproducibility.
+      const seed = arcOptions.arcRootStoryId ?? `arc-rerun-cluster-${arcOptions.attachToClusterId}`
+      const sampleArray = pickStabilityCheckSample(continuingUrls, STABILITY_SAMPLE_RATE, seed)
+      flag2Telemetry.sampledCount = sampleArray.length
+
+      const beforeFlag2 = currentClassified
+      currentClassified = applyNoveltyToPaths(currentClassified, noveltyByUrl, sampleArray, pipelineFlags)
+      for (let i = 0; i < beforeFlag2.length; i++) {
+        if (beforeFlag2[i].assignedPath !== currentClassified[i].assignedPath) flag2Telemetry.demotedCount++
+      }
+      console.log(
+        `[pipeline-flags] Flag 2 classified ${globalSources.length} sources: ` +
+        `${flag2Telemetry.newCount} new | ${flag2Telemetry.continuingCount} continuing ` +
+        `(${flag2Telemetry.sampledCount} sampled into debate, ${flag2Telemetry.demotedCount} demoted to haiku) ` +
+        `| classifier $${classifierResult.costUsd.toFixed(4)}`,
+      )
+    }
+  }
+
+  // ── Flag 3 (semantic_dedup): uniqueness scoring against the source pool ──
+  // One Haiku batch call scoring each source 0-10 for claim uniqueness vs the
+  // rest of the pool. Sources scoring below the threshold (default 4) are
+  // demoted to haiku_summary by applyUniquenessToPaths. Tier-1 sources are
+  // protected by assertTier1FullDebate. Runs regardless of analysisType
+  // (independent of Flag 2).
+  let flag3Telemetry = {
+    skippedReason: 'flag_off' as 'flag_off' | 'no_sources' | 'scored',
+    scoredCount: 0,
+    demotedCount: 0,
+    scorerCostUsd: 0,
+  }
+  if (!pipelineFlags.semantic_dedup) {
+    flag3Telemetry.skippedReason = 'flag_off'
+    console.log('[pipeline-flags] Flag 3 skipped — PIPELINE_SEMANTIC_DEDUP=0 (or force-full active)')
+  } else if (globalSources.length === 0) {
+    flag3Telemetry.skippedReason = 'no_sources'
+  } else {
+    const { applyUniquenessToPaths, DEFAULT_UNIQUENESS_THRESHOLD } = await import('@/lib/semantic-dedup')
+    const { scoreSourceUniqueness } = await import('@/agents/source-uniqueness-scorer')
+
+    const scorerResult = await scoreSourceUniqueness(
+      globalSources.map((s) => ({ url: s.url, outlet: s.outlet, title: s.title, content: s.content })),
+      query,
+    )
+    flag3Telemetry.scorerCostUsd = scorerResult.costUsd
+    flag3Telemetry.scoredCount = scorerResult.scores.length
+    flag3Telemetry.skippedReason = 'scored'
+    totalCost += scorerResult.costUsd
+
+    const scoresByUrl: Record<string, number> = {}
+    for (const s of scorerResult.scores) scoresByUrl[s.url] = s.score
+
+    const beforeFlag3 = currentClassified
+    currentClassified = applyUniquenessToPaths(currentClassified, scoresByUrl, DEFAULT_UNIQUENESS_THRESHOLD, pipelineFlags)
+    for (let i = 0; i < beforeFlag3.length; i++) {
+      if (beforeFlag3[i].assignedPath !== currentClassified[i].assignedPath) flag3Telemetry.demotedCount++
+    }
+    const belowThreshold = Object.values(scoresByUrl).filter((s) => s < DEFAULT_UNIQUENESS_THRESHOLD).length
+    console.log(
+      `[pipeline-flags] Flag 3 scored ${scorerResult.scores.length} sources: ` +
+      `${belowThreshold} below threshold (<${DEFAULT_UNIQUENESS_THRESHOLD}), ` +
+      `${flag3Telemetry.demotedCount} actually demoted to haiku (tier-1 protected) ` +
+      `| scorer $${scorerResult.costUsd.toFixed(4)}`,
+    )
+  }
+
+  // Build the final pathOverrides map: diff between tier-only and post-chain classification.
+  let combinedPathOverrides: ReadonlyMap<string, ReturnType<typeof assignSourcesByTier>[number]['assignedPath']> | undefined
+  if (currentClassified !== tierClassified) {
+    const overrides = new Map<string, ReturnType<typeof assignSourcesByTier>[number]['assignedPath']>()
+    for (let i = 0; i < tierClassified.length; i++) {
+      if (tierClassified[i].assignedPath !== currentClassified[i].assignedPath) {
+        overrides.set(tierClassified[i].url, currentClassified[i].assignedPath)
+      }
+    }
+    combinedPathOverrides = overrides
+  }
+
+  const [dispatchResults, silenceAnalyses] = await Promise.all([
     Promise.all(
       regionsWithSources.map(async (region) => {
         const sources = sourcesByRegion.get(region)!
-        const result = await runRegionalDebate(region, sources, query, undefined, (msg) => {
-          onProgress('debate', {
-            phase: 'analysis',
-            message: msg,
-            region,
-            type: 'debate',
-          })
+        const dispatchInputs = sources.map((s) => ({
+          url: s.url,
+          title: s.title,
+          outlet: s.outlet,
+          content: s.content,
+          tier: tierByUrl[s.url] ?? 'unclassified',
+          publishedAt: publishedAtMap.get(s.url) ?? undefined,
+        }))
+        const result = await dispatchRegionByTier(region, dispatchInputs, query, pipelineFlags, {
+          pathOverrides: combinedPathOverrides,
+          onProgress: (msg) => {
+            onProgress('debate', { phase: 'analysis', message: msg, region, type: 'debate' })
+          },
         })
-        totalCost += result.totalCost
+        totalCost += result.analysis.costUsd
         return result
       }),
     ),
@@ -1118,13 +1301,69 @@ export async function runVerifyPipeline(
     ),
   ])
 
-  // Convert debate results to RegionalAnalysis format for synthesis
-  const regionalAnalyses = debateResults.map((d) =>
-    moderatorToRegionalAnalysis(d.moderatorOutput, d.moderatorOutput.region, d.totalCost)
-  )
+  // Use merged RegionalAnalysis from dispatch (already in synthesis-ready shape).
+  const regionalAnalyses = dispatchResults.map((d) => d.analysis)
 
   // Collect all debate rounds for DB storage
-  allDebateRounds = debateResults.flatMap((d) => d.debateRounds)
+  allDebateRounds = dispatchResults.flatMap((d) => d.debateRounds)
+
+  // Aggregate Flag 1 + Flag 4 telemetry for the pipeline_savings summary writer.
+  const tierTelemetry = dispatchResults.reduce(
+    (acc, d) => {
+      acc.fullDebateCount += d.telemetry.fullDebateCount
+      acc.fullDebateActualCost += d.telemetry.fullDebateCostUsd
+      acc.twoModelCount += d.telemetry.twoModelCount
+      acc.twoModelActualCost += d.telemetry.twoModelCostUsd
+      acc.haikuCount += d.telemetry.haikuCount
+      acc.haikuActualCost += d.telemetry.haikuCostUsd
+      return acc
+    },
+    {
+      fullDebateCount: 0, fullDebateActualCost: 0,
+      twoModelCount: 0, twoModelActualCost: 0,
+      haikuCount: 0, haikuActualCost: 0,
+    },
+  )
+  console.log(
+    `[pipeline-flags] Flag 1 tier dispatch: ${tierTelemetry.fullDebateCount} full | ` +
+    `${tierTelemetry.twoModelCount} two-model | ${tierTelemetry.haikuCount} haiku-summary`,
+  )
+
+  // Aggregate Flag 4 telemetry across all per-region full debates.
+  const flag4Telemetry = dispatchResults.reduce(
+    (acc, d) => {
+      const f4 = d.telemetry.flag4
+      if (!f4) return acc
+      acc.regionsAssessed += 1
+      if (f4.consensusExited) acc.regionsExited += 1
+      acc.consensusClaimsTotal += f4.consensusClaimsCount
+      acc.contestedClaimsTotal += f4.contestedClaimsCount
+      acc.assessorCostUsd += f4.assessorCostUsd
+      return acc
+    },
+    {
+      regionsAssessed: 0,
+      regionsExited: 0,
+      consensusClaimsTotal: 0,
+      contestedClaimsTotal: 0,
+      assessorCostUsd: 0,
+    },
+  )
+  console.log(
+    `[pipeline-flags] Flag 4 (consensus exit): ${flag4Telemetry.regionsExited}/${flag4Telemetry.regionsAssessed} regions exited early | ` +
+    `${flag4Telemetry.consensusClaimsTotal} consensus claims | ${flag4Telemetry.contestedClaimsTotal} contested claims | ` +
+    `assessor $${flag4Telemetry.assessorCostUsd.toFixed(4)}`,
+  )
+
+  // Aggregate Flag 5 telemetry: count of sources demoted to haiku because
+  // they fell beyond the per-region top-N cap.
+  const flag5Telemetry = dispatchResults.reduce(
+    (acc, d) => { acc.demotedCount += d.telemetry.flag5DemotedCount; return acc },
+    { demotedCount: 0 },
+  )
+  console.log(
+    `[pipeline-flags] Flag 5 (regional pool cap): ${flag5Telemetry.demotedCount} non-tier-1 source(s) demoted to haiku across all regions (cap=8 per region)`,
+  )
 
   // ── PHASE 5: SYNTHESIS ───────────────────────────────────────────────
 
@@ -1822,6 +2061,102 @@ export async function runVerifyPipeline(
     }
   } catch (err) {
     console.error('[pipeline] Signal tracking failed (non-blocking):', err instanceof Error ? err.message : err)
+  }
+
+  // ── Pipeline savings summary ──
+  // One CostLog row per analysis with agentType='pipeline_savings' so dashboards
+  // can separate per-call cost from optimization telemetry.
+  //
+  // Flag 1 (tiered_source_processing) contributes to savings via tierTelemetry
+  // collected from dispatchRegionByTier above. estimateFullDebateCost converts
+  // that into a per-flag savings figure: what the analysis WOULD have cost if
+  // every source had gone through full debate (the PIPELINE_FORCE_FULL_QUALITY
+  // baseline). Subsequent flags (2, 3, 4, 5) will append their own contributions
+  // to perFlagSavings as their call sites land.
+  try {
+    const { writePipelineSavingsSummary } = await import('@/lib/pipeline-flags')
+    const { estimateFullDebateCost, FALLBACK_FULL_PER_SOURCE_USD } = await import('@/lib/tier-dispatch')
+    const flag1Estimate = estimateFullDebateCost({
+      fullDebateCount: tierTelemetry.fullDebateCount,
+      fullDebateActualCost: tierTelemetry.fullDebateActualCost,
+      twoModelCount: tierTelemetry.twoModelCount,
+      twoModelActualCost: tierTelemetry.twoModelActualCost,
+      haikuCount: tierTelemetry.haikuCount,
+      haikuActualCost: tierTelemetry.haikuActualCost,
+    })
+
+    // Per-flag contributions. Each demoted source moved from (full or two-model)
+    // to haiku. Approximate per-source savings as the observed full-debate
+    // cost-per-source rate (or the fallback constant when no full debate ran).
+    // Subtract each flag's own Haiku call cost (classifier / scorer) so the
+    // savings figure is net of the flag's own spend.
+    const observedFullPerSource =
+      tierTelemetry.fullDebateCount > 0
+        ? tierTelemetry.fullDebateActualCost / tierTelemetry.fullDebateCount
+        : FALLBACK_FULL_PER_SOURCE_USD
+    const flag2GrossSavings = flag2Telemetry.demotedCount * observedFullPerSource
+    const flag2NetSavings = Math.max(0, flag2GrossSavings - flag2Telemetry.classifierCostUsd)
+    const flag3GrossSavings = flag3Telemetry.demotedCount * observedFullPerSource
+    const flag3NetSavings = Math.max(0, flag3GrossSavings - flag3Telemetry.scorerCostUsd)
+
+    // Flag 4 savings: per region that exited via consensus, we saved the cost
+    // of R2 (4 cross-exam calls) + R3 (1 moderator call) = roughly 5 sonnet
+    // calls. Approximate as 5/9 of a full-debate region's cost (R1=4 calls,
+    // R2=4, R3=1 = 9 total; skipping 5 saves ~5/9 of region cost).
+    // Net of the assessor Haiku spend.
+    const avgFullRegionCost =
+      flag4Telemetry.regionsAssessed > 0
+        ? tierTelemetry.fullDebateActualCost / Math.max(1, flag4Telemetry.regionsAssessed)
+        : FALLBACK_FULL_PER_SOURCE_USD * 6 // rough fallback per region
+    const flag4GrossSavings = flag4Telemetry.regionsExited * (avgFullRegionCost * (5 / 9))
+    const flag4NetSavings = Math.max(0, flag4GrossSavings - flag4Telemetry.assessorCostUsd)
+
+    // Flag 5 savings: each demoted source moved from (full or two-model) to
+    // haiku. Same approximation as Flag 1/2/3: per-source rate \xd7 demoted count.
+    // No classifier cost (Flag 5 is pure sort/cap, no Haiku call).
+    const flag5Savings = flag5Telemetry.demotedCount * observedFullPerSource
+
+    // Combined estimated full-quality cost = actual + (sum of all flag savings).
+    // Each flag's savings is the slice of cost it eliminated from baseline.
+    const totalSavings = flag1Estimate.savingsUsd + flag2NetSavings + flag3NetSavings + flag4NetSavings + flag5Savings
+    const estimatedFullCostUsd = totalCost + totalSavings
+
+    const summary = await writePipelineSavingsSummary({
+      storyId: story.id,
+      flags: pipelineFlags,
+      actualCostUsd: totalCost,
+      estimatedFullCostUsd,
+      perFlagSavings: {
+        tiered_source_processing: flag1Estimate.savingsUsd,
+        arc_rerun_differential: flag2NetSavings,
+        semantic_dedup: flag3NetSavings,
+        confidence_threshold_exit: flag4NetSavings,
+        regional_debate_pooling: flag5Savings,
+      },
+      sourcesFiltered: {
+        tier_haiku_only: tierTelemetry.haikuCount,
+        tier_two_model_only: tierTelemetry.twoModelCount,
+        arc_rerun_continuing: flag2Telemetry.demotedCount,
+        below_uniqueness: flag3Telemetry.demotedCount,
+        regional_pool_overflow: flag5Telemetry.demotedCount,
+      },
+    })
+    console.log(
+      `[pipeline-flags] Wrote pipeline_savings summary row ${summary.id.substring(0, 8)} | ` +
+      `actual=$${totalCost.toFixed(4)} | estFull=$${estimatedFullCostUsd.toFixed(4)} | ` +
+      `flag1Savings=$${flag1Estimate.savingsUsd.toFixed(4)} | ` +
+      `flag2Savings=$${flag2NetSavings.toFixed(4)} (demoted=${flag2Telemetry.demotedCount}, classifier=$${flag2Telemetry.classifierCostUsd.toFixed(4)}, reason=${flag2Telemetry.skippedReason}) | ` +
+      `flag3Savings=$${flag3NetSavings.toFixed(4)} (demoted=${flag3Telemetry.demotedCount}, scorer=$${flag3Telemetry.scorerCostUsd.toFixed(4)}, reason=${flag3Telemetry.skippedReason}) | ` +
+      `flag4Savings=$${flag4NetSavings.toFixed(4)} (regionsExited=${flag4Telemetry.regionsExited}/${flag4Telemetry.regionsAssessed}, assessor=$${flag4Telemetry.assessorCostUsd.toFixed(4)}) | ` +
+      `flag5Savings=$${flag5Savings.toFixed(4)} (demoted=${flag5Telemetry.demotedCount}) | ` +
+      `tierSplit=${tierTelemetry.fullDebateCount}/${tierTelemetry.twoModelCount}/${tierTelemetry.haikuCount} (full/2-model/haiku) | ` +
+      `forceFullQualityActive=${pipelineFlags.forceFullQualityActive}`,
+    )
+  } catch (err) {
+    console.error(
+      '[pipeline-flags] Failed to write pipeline_savings summary (non-blocking):',
+      err instanceof Error ? err.message : err,
+    )
   }
 
   onProgress('complete', {

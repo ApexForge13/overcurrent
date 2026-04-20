@@ -33,7 +33,7 @@
  */
 
 import type { IntegrationResult, IntegrationRunner } from '../runner'
-import { safeErrorRow } from '../error-shape'
+import { safeErrorRow, safeStringify, ERROR_VERSION } from '../error-shape'
 import { prisma } from '@/lib/db'
 import { fetchWithTimeout } from '@/lib/utils'
 
@@ -202,10 +202,14 @@ export const polygonRunner: IntegrationRunner = async (ctx) => {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[raw-signals/polygon] Ticker resolution failed:', message)
     return safeErrorRow({
-      errorType: 'prisma_query_failed',
-      err,
-      // First 10 entities only — telemetry size guard; full list recoverable via StoryCluster.clusterKeywords
-      context: { clusterEntities: ctx.cluster.entities.slice(0, 10) },
+      error: {
+        errorVersion: ERROR_VERSION,
+        errorType: 'prisma_query_failed',
+        rawSignalQueueId: ctx.queueId,
+        // First 10 entities only — telemetry size guard; full list recoverable via StoryCluster.clusterKeywords
+        clusterEntities: ctx.cluster.entities.slice(0, 10),
+        message: safeStringify(err),
+      },
       signalSource: 'polygon',
       captureDate: ctx.cluster.firstDetectedAt,
       haikuSummary: 'Financial signal unavailable — ticker resolution failed.',

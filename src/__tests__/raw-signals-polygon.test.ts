@@ -65,13 +65,18 @@ describe('polygonRunner', () => {
     expect(result!.confidenceLevel).toBe('unavailable')
     expect(result!.haikuSummary).toMatch(/ticker resolution failed/i)
     const payload = result!.rawContent as {
+      errorVersion: number
       errorType: string
       message: string
-      context?: Record<string, unknown>
+      rawSignalQueueId?: string
+      clusterEntities?: string[]
+      prismaCode?: string
     }
+    expect(payload.errorVersion).toBe(1)
     expect(payload.errorType).toBe('prisma_query_failed')
     expect(payload.message).toContain('DB connection lost')
-    expect(payload.context).toBeDefined()
+    expect(payload.rawSignalQueueId).toBe('q1')  // baseCtx has queueId: 'q1'
+    expect(Array.isArray(payload.clusterEntities)).toBe(true)
   })
 
   it('fetches EOD + snapshot + reference per ticker and writes high-confidence row when all endpoints succeed', async () => {

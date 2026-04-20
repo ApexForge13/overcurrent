@@ -1277,7 +1277,7 @@ model HistoricalSpendingBaseline {
   @@index([awardDate])
 }
 
-// HistoricalEquityBaseline — Yahoo Finance six-month OHLCV backfill.
+// HistoricalEquityBaseline — Polygon EOD OHLCV backfill (Phase 10 populates).
 // NEVER feeds trajectory scores, momentum flags, or predictive confidence percentages.
 model HistoricalEquityBaseline {
   id                   String   @id @default(cuid())

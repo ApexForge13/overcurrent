@@ -485,6 +485,8 @@ type OrbitCtrl = {
   update: () => void;
   dispose: () => void;
   setEnabled: (v: boolean) => void;
+  /** Multiplicative zoom. factor <1 zooms in, factor >1 zooms out. Clamped. */
+  zoomBy: (factor: number) => void;
 };
 
 function makeOrbitControls(
@@ -578,6 +580,13 @@ function makeOrbitControls(
       enabled = v;
       dom.style.cursor = v ? "grab" : "default";
     },
+    zoomBy(factor: number) {
+      // Bypass `enabled` intentionally — zoom buttons should work for free-tier
+      // users too; the read-only gate only disables drag/pan/hover, not zoom.
+      spherical.radius *= factor;
+      spherical.radius = Math.max(30, Math.min(480, spherical.radius));
+      userInput = performance.now();
+    },
   };
 }
 
@@ -642,6 +651,7 @@ export function NeuralNetworkHero({
   const storyRef = useRef<HeroStory | null>(story);
   const interactiveRef = useRef(interactive);
   const controlsSetEnabledRef = useRef<((v: boolean) => void) | null>(null);
+  const zoomByRef = useRef<((factor: number) => void) | null>(null);
   useEffect(() => {
     storyRef.current = story;
   }, [story]);
@@ -676,6 +686,7 @@ export function NeuralNetworkHero({
       enabled: interactiveRef.current,
     });
     controlsSetEnabledRef.current = (v: boolean) => controls.setEnabled(v);
+    zoomByRef.current = (factor: number) => controls.zoomBy(factor);
 
     // build graph
     const innerNodes = buildInner(50);
@@ -1734,6 +1745,11 @@ export function NeuralNetworkHero({
         </div>
       </div>
 
+      {/* Zoom controls — always available (not tier-gated) so every visitor */}
+      {/* can inspect the galaxy. Uses explicit buttons so users don't have   */}
+      {/* to discover the shift+scroll shortcut.                              */}
+      <ZoomButtons onZoom={(f) => zoomByRef.current?.(f)} />
+
       {/* crosshair reticle */}
       <div
         className="pointer-events-none absolute left-1/2 top-1/2"
@@ -2305,22 +2321,27 @@ function GeoTimeline({
     <div
       className="pointer-events-none absolute"
       style={{
-        bottom: 44,
-        left: 40,
+        // Sits above the bottom-center phase bar (which is ~90px tall at
+        // bottom:44, so its top edge is ~134). bottom:160 gives ~26px margin.
+        // Compact width (~370px) clears the 640px centered phase bar on all
+        // desktop viewports ≥1024px.
+        bottom: 160,
+        left: 24,
         fontFamily: "'JetBrains Mono', monospace",
         fontSize: 9,
         letterSpacing: "0.22em",
         color: "rgba(255,255,255,0.6)",
         background: "rgba(8,12,20,0.78)",
         border: "1px solid rgba(0,245,212,0.22)",
-        padding: "10px 14px",
+        padding: "8px 11px",
       }}
     >
       <div
         style={{
           color: "rgba(0,245,212,0.9)",
-          marginBottom: 10,
-          letterSpacing: "0.3em",
+          marginBottom: 8,
+          letterSpacing: "0.28em",
+          fontSize: 8,
         }}
       >
         ◇ GEOGRAPHIC SPREAD
@@ -2337,27 +2358,27 @@ function GeoTimeline({
               <div
                 style={{
                   textAlign: "center",
-                  minWidth: 78,
+                  minWidth: 50,
                   opacity: active ? 1 : 0.35,
                   transition: "opacity 0.5s ease",
                 }}
               >
                 <div
                   style={{
-                    width: 10,
-                    height: 10,
-                    margin: "0 auto 6px",
+                    width: 8,
+                    height: 8,
+                    margin: "0 auto 4px",
                     borderRadius: "50%",
                     background: active ? r.color : "transparent",
                     border: `1px solid ${active ? r.color : "rgba(255,255,255,0.25)"}`,
-                    boxShadow: active ? `0 0 12px ${r.color}` : "none",
+                    boxShadow: active ? `0 0 10px ${r.color}` : "none",
                     animation: active ? "ocGeoPop 0.5s ease-out" : "none",
                   }}
                 />
                 <div
                   style={{
-                    fontSize: 8,
-                    letterSpacing: "0.22em",
+                    fontSize: 7,
+                    letterSpacing: "0.2em",
                     color: active ? r.color : "rgba(255,255,255,0.4)",
                   }}
                 >
@@ -2365,9 +2386,9 @@ function GeoTimeline({
                 </div>
                 <div
                   style={{
-                    fontSize: 8,
-                    letterSpacing: "0.08em",
-                    marginTop: 3,
+                    fontSize: 7,
+                    letterSpacing: "0.05em",
+                    marginTop: 2,
                     color: active ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.2)",
                   }}
                 >
@@ -2379,8 +2400,8 @@ function GeoTimeline({
                   style={{
                     flex: 1,
                     height: 1,
-                    marginTop: 15,
-                    minWidth: 18,
+                    marginTop: 12,
+                    minWidth: 10,
                     background:
                       active && nextActive
                         ? `linear-gradient(90deg, ${r.color}, ${GEO_REGIONS[i + 1].color})`
@@ -2580,6 +2601,76 @@ function CornerBrackets() {
       <div style={s({ bottom: 16, left: 16, borderBottom: `1px solid ${color}`, borderLeft: `1px solid ${color}` })} />
       <div style={s({ bottom: 16, right: 16, borderBottom: `1px solid ${color}`, borderRight: `1px solid ${color}` })} />
     </>
+  );
+}
+
+// Manual zoom buttons — positioned bottom-right above the controls hint.
+// Tactical HUD styling matches the rest of the surface. Always clickable
+// (pointerEvents:auto) because this is a user-initiated camera control.
+function ZoomButtons({ onZoom }: { onZoom: (factor: number) => void }) {
+  const btn: CSSProperties = {
+    width: 34,
+    height: 34,
+    background: "rgba(8,12,20,0.78)",
+    border: "1px solid rgba(0,245,212,0.38)",
+    color: "rgba(0,245,212,0.9)",
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 16,
+    lineHeight: "1",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    transition: "background 150ms, border-color 150ms",
+  };
+  return (
+    <div
+      className="absolute"
+      style={{
+        right: 40,
+        bottom: 92,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        pointerEvents: "auto",
+      }}
+    >
+      <button
+        type="button"
+        aria-label="Zoom in"
+        title="Zoom in"
+        onClick={() => onZoom(0.82)}
+        style={btn}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "rgba(0,245,212,0.12)";
+          e.currentTarget.style.borderColor = "rgba(0,245,212,0.8)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "rgba(8,12,20,0.78)";
+          e.currentTarget.style.borderColor = "rgba(0,245,212,0.38)";
+        }}
+      >
+        +
+      </button>
+      <button
+        type="button"
+        aria-label="Zoom out"
+        title="Zoom out"
+        onClick={() => onZoom(1.22)}
+        style={btn}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "rgba(0,245,212,0.12)";
+          e.currentTarget.style.borderColor = "rgba(0,245,212,0.8)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "rgba(8,12,20,0.78)";
+          e.currentTarget.style.borderColor = "rgba(0,245,212,0.38)";
+        }}
+      >
+        −
+      </button>
+    </div>
   );
 }
 

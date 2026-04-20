@@ -948,9 +948,11 @@ model PacerDocumentApproval {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
+  @@unique([rawSignalQueueId, docketEntryId])
   @@index([rawSignalQueueId])
   @@index([approvedAt])
   @@index([declinedAt])
+  @@index([resultSignalLayerId])
 }
 
 // Case study archive — internal evidence library for enterprise sales.

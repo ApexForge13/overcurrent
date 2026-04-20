@@ -58,6 +58,9 @@ CREATE TABLE "PacerDocumentApproval" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "PacerDocumentApproval_rawSignalQueueId_docketEntryId_key" ON "PacerDocumentApproval"("rawSignalQueueId", "docketEntryId");
+
+-- CreateIndex
 CREATE INDEX "PacerDocumentApproval_rawSignalQueueId_idx" ON "PacerDocumentApproval"("rawSignalQueueId");
 
 -- CreateIndex
@@ -65,6 +68,9 @@ CREATE INDEX "PacerDocumentApproval_approvedAt_idx" ON "PacerDocumentApproval"("
 
 -- CreateIndex
 CREATE INDEX "PacerDocumentApproval_declinedAt_idx" ON "PacerDocumentApproval"("declinedAt");
+
+-- CreateIndex
+CREATE INDEX "PacerDocumentApproval_resultSignalLayerId_idx" ON "PacerDocumentApproval"("resultSignalLayerId");
 
 -- AddForeignKey
 ALTER TABLE "PacerDocumentApproval" ADD CONSTRAINT "PacerDocumentApproval_rawSignalQueueId_fkey" FOREIGN KEY ("rawSignalQueueId") REFERENCES "RawSignalQueue"("id") ON DELETE CASCADE ON UPDATE CASCADE;

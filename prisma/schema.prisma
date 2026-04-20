@@ -913,6 +913,7 @@ model RawSignalQueue {
   dismissalReason       String?
   recapContribution     Boolean  @default(true)   // for PACER: contribute pulled doc to RECAP archive
   resultSignalLayerId   String?                   // FK to RawSignalLayer once completed
+  pacerDocumentApprovals PacerDocumentApproval[]
   errorMessage          String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -921,6 +922,35 @@ model RawSignalQueue {
   @@index([status])
   @@index([signalType])
   @@index([approvedByAdmin])
+}
+
+// Per-document Gate 2 audit log for PACER pulls.
+// Created in fan-out when admin approves Gate 1 on a RawSignalQueue cluster.
+// approvedAt is the trigger for the actual PACER pull worker.
+model PacerDocumentApproval {
+  id                  String   @id @default(cuid())
+  rawSignalQueueId    String
+  rawSignalQueue      RawSignalQueue @relation(fields: [rawSignalQueueId], references: [id], onDelete: Cascade)
+  docketEntryId       String
+  docketNumber        String
+  court               String
+  description         String
+  pageCount           Int
+  estimatedCostUsd    Float
+  actualCostUsd       Float?
+  recapContribute     Boolean  @default(true)
+  approvedAt          DateTime?
+  approvedBy          String?
+  declinedAt          DateTime?
+  declinedReason      String?
+  recapContributedAt  DateTime?
+  resultSignalLayerId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([rawSignalQueueId])
+  @@index([approvedAt])
+  @@index([declinedAt])
 }
 
 // Case study archive — internal evidence library for enterprise sales.

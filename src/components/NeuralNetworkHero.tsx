@@ -1034,8 +1034,13 @@ export function NeuralNetworkHero({
       if (to !== "debate") setDebateModel(null);
     }
 
+    // Holds the in-flight typewriter interval so a re-kickoff can cancel it.
+    // Prevents racing tickers if visibilitychange restarts mid-cycle.
+    let typewriterTid = 0;
+
     function kickoffQuery() {
       const now = performance.now();
+      window.clearInterval(typewriterTid);
       // Prefer the real-story query when available; otherwise rotate demo samples.
       const q =
         storyRef.current?.query ??
@@ -1047,10 +1052,10 @@ export function NeuralNetworkHero({
       setGeoHits([]);
       setSourcesRead(0);
       let i = 0;
-      const tid = window.setInterval(() => {
+      typewriterTid = window.setInterval(() => {
         i++;
         setTypedQuery(q.slice(0, i));
-        if (i >= q.length) window.clearInterval(tid);
+        if (i >= q.length) window.clearInterval(typewriterTid);
       }, 22);
       advancePhase("prompt", now);
       seq.queryStart = now;
@@ -1074,6 +1079,40 @@ export function NeuralNetworkHero({
       }
     }
     const startTimer = window.setTimeout(tryKickoff, 300);
+
+    // When the tab returns to visible after a LONG hidden gap, restart the
+    // cycle. Chromium throttles rAF in hidden tabs to ~1Hz (or pauses when
+    // the window is minimized). Threshold tuning:
+    //   <15s hidden → let the clamp-and-advance logic catch up naturally.
+    //     Brief alt-tabs (Slack, email) resume mid-story; a full restart
+    //     would feel twitchy and unstable on every context switch.
+    //   ≥15s hidden → restart cleanly. User missed enough of the ~45s
+    //     sequence that a fresh cycle is the better experience than a
+    //     jarring mid-phase jump.
+    // We measure the actual hidden-state duration via the two edges of the
+    // visibilitychange event — NOT rAF gap — because rAF is paused in a
+    // hidden tab, so "time since last frame" would over-report and fire on
+    // every return regardless of duration.
+    // Known edge case accepted: visible-but-occluded windows (other window
+    // covering a technically-visible tab) still throttle rAF without firing
+    // visibilitychange. Detecting that needs perf.now drift + IntersectionObserver
+    // and is past diminishing returns for a hero animation.
+    const VIS_RESTART_THRESHOLD_MS = 15_000;
+    let hiddenAt = 0;
+    function onVisChange() {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = performance.now();
+        return;
+      }
+      // → visible
+      if (!kickedOff || hiddenAt === 0) return;
+      const hiddenDuration = performance.now() - hiddenAt;
+      hiddenAt = 0;
+      if (hiddenDuration > VIS_RESTART_THRESHOLD_MS) {
+        kickoffQuery();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisChange);
 
     function tickSequencer(now: number) {
       const def = getPhaseDef(seq.phase);
@@ -1492,6 +1531,8 @@ export function NeuralNetworkHero({
 
     return () => {
       kickedOff = true; // prevent any pending tryKickoff from firing after unmount
+      document.removeEventListener("visibilitychange", onVisChange);
+      window.clearInterval(typewriterTid);
       cancelAnimationFrame(rafId);
       window.clearTimeout(startTimer);
       window.clearTimeout(pollTid);

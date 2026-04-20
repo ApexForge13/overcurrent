@@ -53,4 +53,17 @@ describe('polygonRunner', () => {
     expect(result!.haikuSummary).toMatch(/no equity-tradable entities/i)
     expect((result!.rawContent as Record<string, unknown>).resolvedTickers).toEqual([])
   })
+
+  it('writes unavailable row when ticker resolution throws', async () => {
+    process.env.POLYGON_API_KEY = 'pk_test'
+    const { prisma } = await import('@/lib/db')
+    vi.spyOn(prisma.tickerEntityMap, 'findMany').mockRejectedValue(
+      new Error('DB connection lost'),
+    )
+
+    const result = await polygonRunner(baseCtx)
+    expect(result!.confidenceLevel).toBe('unavailable')
+    expect(result!.haikuSummary).toMatch(/ticker resolution failed/i)
+    expect((result!.rawContent as Record<string, unknown>).error).toBe('ticker_resolve_failed')
+  })
 })

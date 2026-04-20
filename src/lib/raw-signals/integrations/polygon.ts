@@ -35,19 +35,32 @@
 import type { IntegrationRunner } from '../runner'
 import { prisma } from '@/lib/db'
 
-interface ResolvedTicker {
+export interface ResolvedTicker {
   ticker: string
   entityName: string
 }
 
 async function resolveTickersForCluster(entities: string[]): Promise<ResolvedTicker[]> {
   if (entities.length === 0) return []
+
+  // Build candidate set with punctuation-stripped variants. Case is handled
+  // at the DB level via Prisma mode: 'insensitive'. Common extractor noise:
+  // trailing period (corp.), trailing comma, multiple spaces, leading/trailing
+  // whitespace.
+  const candidates = new Set<string>()
+  for (const e of entities) {
+    const trimmed = e.trim().replace(/\s+/g, ' ')
+    if (trimmed.length === 0) continue
+    candidates.add(trimmed)
+    candidates.add(trimmed.replace(/[.,;:]+$/g, '').trim())
+  }
+
   const matches = await prisma.tickerEntityMap.findMany({
-    where: { entity: { name: { in: entities } } },
+    where: { entity: { name: { in: Array.from(candidates), mode: 'insensitive' } } },
     select: { ticker: true, entity: { select: { name: true } } },
     take: 25,
   })
-  // Dedup by ticker (in case one ticker maps through multiple entity rows)
+
   const seen = new Set<string>()
   const out: ResolvedTicker[] = []
   for (const m of matches) {
@@ -78,7 +91,29 @@ export const polygonRunner: IntegrationRunner = async (ctx) => {
     }
   }
 
-  const tickers = await resolveTickersForCluster(ctx.cluster.entities)
+  let tickers: ResolvedTicker[]
+  try {
+    tickers = await resolveTickersForCluster(ctx.cluster.entities)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[raw-signals/polygon] Ticker resolution failed:', message)
+    return {
+      rawContent: {
+        error: 'ticker_resolve_failed',
+        message,
+        // First 10 entities only — telemetry size guard; full list recoverable via StoryCluster.clusterKeywords
+        clusterEntities: ctx.cluster.entities.slice(0, 10),
+      },
+      haikuSummary: 'Financial signal unavailable — ticker resolution failed.',
+      signalSource: 'polygon',
+      captureDate: ctx.cluster.firstDetectedAt,
+      coordinates: null,
+      divergenceFlag: false,
+      divergenceDescription: null,
+      confidenceLevel: 'unavailable',
+    }
+  }
+
   if (tickers.length === 0) {
     return {
       rawContent: {

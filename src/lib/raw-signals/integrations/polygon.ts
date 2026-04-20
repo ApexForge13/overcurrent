@@ -33,6 +33,7 @@
  */
 
 import type { IntegrationRunner } from '../runner'
+import { safeErrorRow } from '../error-shape'
 import { prisma } from '@/lib/db'
 
 export interface ResolvedTicker {
@@ -40,6 +41,28 @@ export interface ResolvedTicker {
   entityName: string
 }
 
+/**
+ * Resolve cluster entity names to tickers via TickerEntityMap.
+ *
+ * NORMALIZATION STRATEGY: match-time, not write-time.
+ *
+ *   TickerEntityMap is populated with canonical provider-given names (SEC
+ *   EDGAR for ~12k entities, Phase 7). Write-time normalization would
+ *   lose the exact source string, which is useful for audits — so we
+ *   preserve the original at write time and normalize only when querying.
+ *
+ *   At match time we:
+ *     (a) expand the candidate set with trailing-punctuation-stripped
+ *         variants so "Apple Inc." and "Apple Inc" both hit the same row
+ *     (b) use Prisma's `mode: 'insensitive'` so casing is handled at the DB
+ *
+ *   This is O(candidates × DB roundtrip) and trivial at <30 entities/cluster.
+ *
+ *   ESCALATION: if Polygon-never-triggers telemetry shows significant
+ *   miss-rate attributable to name variance that punctuation/case can't
+ *   reach (e.g., "Apple" vs "Apple Inc" — missing suffix), migrate to a
+ *   normalizedName column on TickerEntityMap at write time. Revisit Phase 11+.
+ */
 async function resolveTickersForCluster(entities: string[]): Promise<ResolvedTicker[]> {
   if (entities.length === 0) return []
 
@@ -97,21 +120,15 @@ export const polygonRunner: IntegrationRunner = async (ctx) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[raw-signals/polygon] Ticker resolution failed:', message)
-    return {
-      rawContent: {
-        error: 'ticker_resolve_failed',
-        message,
-        // First 10 entities only — telemetry size guard; full list recoverable via StoryCluster.clusterKeywords
-        clusterEntities: ctx.cluster.entities.slice(0, 10),
-      },
-      haikuSummary: 'Financial signal unavailable — ticker resolution failed.',
+    return safeErrorRow({
+      errorType: 'prisma_query_failed',
+      err,
+      // First 10 entities only — telemetry size guard; full list recoverable via StoryCluster.clusterKeywords
+      context: { clusterEntities: ctx.cluster.entities.slice(0, 10) },
       signalSource: 'polygon',
       captureDate: ctx.cluster.firstDetectedAt,
-      coordinates: null,
-      divergenceFlag: false,
-      divergenceDescription: null,
-      confidenceLevel: 'unavailable',
-    }
+      haikuSummary: 'Financial signal unavailable — ticker resolution failed.',
+    })
   }
 
   if (tickers.length === 0) {

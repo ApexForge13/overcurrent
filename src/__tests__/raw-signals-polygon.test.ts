@@ -64,6 +64,13 @@ describe('polygonRunner', () => {
     const result = await polygonRunner(baseCtx)
     expect(result!.confidenceLevel).toBe('unavailable')
     expect(result!.haikuSummary).toMatch(/ticker resolution failed/i)
-    expect((result!.rawContent as Record<string, unknown>).error).toBe('ticker_resolve_failed')
+    const payload = result!.rawContent as {
+      errorType: string
+      message: string
+      context?: Record<string, unknown>
+    }
+    expect(payload.errorType).toBe('prisma_query_failed')
+    expect(payload.message).toContain('DB connection lost')
+    expect(payload.context).toBeDefined()
   })
 })

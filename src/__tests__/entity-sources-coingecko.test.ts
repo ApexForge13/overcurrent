@@ -92,14 +92,44 @@ describe('loadCoinGeckoEntities', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2) // 2 pages × 250 = 500
   })
 
-  it('throws on 429 (rate limit) so orchestrator can surface', async () => {
+  it('throws on 429 after exhausting retries (so orchestrator can surface)', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: false,
       status: 429,
       statusText: 'Too Many Requests',
-    } as Response)
+      headers: { get: () => '0' }, // retry-after=0 so any retries are instant
+    } as unknown as Response)
     await expect(
-      loadCoinGeckoEntities({ fetchImpl, limit: 1, pageDelaySeconds: 0 }),
+      loadCoinGeckoEntities({ fetchImpl, limit: 1, pageDelaySeconds: 0, maxRetries: 0 }),
     ).rejects.toThrow(/CoinGecko fetch failed/)
+  })
+
+  it('retries once on 429 then succeeds on 200 (Phase 1c rate-limit resilience)', async () => {
+    let callCount = 0
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) {
+        return {
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: { get: () => '0' },
+        } as unknown as Response
+      }
+      return {
+        ok: true,
+        json: async () => [
+          { id: 'btc', symbol: 'btc', name: 'Bitcoin', market_cap_rank: 1, market_cap: 1 },
+        ],
+      } as unknown as Response
+    })
+    const result = await loadCoinGeckoEntities({
+      fetchImpl,
+      limit: 1,
+      pageDelaySeconds: 0,
+      maxRetries: 3,
+    })
+    expect(result).toHaveLength(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 })

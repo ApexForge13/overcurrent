@@ -26,11 +26,14 @@ import { QUEUE_NAMES, type QueueName } from '../src/lib/queue/names'
 import { createWorker } from '../src/lib/queue/workers'
 import { closeRedisConnection } from '../src/lib/queue/connection'
 
-// Per-queue concurrency — values committed in Phase 1a manifest §6.
+// Per-queue concurrency — values committed in Phase 1a manifest §6 +
+// Phase 1c candidate-generator and trigger-scan additions.
 const CONCURRENCY: Record<QueueName, number> = {
   [QUEUE_NAMES.GAP_SCORE_FEATURED_BASELINE]: 3,
   [QUEUE_NAMES.GAP_SCORE_CANDIDATE_COMPUTE]: 10,
   [QUEUE_NAMES.GAP_SCORE_BACKFILL]: 2,
+  [QUEUE_NAMES.CANDIDATE_GENERATOR]: 1, // single-runner cron, no concurrency
+  [QUEUE_NAMES.TRIGGER_SCAN]: 3, // parallel trigger scans (e.g., SEC + Congress + Macro)
   [QUEUE_NAMES.PAPER_TRADING_STRATEGY_GENERATE]: 5,
   [QUEUE_NAMES.PAPER_TRADING_EXECUTE]: 3,
   [QUEUE_NAMES.PAPER_TRADING_MONITOR_POSITIONS]: 1,

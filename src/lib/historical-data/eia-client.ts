@@ -62,10 +62,14 @@ export const EIA_INDICATORS: readonly EiaIndicatorSpec[] = Object.freeze([
     unit: 'Bcf',
     releaseSchedule: 'weekly, Thursday 10:30 ET',
     relevantAssets: ['NG=F', 'UNG'],
-    apiPath: 'natural-gas/stoc/wkly/data',
+    apiPath: 'natural-gas/stor/wkly/data',
     valueColumn: 'value',
     extraParams: {
-      'facets[duoarea][]': 'NUS',
+      // R48 = Lower 48 total (national aggregate); SWO = Underground
+      // Storage - Working Gas (aggregate across salt + non-salt). Confirmed
+      // against published weekly EIA figures (~3,300 BCF typical).
+      'facets[duoarea][]': 'R48',
+      'facets[process][]': 'SWO',
       'frequency': 'weekly',
       'data[0]': 'value',
       'sort[0][column]': 'period',

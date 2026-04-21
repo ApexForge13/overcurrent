@@ -7,7 +7,7 @@
  * and downstream readers stay in sync.
  */
 
-export type EntityCategory = 'equity' | 'commodity' | 'crypto' | 'etf' | 'fx'
+export type EntityCategory = 'equity' | 'commodity' | 'crypto' | 'etf' | 'fx' | 'yield'
 
 export interface ProviderIds {
   /** SEC Central Index Key — equities + ETFs */
@@ -24,6 +24,10 @@ export interface ProviderIds {
   cryptoSymbol?: string
   /** Exchange ticker suffix (e.g., ".O" for Nasdaq, "=F" for futures) */
   tickerSuffix?: string
+  /** FX pair without slash (e.g., "EURUSD" for EUR/USD) — forex */
+  fxSymbol?: string
+  /** FRED series ID — yield entities (DGS2, IRLTLT01DEM156N, etc.) */
+  fredSeriesId?: string
 }
 
 export interface GroundTruthMap {

@@ -1,0 +1,89 @@
+/**
+ * Trigger registry — single source of truth for trigger metadata.
+ *
+ * Phase 1c.1 registers the 7 event-driven triggers with data paths that
+ * work today. Phase 1c.2 adds the remaining 14 (narrative, psychological,
+ * continuous ground-truth, meta-extended).
+ *
+ * Env-var gating: each trigger's `enabled` is resolved at dispatch time
+ * from the corresponding env var. Default off for conservative rollout —
+ * ops sets e.g. `TRIGGER_T_GT1_ENABLED=true` per environment.
+ */
+
+import type { TriggerDefinition } from './types'
+
+export const TRIGGER_DEFINITIONS: Record<string, TriggerDefinition> = Object.freeze({
+  // ── Ground-truth (event-driven, Phase 1c.1) ──
+  'T-GT1': {
+    id: 'T-GT1',
+    description: 'SEC Form 4 — large insider transaction',
+    stream: 'ground_truth',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_GT1_ENABLED',
+  },
+  'T-GT2': {
+    id: 'T-GT2',
+    description: 'SEC 13D/G — activist stake disclosed',
+    stream: 'ground_truth',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_GT2_ENABLED',
+  },
+  'T-GT3': {
+    id: 'T-GT3',
+    description: 'SEC 8-K — material event',
+    stream: 'ground_truth',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_GT3_ENABLED',
+  },
+  'T-GT9': {
+    id: 'T-GT9',
+    description: 'Macro surprise — actual vs consensus z-score',
+    stream: 'ground_truth',
+    requiresBaseline: false, // uses historicalStddev from MacroIndicatorConfig, not entity baseline
+    enabledEnvVar: 'TRIGGER_T_GT9_ENABLED',
+  },
+  'T-GT10': {
+    id: 'T-GT10',
+    description: 'Congressional trade disclosure',
+    stream: 'ground_truth',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_GT10_ENABLED',
+  },
+
+  // ── Meta (derived from TriggerEvent table, Phase 1c.1) ──
+  'T-META1': {
+    id: 'T-META1',
+    description: 'Multi-stream confluence — ≥2 streams fired on same entity within 2h',
+    stream: 'meta',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_META1_ENABLED',
+  },
+  'T-META2': {
+    id: 'T-META2',
+    description: 'Featured-set baseline scan — scheduled rescan of 15 featured entities',
+    stream: 'meta',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_META2_ENABLED',
+  },
+})
+
+/**
+ * Returns true when the given trigger is enabled per env var.
+ * Defaults to TRUE in development if env var is unset; defaults to FALSE
+ * in production for conservative rollout.
+ */
+export function isTriggerEnabled(
+  id: string,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const def = TRIGGER_DEFINITIONS[id]
+  if (!def) return false
+  const value = env[def.enabledEnvVar]
+  if (value === undefined) {
+    // Conservative default: only dev enables without explicit setting.
+    return env.NODE_ENV !== 'production'
+  }
+  return value.trim().toLowerCase() === 'true' || value === '1'
+}
+
+export const ALL_TRIGGER_IDS: readonly string[] = Object.freeze(Object.keys(TRIGGER_DEFINITIONS))

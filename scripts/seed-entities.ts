@@ -30,6 +30,8 @@ async function main() {
     coingecko:  only && !only.includes('coingecko') ? (false as const) : {},
     futures:    only ? only.includes('futures') : true,
     etfs:       only ? only.includes('etfs') : true,
+    forex:      only ? only.includes('forex') : true,
+    yields:     only ? only.includes('yields') : true,
     onProgress: (ev: RegistryProgressEvent) => {
       // Discriminated union — TypeScript narrows on ev.status. No unsafe casts.
       switch (ev.status) {

@@ -1,10 +1,13 @@
 /**
  * CoinGecko source loader — top N crypto by market cap.
  *
- * Free tier: 250 per page, rate-limited to ~30 calls/min. Phase 1b caps at
- * top 1,000 (4 pages) per user decision — covers 99%+ of meaningful trading
- * volume without triggering rate limits. Expand to 5K when we hit a paid
- * CoinGecko tier.
+ * Free tier rate-limit reality: observed consistent 429s on page 4 during
+ * Phase 1c seed despite 6s inter-page delays. Tightening delay alone
+ * didn't resolve — the free tier appears to have a short rolling-window
+ * cap that triggers after ~3 consecutive calls. Solution: explicit
+ * retry-on-429 with exponential backoff (30s → 60s → 120s, max 3 retries)
+ * + longer default inter-page delay (15s). When retry-after header is
+ * present, honor it instead.
  *
  * Stable-coins and wrapped tokens are kept (not filtered). They're genuine
  * signal-eligible assets — narrative divergences on USDT or stETH are
@@ -34,9 +37,13 @@ export interface LoadCoinGeckoOptions {
   limit?: number
   /** Injected for tests. Defaults to global fetch. */
   fetchImpl?: typeof fetch
-  /** Seconds to wait between page calls; defaults to 6 (free tier ~10/min). */
+  /** Seconds to wait between page calls; defaults to 15 (free-tier safe). */
   pageDelaySeconds?: number
+  /** Max retries on 429; defaults to 3. */
+  maxRetries?: number
 }
+
+const RETRY_BACKOFF_MS = [30_000, 60_000, 120_000] // 30s, 60s, 120s
 
 export async function loadCoinGeckoEntities(
   opts: LoadCoinGeckoOptions = {},
@@ -45,7 +52,8 @@ export async function loadCoinGeckoEntities(
   const limit = Math.max(1, Math.min(opts.limit ?? 1000, 10000))
   const perPage = 250
   const pages = Math.ceil(limit / perPage)
-  const delayMs = (opts.pageDelaySeconds ?? 6) * 1000
+  const delayMs = (opts.pageDelaySeconds ?? 15) * 1000
+  const maxRetries = Math.max(0, opts.maxRetries ?? 3)
 
   const rows: CoinGeckoMarketRow[] = []
   for (let page = 1; page <= pages; page++) {
@@ -56,14 +64,7 @@ export async function loadCoinGeckoEntities(
     url.searchParams.set('page', String(page))
     url.searchParams.set('sparkline', 'false')
 
-    const resp = await fetchImpl(url.toString(), {
-      headers: { Accept: 'application/json' },
-    })
-    if (!resp.ok) {
-      // 429 = rate-limited; surface as a retryable error for the orchestrator.
-      throw new Error(`CoinGecko fetch failed (page ${page}): ${resp.status} ${resp.statusText}`)
-    }
-    const batch = (await resp.json()) as CoinGeckoMarketRow[]
+    const batch = await fetchPageWithRetry(url.toString(), fetchImpl, page, maxRetries)
     if (!Array.isArray(batch)) break
     rows.push(...batch)
     if (batch.length < perPage) break
@@ -71,6 +72,38 @@ export async function loadCoinGeckoEntities(
   }
 
   return parseCoinGeckoResponse(rows).slice(0, limit)
+}
+
+async function fetchPageWithRetry(
+  url: string,
+  fetchImpl: typeof fetch,
+  page: number,
+  maxRetries: number,
+): Promise<CoinGeckoMarketRow[]> {
+  let attempt = 0
+  while (true) {
+    const resp = await fetchImpl(url, { headers: { Accept: 'application/json' } })
+    if (resp.ok) {
+      return (await resp.json()) as CoinGeckoMarketRow[]
+    }
+    // Rate-limit path — retry with Retry-After if provided, else exponential backoff.
+    if (resp.status === 429 && attempt < maxRetries) {
+      const retryAfterHdr = resp.headers.get('retry-after')
+      const retryAfterMs = retryAfterHdr
+        ? Math.max(1000, Number(retryAfterHdr) * 1000)
+        : (RETRY_BACKOFF_MS[attempt] ?? 120_000)
+      console.warn(
+        `[coingecko] 429 on page ${page} (attempt ${attempt + 1}/${maxRetries + 1}); waiting ${Math.round(retryAfterMs / 1000)}s`,
+      )
+      await sleep(retryAfterMs)
+      attempt++
+      continue
+    }
+    // Non-retryable or out-of-retries — surface the error for orchestrator.
+    throw new Error(
+      `CoinGecko fetch failed (page ${page}, attempts ${attempt + 1}): ${resp.status} ${resp.statusText}`,
+    )
+  }
 }
 
 export function parseCoinGeckoResponse(

@@ -28,6 +28,19 @@ import { USDA_INDICATORS, fetchUsdaSeries } from '../src/lib/historical-data/usd
 import { computeSurpriseProxy } from '../src/lib/historical-data/surprise-proxy'
 
 async function main() {
+  // Fail-fast env validation — a missing key silently produces zero writes,
+  // which cascades into false expected-count reports. Catch up front.
+  if (!process.env.FRED_API_KEY) {
+    throw new Error(
+      'FRED_API_KEY missing. Get a free key at https://fred.stlouisfed.org/docs/api/api_key.html and add to .env.',
+    )
+  }
+  if (!process.env.EIA_API_KEY) {
+    throw new Error(
+      'EIA_API_KEY missing. Get a free key at https://www.eia.gov/opendata/register.php and add to .env.',
+    )
+  }
+
   console.log('[load-historical-macro] starting 5yr macro history load')
   const counts = { fred: 0, eia: 0, usda: 0 }
 

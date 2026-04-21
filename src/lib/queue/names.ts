@@ -28,6 +28,10 @@ export const QUEUE_NAMES = {
   GAP_SCORE_CANDIDATE_COMPUTE: 'gap-score-candidate-compute',
   GAP_SCORE_BACKFILL: 'gap-score-backfill',
 
+  // ── Trigger + Candidate infrastructure (Phase 1c) ──
+  CANDIDATE_GENERATOR: 'candidate-generator',
+  TRIGGER_SCAN: 'trigger-scan',
+
   // ── Paper Trading (Phase 11 §11.8) ──
   PAPER_TRADING_STRATEGY_GENERATE: 'paper-trading-strategy-generate',
   PAPER_TRADING_EXECUTE: 'paper-trading-execute',

@@ -320,6 +320,83 @@ describe('blsRunner', () => {
     expect(payload.provider).toBe('bls')
   })
 
+  // Fix 2: empty Results.series inside a 200 response is NOT parse_error —
+  // BLS responded structurally fine but every series came back empty. That's
+  // a request-side (bad seriesID) or upstream-degradation signal, which
+  // Phase 11's admin-signals will triage separately from shape-unparseable
+  // responses. Route to external_api_error with statusCode=200.
+  it('routes empty Results.series in a 200 to external_api_error (statusCode 200)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: () =>
+          Promise.resolve({
+            status: 'REQUEST_SUCCEEDED',
+            responseTime: 11,
+            message: [],
+            Results: {
+              series: [
+                { seriesID: 'LNS14000000', data: [] },
+                { seriesID: 'CES0000000001', data: [] },
+                { seriesID: 'CWUR0000SA0', data: [] },
+                { seriesID: 'PRS85006092', data: [] },
+              ],
+            },
+          }),
+      }),
+    )
+    const result = await blsRunner(makeCtx())
+    expect(result!.confidenceLevel).toBe('unavailable')
+    const payload = result!.rawContent as {
+      errorType: string
+      provider: string
+      statusCode?: number
+      message: string
+    }
+    expect(payload.errorType).toBe('external_api_error')
+    expect(payload.provider).toBe('bls')
+    expect(payload.statusCode).toBe(200)
+    expect(payload.message).toMatch(/empty|series/i)
+  })
+
+  // Fix 1: BLS occasionally rewords the quota-exhaust message text (history:
+  // 2018 "daily rate" → "daily threshold"). The old regex-only guard would
+  // silently mis-route a reworded quota to external_api_error — paging ops
+  // about a false outage. The new guard AND-gates on body.status ===
+  // 'REQUEST_NOT_PROCESSED' + a broadened keyword regex, so structured-
+  // status catches rewordings.
+  it('routes rephrased quota-exhaust body (no "daily threshold") to rate_limited via structured status', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        headers: { get: () => null },
+        json: () =>
+          Promise.resolve({
+            status: 'REQUEST_NOT_PROCESSED',
+            message: [
+              'REQUEST_NOT_PROCESSED: Your account hit the daily quota limit.',
+            ],
+            Results: {},
+          }),
+      }),
+    )
+    const result = await blsRunner(makeCtx())
+    expect(result!.confidenceLevel).toBe('unavailable')
+    const payload = result!.rawContent as {
+      errorType: string
+      provider: string
+      rawSignalQueueId?: string
+    }
+    expect(payload.errorType).toBe('rate_limited')
+    expect(payload.provider).toBe('bls')
+    expect(payload.rawSignalQueueId).toBe('q-bls-1')
+  })
+
   it('raises divergenceFlag when a series latest value is > 2σ from trailing 12-observation mean', async () => {
     // LNS14000000 latest 15.0 against a trailing-12 cluster near 3.5 with
     // tiny jitter → huge |z|. Other series flat at 100.

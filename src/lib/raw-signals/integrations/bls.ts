@@ -12,12 +12,14 @@
  *   3. 400-body parsing discipline: BLS returns HTTP 400 for both quota
  *      exhaustion AND for malformed-request / bad-seriesID / bad-date-range.
  *      A naive "all 400s → rate_limited" mis-routes. We parse the response
- *      body's `message[]` array: phrasing matching /daily threshold/i or
- *      /REQUEST_NOT_PROCESSED.*threshold/i routes to rate_limited; every
- *      other 400 routes to external_api_error with statusCode=400 and the
- *      BLS message text captured. If BLS ever invents a new 400 reason,
- *      we fall through to external_api_error rather than silently treating
- *      a parse/validation bug as a quota issue.
+ *      body's structured top-level `status` field AND its `message[]` array.
+ *      Quota-exhaust is gated on BOTH status==='REQUEST_NOT_PROCESSED' AND
+ *      a broadened keyword regex (threshold|quota|limit|exceeded), so a
+ *      rewording of the message text (history: 2018 "daily rate" → "daily
+ *      threshold") can't silently mis-route. A legacy /daily threshold/i
+ *      branch stays as a fallback for responses missing the structured
+ *      field. Every other 400 routes to external_api_error with
+ *      statusCode=400 and the BLS message text captured.
  *
  * ── Environment Variables ─────────────────────────────────────────────
  *   BLS_API_KEY (optional, sensitive — raises quota from 25/day anonymous
@@ -52,12 +54,13 @@
  * Every failure path writes a RawSignalLayer row via safeErrorRow with
  * confidenceLevel='unavailable' and a RawSignalError literal:
  *
- *   HTTP 400 body → "daily threshold"  → rate_limited       (provider: 'bls')
+ *   HTTP 400 body → quota-exhaust      → rate_limited       (provider: 'bls')
  *   HTTP 400 body → other              → external_api_error (+ statusCode=400)
  *   HTTP 429                           → rate_limited       (+ retryAfterSec)
  *   HTTP 4xx/5xx (not 400/429)         → external_api_error (+ statusCode)
+ *   HTTP 200 + empty Results.series    → external_api_error (+ statusCode=200)
  *   AbortError / /timeout/i            → timeout            (+ timeoutMs)
- *   JSON shape mismatch                → parse_error
+ *   JSON unparseable / missing Results → parse_error
  *   Uncaught                           → unknown
  *
  * rawSignalQueueId carried on every variant (Phase 11 dossier FK).
@@ -309,10 +312,27 @@ export const blsRunner: IntegrationRunner = async (ctx) => {
     const messages = Array.isArray((body as { message?: unknown }).message)
       ? ((body as { message: unknown[] }).message as unknown[]).map((m) => String(m)).join(' ')
       : ''
-    if (
-      /daily threshold/i.test(messages) ||
-      /REQUEST_NOT_PROCESSED.*threshold/i.test(messages)
-    ) {
+    const bodyStatus =
+      typeof (body as { status?: unknown }).status === 'string'
+        ? (body as { status: string }).status
+        : ''
+
+    // Structured signal: BLS emits status='REQUEST_NOT_PROCESSED' on quota
+    // exhaust AND the message typically contains a threshold/quota/limit
+    // keyword. Require BOTH the structured status AND a broadened keyword
+    // regex so that:
+    //   - a reworded message doesn't silently mis-route (structured status
+    //     catches it — history: 2018 "daily rate" → "daily threshold")
+    //   - a REQUEST_NOT_PROCESSED meaning something unrelated later doesn't
+    //     false-positive quota-exhaust
+    // The legacy /daily threshold/i branch stays in place as a belt-and-
+    // suspenders fallback in case some legacy BLS response omits the
+    // structured field but keeps the historical phrasing.
+    const quotaByStatus =
+      bodyStatus === 'REQUEST_NOT_PROCESSED' &&
+      /threshold|quota|limit|exceeded/i.test(messages)
+    const quotaByMessage = /daily threshold/i.test(messages)
+    if (quotaByStatus || quotaByMessage) {
       return safeErrorRow({
         error: {
           errorVersion: ERROR_VERSION,
@@ -421,19 +441,31 @@ export const blsRunner: IntegrationRunner = async (ctx) => {
   const healthy = promoted.filter((s) => s.observations.length > 0)
 
   if (healthy.length === 0) {
-    // 200 but every series came back empty — treat as parse_error (the
-    // 400 path would've already caught quota/invalid-ID from BLS's side).
+    // Empty series array — BLS returned a structurally-valid 200 response
+    // but every series we queried came back with zero observations. Most
+    // common cause: one or more seriesIDs in our default+category set are
+    // invalid (request-side bug). Second most common: BLS upstream
+    // degradation. Either way, the response IS valid — parse_error is the
+    // wrong fit (parse_error now only fires for genuine shape-unparseable
+    // cases: JSON parse failure or missing Results.series). Route to
+    // external_api_error with statusCode=200 so Phase 11's admin-signals
+    // renderer can filter by errorType==='external_api_error' &&
+    // statusCode===200 and surface this specific operational bucket
+    // separately from real 4xx/5xx upstream outages.
     return safeErrorRow({
       error: {
         errorVersion: ERROR_VERSION,
-        errorType: 'parse_error',
+        errorType: 'external_api_error',
         provider: 'bls',
         rawSignalQueueId: ctx.queueId,
-        message: 'BLS returned 200 but every series had zero observations',
+        statusCode: 200,
+        message: safeStringify(
+          'BLS returned 200 with empty Results.series — likely request-side (invalid seriesID) or upstream degradation',
+        ),
       },
       signalSource,
       captureDate,
-      haikuSummary: 'BLS signal unavailable — response had no data.',
+      haikuSummary: 'BLS signal unavailable — 200 response with empty series data.',
     })
   }
 

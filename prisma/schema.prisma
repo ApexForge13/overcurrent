@@ -402,8 +402,24 @@ model CostLog {
   forceFullQualityActive Boolean @default(false)
   createdAt           DateTime @default(now())
 
+  // ── Phase 1b additions (Gap Score / new-product cost attribution) ──
+  // Populated only by new-product cost sites (Haiku sentiment scoring, Sonnet
+  // aggregation, Alpaca paper-trading, baseline refresh, etc.). Null on every
+  // legacy pipeline row. Existing required fields (model, agentType,
+  // inputTokens, outputTokens, costUsd) are still populated — new-product
+  // sites pass values like agentType='gap_score_sentiment' and model=
+  // 'claude-haiku-4-5-20251001'. Additive — no breaking change to legacy
+  // pipeline-flags.ts cost logging.
+  service             String?   // "haiku_sentiment" | "sonnet_aggregation" | "alpaca_paper" | "baseline_refresh" | ...
+  operation           String?   // "score_signal" | "compute_gap_score" | "execute_paper_trade" | ...
+  entityId            String?   // TrackedEntity.id — soft reference (no FK constraint for flexibility)
+  signalsProcessed    Int?
+  metadata            Json?
+
   @@index([createdAt])
   @@index([storyId])
+  @@index([service, createdAt])
+  @@index([entityId])
 }
 
 // ═══════════════════════════════════════
@@ -1541,3 +1557,297 @@ model ArcTimelineEvent {
   @@index([isWildFinding])
   @@index([isCorrectionEvent])
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1b — GAP SCORE CORE (v2 master prompt Part 3.1)
+// Additive. All legacy tables above remain untouched. These models are the
+// foundation of the signal-triggered three-stream divergence engine. Schema
+// only in Phase 1b — trigger functions, candidate generator, and Gap Score
+// computation land in Phase 1c / Phase 2.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model TrackedEntity {
+  id              String   @id @default(cuid())
+  identifier      String   @unique                 // "AAPL" | "BTC" | "CL=F" | etc.
+  name            String
+  category        String                           // "equity" | "commodity" | "crypto" | "etf" | "fx"
+  subcategory     String?                          // "large_cap" | "mid_cap" | "small_cap" | "energy" | "metals" | ...
+
+  // Structured provider IDs — Phase 1b populates the subset we have
+  // (cik, coingeckoId, cmeSymbol, etfTicker, gdeltAliases, cashtags).
+  // Shape is open; new providers add keys over time.
+  providerIds     Json
+  // Which ground-truth trigger types apply to this entity. Array of trigger
+  // IDs (e.g., ["T-GT1","T-GT5","T-GT8"]). Seeded per-category in Phase 1b
+  // and refined as triggers land in Phase 1c.
+  groundTruthMap  Json
+  // Alternative names for NLP entity matching — name + ticker + common aliases.
+  entityStrings   Json
+
+  isFeatured      Boolean  @default(false)
+  active          Boolean  @default(true)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  scoredSignals    ScoredSignal[]
+  gapScores        GapScore[]
+  caseStudies      CaseStudy[]
+  triggerEvents    TriggerEvent[]
+  entityBaselines  EntityBaseline[]
+  watchlists       Watchlist[]
+  alerts           Alert[]
+
+  @@index([identifier])
+  @@index([category, active])
+  @@index([isFeatured, active])
+}
+
+model TriggerEvent {
+  id                   String   @id @default(cuid())
+  entityId             String
+  entity               TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  triggerType          String                       // matches trigger function id — "T-N1" | "T-GT5" | etc.
+  stream               String                       // "narrative" | "psychological" | "ground_truth" | "meta"
+  severity             Float                        // 0.0 — 1.0
+  metadata             Json                         // trigger-specific payload
+
+  firedAt              DateTime @default(now())
+  candidateGeneratedAt DateTime?                    // set when candidate generator promoted this event
+  gapScoreId           String?                      // soft ref to GapScore.id when scoring ran
+
+  @@index([entityId, firedAt])
+  @@index([firedAt])
+  @@index([triggerType, firedAt])
+}
+
+model ScoredSignal {
+  id            String   @id @default(cuid())
+  entityId      String
+  entity        TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  stream        String                              // "narrative" | "psychological" | "ground_truth"
+  signalType    String
+  // Soft reference to RawSignalLayer.id for narrative/ground-truth signals
+  // that came through the existing ingestion layer. Intentionally no FK so
+  // social-sourced signals (not in RawSignalLayer) can leave it null.
+  sourceId      String?
+  sourceUrl     String?
+
+  direction     Float                               // -1.0 — +1.0
+  confidence    Float                               // 0.0 — 1.0
+  reasoning     String?                             // brief LLM explanation
+  rawSignal     Json?                               // original signal payload snapshot
+
+  publishedAt   DateTime                            // CRITICAL: source publication timestamp (not scoredAt)
+  scoredAt      DateTime @default(now())
+  promptVersion String
+  modelVersion  String
+
+  @@index([entityId, stream, publishedAt])
+  @@index([publishedAt])
+}
+
+model GapScore {
+  id              String   @id @default(cuid())
+  entityId        String
+  entity          TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  computedAt      DateTime @default(now())
+  asOfTimestamp   DateTime                          // point-in-time the score reflects (historical backfill or realtime)
+
+  narrativeScore       Float
+  narrativeConfidence  Float
+  narrativeSignalCount Int
+
+  psychologicalScore       Float
+  psychologicalConfidence  Float
+  psychologicalSignalCount Int
+
+  groundTruthScore       Float
+  groundTruthConfidence  Float
+  groundTruthSignalCount Int
+
+  divergenceNP    Float
+  divergenceNG    Float
+  divergencePG    Float
+
+  gapScore        Float                             // 0 — 100
+  fds             Float                             // Financial Divergence Sub-Score
+
+  contributingSignalIds  String[]                   // ScoredSignal.id[]
+  contributingTriggerIds String[]                   // TriggerEvent.id[]
+
+  formulaVersion  String                            // "v1" — bumped when the formula module changes
+  triggerType     String                            // "featured_baseline" | "candidate" | "event" | "backfill"
+
+  @@index([entityId, computedAt])
+  @@index([asOfTimestamp])
+  @@index([gapScore])
+  @@index([fds])
+  @@index([computedAt, gapScore])
+}
+
+model Watchlist {
+  id            String   @id @default(cuid())
+  userId        String
+  entityId      String
+  entity        TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  addedAt       DateTime @default(now())
+  alertsEnabled Boolean  @default(true)
+  thresholds    Json?                               // {gapScoreAlert: 70, fdsAlert: 60, ...}
+
+  @@unique([userId, entityId])
+  @@index([userId])
+}
+
+model Alert {
+  id           String   @id @default(cuid())
+  userId       String
+  entityId     String
+  entity       TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  gapScoreId   String                               // soft ref
+  triggerType  String                               // what rule fired the alert
+  deliveredVia String                               // "email" | "in_app" | "push"
+  deliveredAt  DateTime?
+  readAt       DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entityId])
+}
+
+model CaseStudy {
+  id                     String   @id @default(cuid())
+  entityId               String
+  entity                 TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  title                  String
+  slug                   String   @unique
+  summary                String
+
+  eventTimestamp         DateTime                   // when the underlying market event resolved
+  scoreTimestamp         DateTime                   // when Gap Score flagged it
+  leadTimeHours          Float                      // eventTimestamp - scoreTimestamp, in hours
+
+  narrativeSummary       String                     @db.Text
+  fullContent            String                     @db.Text
+
+  gapScoreAtFlag         Float
+  fdsAtFlag              Float
+  contributingSignalIds  String[]
+  contributingTriggerIds String[]
+
+  published              Boolean  @default(false)
+  publishedAt            DateTime?
+
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([published, publishedAt])
+  @@index([entityId])
+}
+
+model HotListSnapshot {
+  id         String   @id @default(cuid())
+  capturedAt DateTime @default(now())
+  // Top-50 entities at snapshot time: [{entityId, gapScore, fds, triggerSummary}, ...]
+  entities   Json
+
+  @@index([capturedAt])
+}
+
+model PromptVersion {
+  id              String   @id @default(cuid())
+  name            String                              // "sentiment-haiku" | "strategy-sonnet" | ...
+  version         String                              // "v1" | "v2" | ...
+  content         String   @db.Text
+  fewShotExamples Json
+  rubric          String   @db.Text
+  activeFrom      DateTime
+  activeUntil     DateTime?
+
+  @@unique([name, version])
+  @@index([name, activeFrom])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1b — BASELINE + MACRO (Phase 1 addendum A1.1 + A1.5)
+// Rolling statistics for triggers (EntityBaseline/ZoneBaseline) and historical
+// macro indicator configuration (MacroRelease/MacroIndicatorConfig).
+// ═══════════════════════════════════════════════════════════════════════════
+
+model EntityBaseline {
+  id            String   @id @default(cuid())
+  entityId      String
+  entity        TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  metricName    String                              // "article_volume_hourly" | "cashtag_velocity_hourly" | "price_volatility_30d" | ...
+  windowDays    Int                                 // rolling window
+  mean          Float
+  stddev        Float
+  sampleCount   Int
+  minSampleSize Int                                 // per-metric maturity floor from Phase 1 addendum A1.1
+  isMature      Boolean  @default(false)            // sampleCount >= minSampleSize
+  computedAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([entityId, metricName, windowDays])
+  @@index([entityId])
+  @@index([isMature])
+}
+
+model ZoneBaseline {
+  id            String   @id @default(cuid())
+  zoneId        String                              // matches MonitoringZone.id from src/lib/gap-score/zones/tier-1-zones.ts
+  metricName    String                              // "tankerCount" | "containerShipCount" | "bulkCarrierCount" | "lngCarrierCount"
+  windowDays    Int                                 // 30 for v1
+  mean          Float
+  stddev        Float
+  sampleCount   Int
+  minSampleSize Int                                 // 90 per v2 zone metric maturity
+  isMature      Boolean  @default(false)
+  computedAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([zoneId, metricName, windowDays])
+  @@index([zoneId, metricName])
+  @@index([isMature])
+}
+
+model MacroRelease {
+  id                String   @id @default(cuid())
+  indicator         String                              // "PAYEMS" | "CPIAUCSL" | "EIA_CRUDE" | ...
+  releaseDate       DateTime
+  consensusValue    Float?
+  consensusSource   String?                             // "investing.com" | "trading_economics" | null until Phase 1c
+  consensusScraped  DateTime?
+  actualValue       Float?
+  actualReleased    DateTime?
+  surprise          Float?                              // actual - consensus
+  surpriseZscore    Float?                              // surprise / historicalStddev
+  unit              String                              // "K jobs" | "%" | "bbl" | ...
+
+  @@unique([indicator, releaseDate])
+  @@index([indicator, releaseDate])
+  @@index([releaseDate])
+}
+
+model MacroIndicatorConfig {
+  id               String   @id @default(cuid())
+  indicator        String   @unique                   // matches MacroRelease.indicator
+  displayName      String
+  category         String                              // "employment" | "inflation" | "growth" | "inventory" | "sentiment" | "monetary_policy"
+  releaseSchedule  String                              // cron expression or human description
+  // Phase 1b populates this from release-to-release stddev (proxy) since
+  // historical consensus data isn't available. Phase 1c consensus scraping
+  // will replace the proxy with real surprise-distribution stddev as 20+
+  // actuals accumulate. UI should surface "proxy" status prominently.
+  historicalStddev      Float
+  // True while historicalStddev is the release-to-release proxy; false once
+  // real surprise-vs-consensus stddev has been computed from accumulated data.
+  historicalStddevProxy Boolean  @default(true)
+  directionMapping Json                                // { "SPY": {positive: 1, negative: -1}, "TLT": {positive: -1, negative: 1}, ... }
+  relevantAssets   String[]                            // TrackedEntity.identifier values impacted by this indicator
+}
+

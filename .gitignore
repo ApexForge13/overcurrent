@@ -49,3 +49,10 @@ next-env.d.ts
 *.db-journal
 
 .vercel
+
+# local Claude Code state
+.claude/
+
+# one-off admin scripts (hardcoded IDs, already executed — not reusable tooling)
+/scripts/delete-smoke-test-rows.ts
+/scripts/read-hormuz-cluster-notes.ts

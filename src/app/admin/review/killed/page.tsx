@@ -1,5 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from 'react'
+import { notFound } from 'next/navigation'
+import { featureFlags } from '@/lib/feature-flags'
 
 interface EditorialScores {
   specificity: number
@@ -59,6 +61,7 @@ const RISK_COLOR: Record<string, string> = {
 }
 
 export default function AdminKilledQueue() {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) notFound()
   const [rows, setRows] = useState<KilledRow[]>([])
   const [loading, setLoading] = useState(true)
   const [action, setAction] = useState<Record<string, string>>({})

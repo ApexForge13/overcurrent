@@ -1,5 +1,7 @@
 "use client"
 import { useEffect, useState, useCallback } from 'react'
+import { notFound } from 'next/navigation'
+import { featureFlags } from '@/lib/feature-flags'
 
 // Session 3 Step 6 — Predictive Signals admin page with data-quality banners.
 
@@ -40,6 +42,7 @@ function formatPhase(p: string | null): string {
 }
 
 export default function PredictiveSignalsPage() {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) notFound()
   const [signals, setSignals] = useState<PredictiveSignal[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

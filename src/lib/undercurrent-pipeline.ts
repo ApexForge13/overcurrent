@@ -33,10 +33,23 @@ export async function runUndercurrentPipeline(
   endDate?: string,
   onProgress?: (event: string, data: unknown) => void,
 ): Promise<string> {
+  const send = onProgress ?? (() => {})
+
+  // ── Feature-flag gate (v2 pivot) ──
+  // The undercurrent (discourse/propagation) pipeline is legacy product
+  // surface. Gated here at the single orchestrator entry point so every
+  // invocation path — Next.js /api/undercurrent, pipeline-service/server.ts
+  // /undercurrent, test harnesses — refuses work uniformly.
+  const { featureFlags } = await import('@/lib/feature-flags')
+  if (!featureFlags.DISCOURSE_LAYER_ENABLED) {
+    const message =
+      'Undercurrent/discourse pipeline is disabled (FEATURE_DISCOURSE !== "true"). This surface is archived for the v2 pivot to Gap Score.'
+    send('error', { phase: 'disabled', message })
+    throw new Error(message)
+  }
+
   const startTime = Date.now()
   let totalCost = 0
-
-  const send = onProgress ?? (() => {})
 
   const dates = startDate && endDate
     ? { startDate, endDate }

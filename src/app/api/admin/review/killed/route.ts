@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { requireAdmin } from '@/lib/auth-guard'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * GET /api/admin/review/killed
@@ -12,6 +13,7 @@ import { requireAdmin } from '@/lib/auth-guard'
  * Revive via PUT /api/admin/stories/[id] { status: 'review' }.
  */
 export async function GET() {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

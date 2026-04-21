@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
 import { getUnresolvedAdvancements } from '@/lib/arc-advancement-scan'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * GET /api/admin/arc-advancement-scans
@@ -13,6 +14,7 @@ import { getUnresolvedAdvancements } from '@/lib/arc-advancement-scan'
  * in the table for tuning but never surfaced to the UI.
  */
 export async function GET(_request: NextRequest) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

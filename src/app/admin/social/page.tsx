@@ -1,6 +1,8 @@
 "use client"
 import { useState, useEffect, useCallback } from 'react'
+import { notFound } from 'next/navigation'
 import { SocialPreview } from '@/components/admin/SocialPreview'
+import { featureFlags } from '@/lib/feature-flags'
 
 interface SocialDraft {
   id: string
@@ -41,6 +43,7 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export default function SocialAdminPage() {
+  if (!featureFlags.SOCIAL_AUTOMATION_ENABLED) notFound()
   const [drafts, setDrafts] = useState<SocialDraft[]>([])
   const [filter, setFilter] = useState<string>('all')
   const [platformFilter, setPlatformFilter] = useState<string>('all')

@@ -6,6 +6,7 @@ import {
   isScanFrequency,
   UMBRELLA_STATUSES,
 } from '@/lib/umbrella-validation'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * GET /api/admin/umbrellas
@@ -20,6 +21,7 @@ import {
  * plus daysActive (derived from firstAnalysisAt or createdAt).
  */
 export async function GET(request: NextRequest) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 
@@ -74,6 +76,7 @@ export async function GET(request: NextRequest) {
  * Creates a new active UmbrellaArc.
  */
 export async function POST(request: NextRequest) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

@@ -1,5 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from 'react'
+import { notFound } from 'next/navigation'
+import { featureFlags } from '@/lib/feature-flags'
 
 interface ArchivedStory {
   id: string
@@ -18,6 +20,7 @@ interface ArchivedStory {
 }
 
 export default function ArchivePage() {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) notFound()
   const [stories, setStories] = useState<ArchivedStory[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)

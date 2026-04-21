@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
 import { prisma } from '@/lib/db'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * GET /api/admin/predictive-signals
@@ -13,6 +14,7 @@ import { prisma } from '@/lib/db'
  *   limit — max rows (default 50, max 200)
  */
 export async function GET(request: NextRequest) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth-guard'
 import { prisma } from '@/lib/db'
 import { PrismaClient } from '@prisma/client'
 import { runMergeAgent } from '@/agents/reanalysis-merge'
+import { featureFlags } from '@/lib/feature-flags'
 
 export const maxDuration = 300
 
@@ -10,6 +11,7 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 
@@ -418,6 +420,7 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

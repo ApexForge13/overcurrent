@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { featureFlags } from '@/lib/feature-flags'
 
 // Serve the full debate rounds (including massive content JSON) for a single story.
 // Called lazily by DebateHighlights when the user expands the MODEL DEBATE section.
@@ -7,6 +8,7 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const { slug } = await params
 
   try {

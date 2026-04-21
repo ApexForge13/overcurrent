@@ -1,4 +1,8 @@
+import { notFound } from 'next/navigation'
+import { featureFlags } from '@/lib/feature-flags'
+
 export default function MethodologyPage() {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) notFound()
   return (
     <div
       style={{

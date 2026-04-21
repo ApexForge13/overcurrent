@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
 import { prisma } from '@/lib/db'
 import { classifyCompleteness } from '@/lib/arc-completeness'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * GET /api/admin/umbrellas/[id]/contents
@@ -21,6 +22,7 @@ export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

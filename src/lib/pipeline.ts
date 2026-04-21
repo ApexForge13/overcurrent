@@ -566,6 +566,20 @@ export async function runVerifyPipeline(
   onProgress: (event: string, data: unknown) => void,
   options: VerifyPipelineOptions = {},
 ): Promise<string> {
+  // ── Feature-flag gate (v2 pivot) ──
+  // The debate pipeline is legacy product surface. Gated here at the single
+  // orchestrator entry point so every invocation path — Next.js /api/analyze,
+  // pipeline-service/server.ts /analyze, test harnesses, future callers —
+  // refuses work uniformly. Upstream callers translate this to 404/503 as
+  // appropriate for their transport.
+  const { featureFlags } = await import('@/lib/feature-flags')
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) {
+    const message =
+      'Debate pipeline is disabled (FEATURE_DEBATE_PIPELINE !== "true"). This surface is archived for the v2 pivot to Gap Score.'
+    onProgress('error', { phase: 'disabled', message })
+    throw new Error(message)
+  }
+
   const startTime = Date.now()
   let totalCost = 0
 

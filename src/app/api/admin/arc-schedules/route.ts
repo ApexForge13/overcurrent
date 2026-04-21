@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db'
 import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
 import type { Prisma } from '@prisma/client'
+import { featureFlags } from '@/lib/feature-flags'
 
 type ScheduleWithRefs = Prisma.ArcPhaseScheduleGetPayload<{
   include: {
@@ -34,6 +35,7 @@ type ScheduleWithRefs = Prisma.ArcPhaseScheduleGetPayload<{
  * Non-skipped pending records only. Skipped records are excluded from all buckets.
  */
 export async function GET(_request: NextRequest) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

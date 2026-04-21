@@ -1,7 +1,9 @@
 import { prisma } from '@/lib/db'
 import { requireAdmin } from '@/lib/auth-guard'
+import { featureFlags } from '@/lib/feature-flags'
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!featureFlags.SOCIAL_AUTOMATION_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 
@@ -14,6 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 const VALID_DRAFT_STATUSES = ['draft', 'approved', 'rejected', 'scheduled', 'posted']
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!featureFlags.SOCIAL_AUTOMATION_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

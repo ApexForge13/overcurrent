@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db'
 import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
 import { nextScheduledDateFromPhase, type StoryPhase } from '@/lib/arc-phase'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * POST /api/admin/arc-schedules/backfill
@@ -36,6 +37,7 @@ function isStoryPhase(v: string | null | undefined): v is StoryPhase {
 }
 
 export async function POST(request: NextRequest) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

@@ -1,8 +1,10 @@
 import { prisma } from '@/lib/db'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { NextRequest } from 'next/server'
+import { featureFlags } from '@/lib/feature-flags'
 
 export async function GET(request: NextRequest) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const ip = request.headers.get('x-forwarded-for') || 'unknown'
   const { allowed } = checkRateLimit(`stories:${ip}`, 60, 60_000)
   if (!allowed) {

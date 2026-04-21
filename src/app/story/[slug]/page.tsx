@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
+import { featureFlags } from "@/lib/feature-flags";
 import { StoryDetail } from "@/components/StoryDetail";
 import { ReAnalyzeButton } from "@/components/ReAnalyzeButton";
 import { StoryPaywallWrapper } from "@/components/StoryPaywallWrapper";
@@ -92,6 +93,7 @@ export default async function StoryPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) notFound();
   const { slug } = await params;
 
   // Parallelize story fetch with "more stories" — they're independent queries

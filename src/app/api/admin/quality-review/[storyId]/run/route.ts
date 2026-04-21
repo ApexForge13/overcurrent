@@ -1,5 +1,6 @@
 import { requireAdmin } from '@/lib/auth-guard'
 import { runQualityReview } from '@/lib/quality-review'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * POST /api/admin/quality-review/[storyId]/run
@@ -19,6 +20,7 @@ import { runQualityReview } from '@/lib/quality-review'
  * unchanged (admin still owns the approve/hold decision).
  */
 export async function POST(_request: Request, { params }: { params: Promise<{ storyId: string }> }) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

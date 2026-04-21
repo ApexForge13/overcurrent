@@ -1,6 +1,8 @@
 import { checkRateLimit } from '@/lib/rate-limit'
+import { featureFlags } from '@/lib/feature-flags'
 
 export async function POST(request: Request) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const ip = request.headers.get('x-forwarded-for') || 'unknown'
   const { allowed } = checkRateLimit(`suggest:${ip}`, 5, 60_000)
   if (!allowed) {

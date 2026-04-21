@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, notFound } from 'next/navigation'
+import { featureFlags } from '@/lib/feature-flags'
 
 // Session 3 Step 5 — Full umbrella detail page with 5 sections:
 //   1. Header (name, description, stats, Run Intelligence Scan)
@@ -100,6 +101,7 @@ function pct(n: number): string {
 }
 
 export default function UmbrellaDetailPage() {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) notFound()
   const params = useParams<{ id: string }>()
   const id = params?.id
   const [umbrella, setUmbrella] = useState<UmbrellaDetail | null>(null)

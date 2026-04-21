@@ -1,6 +1,9 @@
+import { notFound } from 'next/navigation'
 import { SuggestForm } from './SuggestForm'
+import { featureFlags } from '@/lib/feature-flags'
 
 export default function SuggestPage() {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) notFound()
   return (
     <div
       style={{

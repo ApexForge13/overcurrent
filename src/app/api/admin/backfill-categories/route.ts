@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { requireAdmin } from '@/lib/auth-guard'
+import { featureFlags } from '@/lib/feature-flags'
 
 function guessCategory(headline: string, synopsis: string): string {
   const text = (headline + ' ' + synopsis).toLowerCase()
@@ -18,6 +19,7 @@ function guessCategory(headline: string, synopsis: string): string {
 }
 
 export async function POST() {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

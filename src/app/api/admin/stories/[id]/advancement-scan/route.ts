@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
 import { runArcAdvancementScan } from '@/lib/arc-advancement-scan'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * POST /api/admin/stories/[id]/advancement-scan
@@ -16,6 +17,7 @@ export async function POST(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

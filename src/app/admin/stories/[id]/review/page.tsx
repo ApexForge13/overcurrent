@@ -1,8 +1,10 @@
 import { prisma } from '@/lib/db'
-import { redirect } from 'next/navigation'
+import { redirect, notFound } from 'next/navigation'
 import { ReviewActions } from './ReviewActions'
+import { featureFlags } from '@/lib/feature-flags'
 
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) notFound()
   const { id } = await params
 
   const story = await prisma.story.findUnique({

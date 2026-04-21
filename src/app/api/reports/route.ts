@@ -1,7 +1,9 @@
 import { prisma } from '@/lib/db'
 import { NextRequest } from 'next/server'
+import { featureFlags } from '@/lib/feature-flags'
 
 export async function GET(request: NextRequest) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const searchParams = request.nextUrl.searchParams
   const search = searchParams.get('search') ?? undefined
   const riskLevel = searchParams.get('risk_level') ?? undefined

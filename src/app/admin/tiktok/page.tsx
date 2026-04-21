@@ -1,5 +1,7 @@
 "use client"
 import { useState, useEffect } from 'react'
+import { notFound } from 'next/navigation'
+import { featureFlags } from '@/lib/feature-flags'
 
 interface Story {
   id: string
@@ -16,6 +18,7 @@ interface TikTokEntry {
 }
 
 export default function TikTokAdminPage() {
+  if (!featureFlags.SOCIAL_AUTOMATION_ENABLED) notFound()
   const [stories, setStories] = useState<Story[]>([])
   const [selectedStory, setSelectedStory] = useState('')
   const [entries, setEntries] = useState<TikTokEntry[]>([{ url: '', caption: '', views: 0, likes: 0, framingType: 'other' }])

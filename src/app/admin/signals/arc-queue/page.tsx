@@ -1,5 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from 'react'
+import { notFound } from 'next/navigation'
+import { featureFlags } from '@/lib/feature-flags'
 
 // ── Types mirror the shape of /api/admin/arc-schedules and /api/admin/arc-queue-stats ──
 
@@ -88,6 +90,7 @@ function formatRelativeDate(iso: string): string {
 }
 
 export default function ArcQueuePage() {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) notFound()
   const [schedules, setSchedules] = useState<SchedulesResponse | null>(null)
   const [stats, setStats] = useState<StatsResponse | null>(null)
   const [advancements, setAdvancements] = useState<AdvancementsResponse | null>(null)

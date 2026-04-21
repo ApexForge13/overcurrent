@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
+import { featureFlags } from "@/lib/feature-flags";
 import { UndercurrentReport } from "@/components/UndercurrentReport";
 
 export async function generateMetadata({
@@ -67,6 +68,7 @@ export default async function UndercurrentPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  if (!featureFlags.DISCOURSE_LAYER_ENABLED) notFound();
   const { slug } = await params;
 
   const report = await prisma.undercurrentReport.findUnique({

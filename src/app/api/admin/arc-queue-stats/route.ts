@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db'
 import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * GET /api/admin/arc-queue-stats
@@ -18,6 +19,7 @@ import { requireAdmin } from '@/lib/auth-guard'
  * - All counts are over Stories created this calendar month.
  */
 export async function GET(_request: NextRequest) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

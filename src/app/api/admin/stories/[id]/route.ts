@@ -1,9 +1,11 @@
 import { prisma } from '@/lib/db'
 import { requireAdmin } from '@/lib/auth-guard'
+import { featureFlags } from '@/lib/feature-flags'
 
 const VALID_STATUSES = ['draft', 'review', 'published', 'archived', 'rejected']
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 
@@ -51,6 +53,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

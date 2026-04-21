@@ -1,5 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { notFound } from 'next/navigation'
+import { featureFlags } from '@/lib/feature-flags'
 
 // ── Constants mirrored from src/lib/umbrella-validation.ts ──
 // Kept inline (not imported) to avoid pulling server-only deps into the client bundle.
@@ -53,6 +55,7 @@ function formatFrequency(f: string): string {
 }
 
 export default function UmbrellasPage() {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) notFound()
   const [umbrellas, setUmbrellas] = useState<Umbrella[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

@@ -40,6 +40,18 @@ app.post('/analyze', async (req, res) => {
     return res.status(400).json({ error: 'Missing required field: query' })
   }
 
+  // ── Feature-flag gate (v2 pivot) ──
+  // Belt-and-suspenders gate in front of the SSE stream so operators pinging
+  // the Express service directly see 503 rather than an opening 200 stream
+  // that immediately errors. The orchestrator gate inside runVerifyPipeline
+  // is the source of truth.
+  if (process.env.FEATURE_DEBATE_PIPELINE !== 'true') {
+    return res.status(503).json({
+      error: 'Debate pipeline disabled',
+      detail: 'FEATURE_DEBATE_PIPELINE !== "true". Legacy surface archived for the v2 pivot to Gap Score.',
+    })
+  }
+
   // Set up SSE
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -93,6 +105,16 @@ app.post('/undercurrent', async (req, res) => {
 
   if (!query || typeof query !== 'string') {
     return res.status(400).json({ error: 'Missing required field: query' })
+  }
+
+  // ── Feature-flag gate (v2 pivot) ──
+  // Matches the /analyze gate: return 503 before opening the SSE stream when
+  // the undercurrent pipeline is archived.
+  if (process.env.FEATURE_DISCOURSE !== 'true') {
+    return res.status(503).json({
+      error: 'Undercurrent pipeline disabled',
+      detail: 'FEATURE_DISCOURSE !== "true". Legacy surface archived for the v2 pivot to Gap Score.',
+    })
   }
 
   res.writeHead(200, {

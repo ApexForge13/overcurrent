@@ -6,6 +6,7 @@ import {
   isScanFrequency,
   isSignalCategory,
 } from '@/lib/umbrella-validation'
+import { featureFlags } from '@/lib/feature-flags'
 
 /**
  * GET /api/admin/umbrellas/[id]
@@ -17,6 +18,7 @@ export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 
@@ -55,6 +57,7 @@ export async function PUT(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  if (!featureFlags.DEBATE_PIPELINE_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { notFound } from 'next/navigation'
 import { outlets, type OutletInfo } from '@/data/outlets'
+import { featureFlags } from '@/lib/feature-flags'
 
 const leanColors: Record<string, string> = {
   left: '#457B9D',
@@ -29,6 +31,7 @@ function sortedOutlets(list: OutletInfo[]): OutletInfo[] {
 }
 
 export default function OutletsPage() {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) notFound()
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(() => {

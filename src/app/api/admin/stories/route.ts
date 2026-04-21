@@ -1,8 +1,10 @@
 import { prisma } from '@/lib/db'
 import { NextRequest } from 'next/server'
 import { requireAdmin } from '@/lib/auth-guard'
+import { featureFlags } from '@/lib/feature-flags'
 
 export async function GET(request: NextRequest) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

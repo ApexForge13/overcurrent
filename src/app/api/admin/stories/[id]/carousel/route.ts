@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { requireAdmin } from '@/lib/auth-guard'
+import { featureFlags } from '@/lib/feature-flags'
 
 const W = 1080
 const H = 1080
@@ -134,6 +135,7 @@ function slide5(sourceCount: number, countryCount: number, regionCount: number):
 }
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!featureFlags.LEGACY_STORY_PAGES_ENABLED) return Response.json({ error: 'Not Found' }, { status: 404 })
   const auth = await requireAdmin()
   if (auth.error) return auth.error
 

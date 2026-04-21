@@ -27,8 +27,13 @@ export interface EiaIndicatorSpec {
   /** EIA v2 API path suffix + data column to select. */
   apiPath: string
   valueColumn: string
-  /** Additional query params the endpoint needs. */
-  extraParams?: Record<string, string>
+  /**
+   * Additional query params the endpoint needs.
+   * Value type includes `undefined` because the array-literal union inference
+   * across multiple indicator configs with different key sets yields optional
+   * keys. Runtime loop in fetchEiaSeries filters undefined before appending.
+   */
+  extraParams?: Record<string, string | undefined>
 }
 
 export const EIA_INDICATORS: readonly EiaIndicatorSpec[] = Object.freeze([
@@ -99,7 +104,7 @@ export async function fetchEiaSeries(
   url.searchParams.set('start', start)
   url.searchParams.set('end', end)
   for (const [k, v] of Object.entries(spec.extraParams ?? {})) {
-    url.searchParams.append(k, v)
+    if (v !== undefined) url.searchParams.append(k, v)
   }
 
   const resp = await fetchImpl(url.toString())

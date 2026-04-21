@@ -15,7 +15,7 @@
 
 import 'dotenv/config'
 import { prisma } from '../src/lib/db'
-import { loadEntityRegistry } from '../src/lib/entities/registry'
+import { loadEntityRegistry, type RegistryProgressEvent } from '../src/lib/entities/registry'
 import type { TrackedEntityInput } from '../src/lib/entities/types'
 
 const args = process.argv.slice(2)
@@ -30,11 +30,22 @@ async function main() {
     coingecko:  only && !only.includes('coingecko') ? (false as const) : {},
     futures:    only ? only.includes('futures') : true,
     etfs:       only ? only.includes('etfs') : true,
-    onProgress: (ev: { source: string; status: string } & Record<string, unknown>) => {
-      if (ev.status === 'started') console.log(`[seed-entities] ${ev.source} starting...`)
-      else if (ev.status === 'success') console.log(`[seed-entities] ${ev.source}: ${(ev as { count: number }).count} entities`)
-      else if (ev.status === 'skipped') console.log(`[seed-entities] ${ev.source}: skipped (${(ev as { reason: string }).reason})`)
-      else if (ev.status === 'failed')  console.error(`[seed-entities] ${ev.source}: FAILED — ${(ev as { error: string }).error}`)
+    onProgress: (ev: RegistryProgressEvent) => {
+      // Discriminated union — TypeScript narrows on ev.status. No unsafe casts.
+      switch (ev.status) {
+        case 'started':
+          console.log(`[seed-entities] ${ev.source} starting...`)
+          break
+        case 'success':
+          console.log(`[seed-entities] ${ev.source}: ${ev.count} entities`)
+          break
+        case 'skipped':
+          console.log(`[seed-entities] ${ev.source}: skipped (${ev.reason})`)
+          break
+        case 'failed':
+          console.error(`[seed-entities] ${ev.source}: FAILED — ${ev.error}`)
+          break
+      }
     },
   }
   const { entities, bySource, duplicatesOverridden } = await loadEntityRegistry(registryOpts)

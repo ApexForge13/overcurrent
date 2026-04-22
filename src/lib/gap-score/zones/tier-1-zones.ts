@@ -57,8 +57,46 @@ export interface MonitoringZone {
   relevantCommodities: string[]
   /** AIS ship-type codes to include in Datalastic queries. */
   shipTypeFilter: string[]
+  /**
+   * Scan tier for maritime zone polling cadence (Phase 1c.2b.2):
+   *   1 — 2 scans/day (chokepoints + most-critical terminals)
+   *   2 — 1 scan/day
+   *   3 — alternate days (0.5 scans/day)
+   * Tier gates are per-zone credits: 10 per `get-vessels-by-area` call.
+   * Optional — if omitted, `getZoneScanTier(zone)` defaults from category.
+   * Override per-zone by setting scanTier explicitly.
+   */
+  scanTier?: 1 | 2 | 3
   /** Operational context. */
   notes?: string
+}
+
+/**
+ * Default scan tier per zone category. Chokepoints get highest priority
+ * (2 scans/day) because they're aggregation points for global trade
+ * anomalies. Major terminals + import terminals tier 2. Grain + metals +
+ * refined products zones tier 3 (lower volatility, still worth tracking).
+ */
+export function defaultScanTier(category: ZoneCategory): 1 | 2 | 3 {
+  switch (category) {
+    case 'chokepoint':
+      return 1
+    case 'crude_export':
+    case 'crude_import':
+    case 'lng_export':
+    case 'lng_import':
+      return 2
+    default:
+      return 3
+  }
+}
+
+/**
+ * Resolve the effective scan tier for a zone: explicit override first,
+ * else default by category.
+ */
+export function getZoneScanTier(zone: MonitoringZone): 1 | 2 | 3 {
+  return zone.scanTier ?? defaultScanTier(zone.category)
 }
 
 export const TIER_1_ZONES: readonly MonitoringZone[] = [

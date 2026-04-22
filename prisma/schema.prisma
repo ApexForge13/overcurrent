@@ -1616,6 +1616,7 @@ model TrackedEntity {
   rawSignalQueues      RawSignalQueue[]
   observations         EntityObservation[]
   observationsHourly   EntityObservationHourly[]
+  earningsSchedules    EarningsSchedule[]
 
   @@index([identifier])
   @@index([category, active])
@@ -1967,6 +1968,48 @@ model CftcPosition {
 
   @@unique([marketCode, exchangeCode, reportDate])
   @@index([marketCode, reportDate])
+  @@index([reportDate])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1c.2b.2 — TRIGGER ENABLEMENT + EARNINGS SCHEDULE
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Admin-controlled trigger enablement + threshold overrides. Replaces the
+// env-var-only isTriggerEnabled() gate with a DB → env → ENABLED default
+// chain. Unique on triggerId — one row per trigger.
+//
+// thresholdOverrides: free-form JSON merged with trigger defaults at
+// dispatch time. Keys depend on the trigger (e.g. T-N1 accepts
+// { z_floor: 2.5 }, T-GT5 accepts { equity_pct: 4.0, ... }).
+// Trigger functions consume the merged threshold set from TriggerContext.
+model TriggerEnablement {
+  id                  String   @id @default(cuid())
+  triggerId           String   @unique
+  enabled             Boolean  @default(true)
+  thresholdOverrides  Json?                                  // null = use defaults
+  updatedAt           DateTime @updatedAt
+  updatedBy           String?                                // admin email from session
+
+  @@index([triggerId])
+}
+
+// Projected earnings release dates for tracked tickers. Populated by the
+// DCF earnings poller: "last actual report + 90 days" heuristic (per user
+// decision). T-N2 quiet-period guard queries this to suppress cross-
+// outlet amplification fires within 24h of an entity's scheduled earnings.
+model EarningsSchedule {
+  id           String   @id @default(cuid())
+  entityId     String
+  entity       TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  ticker       String                                         // denormalized for fast query
+  reportDate   DateTime                                       // projected or confirmed
+  timeOfDay    String?                                        // "bmo" | "amc" | "intraday" | null
+  confirmed    Boolean  @default(false)                       // true when DCF shows actual date announced
+  scrapedAt    DateTime @default(now())
+
+  @@unique([entityId, reportDate])
+  @@index([ticker, reportDate])
   @@index([reportDate])
 }
 

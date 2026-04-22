@@ -56,6 +56,14 @@ export interface TriggerContext {
   now: Date
   /** True when the trigger is allowed to make external API calls. */
   allowExternalFetch?: boolean
+  /**
+   * Optional threshold overrides from TriggerEnablement.thresholdOverrides.
+   * Free-form JSON per Phase 1c.2b.2 manifest A4 — trigger functions merge
+   * known keys with their own defaults; unknown keys are ignored. Null/
+   * undefined means "use all defaults" (the common case when no admin-UI
+   * edit has been made for this trigger).
+   */
+  thresholds?: Record<string, number> | null
 }
 
 /** Each trigger is a function that inspects data and returns fires. */

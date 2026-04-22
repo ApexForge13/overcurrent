@@ -104,6 +104,37 @@ export const TRIGGER_DEFINITIONS: Record<string, TriggerDefinition> = Object.fre
     requiresBaseline: false,
     enabledEnvVar: 'TRIGGER_T_GT4_ENABLED',
   },
+  'T-GT5': {
+    id: 'T-GT5',
+    description: 'Price move — intraday > category threshold',
+    stream: 'ground_truth',
+    requiresBaseline: true,
+    baselineConfig: { metricName: 'realized_vol_30d', windowDays: 30 },
+    enabledEnvVar: 'TRIGGER_T_GT5_ENABLED',
+  },
+  'T-GT6': {
+    id: 'T-GT6',
+    description: 'Price gap — overnight > category threshold',
+    stream: 'ground_truth',
+    requiresBaseline: true,
+    baselineConfig: { metricName: 'realized_vol_30d', windowDays: 30 },
+    enabledEnvVar: 'TRIGGER_T_GT6_ENABLED',
+  },
+  'T-GT7': {
+    id: 'T-GT7',
+    description: 'Maritime AIS anomaly — Tier-1 zone vessel-count z-score',
+    stream: 'ground_truth',
+    requiresBaseline: true,
+    baselineConfig: { metricName: 'tankerCount', windowDays: 30 },
+    enabledEnvVar: 'TRIGGER_T_GT7_ENABLED',
+  },
+  'T-GT8': {
+    id: 'T-GT8',
+    description: 'Commodity inventory release — EIA/USDA surprise z-score',
+    stream: 'ground_truth',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_GT8_ENABLED',
+  },
   'T-GT9': {
     id: 'T-GT9',
     description: 'Macro surprise — actual vs consensus z-score',
@@ -117,6 +148,20 @@ export const TRIGGER_DEFINITIONS: Record<string, TriggerDefinition> = Object.fre
     stream: 'ground_truth',
     requiresBaseline: false,
     enabledEnvVar: 'TRIGGER_T_GT10_ENABLED',
+  },
+  'T-GT11': {
+    id: 'T-GT11',
+    description: 'Earnings transcript availability',
+    stream: 'ground_truth',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_GT11_ENABLED',
+  },
+  'T-GT12': {
+    id: 'T-GT12',
+    description: 'Unusual options flow — volume vs open interest',
+    stream: 'ground_truth',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_GT12_ENABLED',
   },
 
   // ── Meta (derived from TriggerEvent table, Phase 1c.1) ──

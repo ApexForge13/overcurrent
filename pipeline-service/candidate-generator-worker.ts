@@ -37,6 +37,13 @@ import { sec13DGTrigger } from '../src/lib/gap-score/triggers/ground-truth/sec-1
 import { sec8KTrigger } from '../src/lib/gap-score/triggers/ground-truth/sec-8-k'
 import { congressionalTradeTrigger } from '../src/lib/gap-score/triggers/ground-truth/congressional-trade'
 import { cftcManagedMoneyTrigger } from '../src/lib/gap-score/triggers/ground-truth/cftc-managed-money'
+// Phase 1c.2b.2 paid integrations
+import { priceIntradayMoveTrigger } from '../src/lib/gap-score/triggers/ground-truth/price-intraday-move'
+import { priceOvernightGapTrigger } from '../src/lib/gap-score/triggers/ground-truth/price-overnight-gap'
+import { optionsFlowUnusualTrigger } from '../src/lib/gap-score/triggers/ground-truth/options-flow-unusual'
+import { maritimeAnomalyTrigger } from '../src/lib/gap-score/triggers/ground-truth/maritime-anomaly'
+import { commodityInventoryTrigger } from '../src/lib/gap-score/triggers/ground-truth/commodity-inventory'
+import { earningsTranscriptTrigger } from '../src/lib/gap-score/triggers/ground-truth/earnings-transcript'
 // Narrative (Phase 1c.2b.1)
 import { articleVolumeSpikeTrigger } from '../src/lib/gap-score/triggers/narrative/article-volume-spike'
 import { crossOutletTrigger } from '../src/lib/gap-score/triggers/narrative/cross-outlet'
@@ -57,8 +64,14 @@ const TRIGGER_IMPLEMENTATIONS: Record<string, TriggerFunction> = {
   'T-GT2': sec13DGTrigger,
   'T-GT3': sec8KTrigger,
   'T-GT4': cftcManagedMoneyTrigger,
+  'T-GT5': priceIntradayMoveTrigger,
+  'T-GT6': priceOvernightGapTrigger,
+  'T-GT7': maritimeAnomalyTrigger,
+  'T-GT8': commodityInventoryTrigger,
   'T-GT9': macroSurpriseTrigger,
   'T-GT10': congressionalTradeTrigger,
+  'T-GT11': earningsTranscriptTrigger,
+  'T-GT12': optionsFlowUnusualTrigger,
   // Narrative
   'T-N1': articleVolumeSpikeTrigger,
   'T-N2': crossOutletTrigger,
@@ -177,6 +190,44 @@ async function registerRepeatables() {
       { name: 'scan', data: { triggerId: id } },
     )
   }
+
+  // ── Phase 1c.2b.2 ground-truth paid-integration triggers ──
+  // T-GT5 intraday price — every 15 min (real-time snapshot)
+  await triggerQueue.upsertJobScheduler(
+    't-gt5-scan',
+    { every: 15 * 60 * 1000 },
+    { name: 'scan', data: { triggerId: 'T-GT5' } },
+  )
+  // T-GT6 overnight gap — daily at 14:00 UTC (~09:00 ET pre-market)
+  await triggerQueue.upsertJobScheduler(
+    't-gt6-scan',
+    { pattern: '0 14 * * *' },
+    { name: 'scan', data: { triggerId: 'T-GT6' } },
+  )
+  // T-GT7 maritime — every 6h (double-gated; scanner handles per-zone tier cadence)
+  await triggerQueue.upsertJobScheduler(
+    't-gt7-scan',
+    { every: 6 * 60 * 60 * 1000 },
+    { name: 'scan', data: { triggerId: 'T-GT7' } },
+  )
+  // T-GT8 commodity inventory — every 30 min (EIA releases land Wed/Thu 10:30 ET)
+  await triggerQueue.upsertJobScheduler(
+    't-gt8-scan',
+    { every: 30 * 60 * 1000 },
+    { name: 'scan', data: { triggerId: 'T-GT8' } },
+  )
+  // T-GT11 earnings transcripts — every 2h
+  await triggerQueue.upsertJobScheduler(
+    't-gt11-scan',
+    { every: 2 * 60 * 60 * 1000 },
+    { name: 'scan', data: { triggerId: 'T-GT11' } },
+  )
+  // T-GT12 options flow — every 30 min (rate-limit sensitive)
+  await triggerQueue.upsertJobScheduler(
+    't-gt12-scan',
+    { every: 30 * 60 * 1000 },
+    { name: 'scan', data: { triggerId: 'T-GT12' } },
+  )
 
   console.log('[candidate-generator-worker] repeatable schedulers registered')
 }

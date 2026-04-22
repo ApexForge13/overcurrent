@@ -2,18 +2,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TRIGGER_DEFINITIONS, isTriggerEnabled, ALL_TRIGGER_IDS } from '@/lib/gap-score/triggers/registry'
 
 describe('TRIGGER_DEFINITIONS', () => {
-  it('registers exactly 16 triggers post-1c.2b.1 (4 narrative + 4 psych + 6 ground-truth + 2 meta)', () => {
-    expect(ALL_TRIGGER_IDS).toHaveLength(16)
+  it('registers exactly 22 triggers post-1c.2b.2 (4 narrative + 4 psych + 12 ground-truth + 2 meta)', () => {
+    expect(ALL_TRIGGER_IDS).toHaveLength(22)
   })
 
-  it('includes all Phase 1c.1 + 1c.2a + 1c.2b.1 IDs', () => {
+  it('includes all Phase 1c.1 + 1c.2a + 1c.2b.1 + 1c.2b.2 IDs', () => {
     const expected = new Set([
       // Narrative (1c.2b.1)
       'T-N1', 'T-N2', 'T-N3', 'T-N4',
       // Psychological (1c.2b.1)
       'T-P1', 'T-P2', 'T-P3', 'T-P4',
-      // Ground-truth (1c.1 + 1c.2a + 1c.2b.1)
-      'T-GT1', 'T-GT2', 'T-GT3', 'T-GT4', 'T-GT9', 'T-GT10',
+      // Ground-truth (1c.1 + 1c.2a + 1c.2b.1 + 1c.2b.2)
+      'T-GT1', 'T-GT2', 'T-GT3', 'T-GT4', 'T-GT5', 'T-GT6', 'T-GT7',
+      'T-GT8', 'T-GT9', 'T-GT10', 'T-GT11', 'T-GT12',
       // Meta (1c.1)
       'T-META1', 'T-META2',
     ])
@@ -29,14 +30,14 @@ describe('TRIGGER_DEFINITIONS', () => {
     }
   })
 
-  it('streams split: 4 narrative + 4 psych + 6 ground_truth + 2 meta post-1c.2b.1', () => {
+  it('streams split: 4 narrative + 4 psych + 12 ground_truth + 2 meta post-1c.2b.2', () => {
     const byStream: Record<string, number> = {}
     for (const def of Object.values(TRIGGER_DEFINITIONS)) {
       byStream[def.stream] = (byStream[def.stream] ?? 0) + 1
     }
     expect(byStream.narrative).toBe(4)
     expect(byStream.psychological).toBe(4)
-    expect(byStream.ground_truth).toBe(6)
+    expect(byStream.ground_truth).toBe(12)
     expect(byStream.meta).toBe(2)
   })
 

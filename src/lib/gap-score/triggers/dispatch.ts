@@ -9,7 +9,10 @@
 
 import type { PrismaClient } from '@prisma/client'
 import type { TriggerContext, TriggerDefinition, TriggerFireEvent, TriggerFunction } from './types'
-import { isTriggerEnabled } from './registry'
+import {
+  isTriggerEnabledWithFallback,
+  getThresholdOverrides,
+} from './enablement'
 
 export interface DispatchResult {
   triggerType: string
@@ -26,7 +29,8 @@ export async function dispatchTrigger(
 ): Promise<DispatchResult> {
   const start = Date.now()
 
-  if (!isTriggerEnabled(definition.id)) {
+  const enabled = await isTriggerEnabledWithFallback(ctx.prisma, definition.id)
+  if (!enabled) {
     return {
       triggerType: definition.id,
       status: 'disabled',
@@ -35,8 +39,13 @@ export async function dispatchTrigger(
     }
   }
 
+  // Inject threshold overrides (if any) into the context so trigger
+  // implementations that support overrides merge them with defaults.
+  const thresholds = await getThresholdOverrides(ctx.prisma, definition.id)
+  const enrichedCtx: TriggerContext = { ...ctx, thresholds }
+
   try {
-    const fires = await implementation(ctx)
+    const fires = await implementation(enrichedCtx)
     for (const fire of fires) {
       await writeTriggerEvent(ctx.prisma, fire)
     }

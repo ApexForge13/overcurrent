@@ -34,6 +34,10 @@ function mockPrisma(entities: Array<{ id: string; identifier: string; isFeatured
     entityObservation: {
       createMany: vi.fn().mockImplementation(({ data }: { data: unknown[] }) => Promise.resolve({ count: data.length })),
     },
+    costLog: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({}),
+    },
   } as unknown as PrismaClient
 }
 

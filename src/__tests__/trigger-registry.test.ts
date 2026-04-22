@@ -2,12 +2,21 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TRIGGER_DEFINITIONS, isTriggerEnabled, ALL_TRIGGER_IDS } from '@/lib/gap-score/triggers/registry'
 
 describe('TRIGGER_DEFINITIONS', () => {
-  it('registers exactly 7 event-driven + meta triggers for Phase 1c.1', () => {
-    expect(ALL_TRIGGER_IDS).toHaveLength(7)
+  it('registers exactly 16 triggers post-1c.2b.1 (4 narrative + 4 psych + 6 ground-truth + 2 meta)', () => {
+    expect(ALL_TRIGGER_IDS).toHaveLength(16)
   })
 
-  it('includes all 7 Phase 1c.1 IDs', () => {
-    const expected = new Set(['T-GT1', 'T-GT2', 'T-GT3', 'T-GT9', 'T-GT10', 'T-META1', 'T-META2'])
+  it('includes all Phase 1c.1 + 1c.2a + 1c.2b.1 IDs', () => {
+    const expected = new Set([
+      // Narrative (1c.2b.1)
+      'T-N1', 'T-N2', 'T-N3', 'T-N4',
+      // Psychological (1c.2b.1)
+      'T-P1', 'T-P2', 'T-P3', 'T-P4',
+      // Ground-truth (1c.1 + 1c.2a + 1c.2b.1)
+      'T-GT1', 'T-GT2', 'T-GT3', 'T-GT4', 'T-GT9', 'T-GT10',
+      // Meta (1c.1)
+      'T-META1', 'T-META2',
+    ])
     expect(new Set(ALL_TRIGGER_IDS)).toEqual(expected)
   })
 
@@ -20,13 +29,25 @@ describe('TRIGGER_DEFINITIONS', () => {
     }
   })
 
-  it('streams split: 5 ground_truth + 2 meta for Phase 1c.1', () => {
+  it('streams split: 4 narrative + 4 psych + 6 ground_truth + 2 meta post-1c.2b.1', () => {
     const byStream: Record<string, number> = {}
     for (const def of Object.values(TRIGGER_DEFINITIONS)) {
       byStream[def.stream] = (byStream[def.stream] ?? 0) + 1
     }
-    expect(byStream.ground_truth).toBe(5)
+    expect(byStream.narrative).toBe(4)
+    expect(byStream.psychological).toBe(4)
+    expect(byStream.ground_truth).toBe(6)
     expect(byStream.meta).toBe(2)
+  })
+
+  it('triggers that require baselines have baselineConfig populated', () => {
+    for (const def of Object.values(TRIGGER_DEFINITIONS)) {
+      if (def.requiresBaseline) {
+        expect(def.baselineConfig).toBeDefined()
+        expect(def.baselineConfig?.metricName).toBeTruthy()
+        expect(def.baselineConfig?.windowDays).toBeGreaterThan(0)
+      }
+    }
   })
 })
 

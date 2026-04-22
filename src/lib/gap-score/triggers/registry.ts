@@ -13,7 +13,69 @@
 import type { TriggerDefinition } from './types'
 
 export const TRIGGER_DEFINITIONS: Record<string, TriggerDefinition> = Object.freeze({
-  // ── Ground-truth (event-driven, Phase 1c.1) ──
+  // ── Narrative (Phase 1c.2b.1) ──
+  'T-N1': {
+    id: 'T-N1',
+    description: 'Article volume spike — hourly count > mean + 2σ',
+    stream: 'narrative',
+    requiresBaseline: true,
+    baselineConfig: { metricName: 'article_volume_hourly', windowDays: 7 },
+    enabledEnvVar: 'TRIGGER_T_N1_ENABLED',
+  },
+  'T-N2': {
+    id: 'T-N2',
+    description: 'Cross-outlet amplification — ≥5 distinct outlets in 30min',
+    stream: 'narrative',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_N2_ENABLED',
+  },
+  'T-N3': {
+    id: 'T-N3',
+    description: 'Wire-quality headline event — pattern match',
+    stream: 'narrative',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_N3_ENABLED',
+  },
+  'T-N4': {
+    id: 'T-N4',
+    description: 'Sentiment extremity batch — 2h keyword consensus',
+    stream: 'narrative',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_N4_ENABLED',
+  },
+
+  // ── Psychological (Phase 1c.2b.1) ──
+  'T-P1': {
+    id: 'T-P1',
+    description: 'Cashtag velocity spike — hourly count > mean + 3σ',
+    stream: 'psychological',
+    requiresBaseline: true,
+    baselineConfig: { metricName: 'cashtag_velocity_hourly', windowDays: 14 },
+    enabledEnvVar: 'TRIGGER_T_P1_ENABLED',
+  },
+  'T-P2': {
+    id: 'T-P2',
+    description: 'Engagement velocity acceleration — 2× prev-hour rate',
+    stream: 'psychological',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_P2_ENABLED',
+  },
+  'T-P3': {
+    id: 'T-P3',
+    description: 'Cross-platform amplification — T-P1 fires on ≥2 platforms in 2h',
+    stream: 'psychological',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_P3_ENABLED',
+  },
+  'T-P4': {
+    id: 'T-P4',
+    description: 'Sentiment extremity consensus — 2h social keyword match',
+    stream: 'psychological',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_P4_ENABLED',
+  },
+
+  // ── Ground-truth (event-driven, Phase 1c.1/1c.2a/1c.2b.1) ──
   'T-GT1': {
     id: 'T-GT1',
     description: 'SEC Form 4 — large insider transaction',
@@ -34,6 +96,13 @@ export const TRIGGER_DEFINITIONS: Record<string, TriggerDefinition> = Object.fre
     stream: 'ground_truth',
     requiresBaseline: false,
     enabledEnvVar: 'TRIGGER_T_GT3_ENABLED',
+  },
+  'T-GT4': {
+    id: 'T-GT4',
+    description: 'CFTC COT — managed money net position delta',
+    stream: 'ground_truth',
+    requiresBaseline: false,
+    enabledEnvVar: 'TRIGGER_T_GT4_ENABLED',
   },
   'T-GT9': {
     id: 'T-GT9',

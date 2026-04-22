@@ -36,15 +36,39 @@ import { secForm4Trigger } from '../src/lib/gap-score/triggers/ground-truth/sec-
 import { sec13DGTrigger } from '../src/lib/gap-score/triggers/ground-truth/sec-13d-g'
 import { sec8KTrigger } from '../src/lib/gap-score/triggers/ground-truth/sec-8-k'
 import { congressionalTradeTrigger } from '../src/lib/gap-score/triggers/ground-truth/congressional-trade'
+import { cftcManagedMoneyTrigger } from '../src/lib/gap-score/triggers/ground-truth/cftc-managed-money'
+// Narrative (Phase 1c.2b.1)
+import { articleVolumeSpikeTrigger } from '../src/lib/gap-score/triggers/narrative/article-volume-spike'
+import { crossOutletTrigger } from '../src/lib/gap-score/triggers/narrative/cross-outlet'
+import { wireHeadlineTrigger } from '../src/lib/gap-score/triggers/narrative/wire-headline'
+import { sentimentExtremityBatchTrigger } from '../src/lib/gap-score/triggers/narrative/sentiment-extremity-batch'
+// Psychological (Phase 1c.2b.1)
+import { cashtagVelocityTrigger } from '../src/lib/gap-score/triggers/psychological/cashtag-velocity'
+import { engagementVelocityTrigger } from '../src/lib/gap-score/triggers/psychological/engagement-velocity'
+import { crossPlatformAmplificationTrigger } from '../src/lib/gap-score/triggers/psychological/cross-platform-amplification'
+import { sentimentExtremityConsensusTrigger } from '../src/lib/gap-score/triggers/psychological/sentiment-extremity-consensus'
 
 const TRIGGER_IMPLEMENTATIONS: Record<string, TriggerFunction> = {
+  // Meta
   'T-META1': multiStreamConfluenceTrigger,
   'T-META2': featuredSetBaselineTrigger,
-  'T-GT9': macroSurpriseTrigger,
+  // Ground truth
   'T-GT1': secForm4Trigger,
   'T-GT2': sec13DGTrigger,
   'T-GT3': sec8KTrigger,
+  'T-GT4': cftcManagedMoneyTrigger,
+  'T-GT9': macroSurpriseTrigger,
   'T-GT10': congressionalTradeTrigger,
+  // Narrative
+  'T-N1': articleVolumeSpikeTrigger,
+  'T-N2': crossOutletTrigger,
+  'T-N3': wireHeadlineTrigger,
+  'T-N4': sentimentExtremityBatchTrigger,
+  // Psychological
+  'T-P1': cashtagVelocityTrigger,
+  'T-P2': engagementVelocityTrigger,
+  'T-P3': crossPlatformAmplificationTrigger,
+  'T-P4': sentimentExtremityConsensusTrigger,
 }
 
 const workers: Worker[] = []
@@ -129,6 +153,30 @@ async function registerRepeatables() {
     { every: 6 * 60 * 60 * 1000 },
     { name: 'scan', data: { triggerId: 'T-GT10' } },
   )
+  // CFTC COT every 6h (weekly report; frequent cadence catches the Fri
+  // release within a few hours without busy-polling)
+  await triggerQueue.upsertJobScheduler(
+    't-gt4-scan',
+    { every: 6 * 60 * 60 * 1000 },
+    { name: 'scan', data: { triggerId: 'T-GT4' } },
+  )
+
+  // ── Narrative triggers (Phase 1c.2b.1) — every 5 min ──
+  for (const id of ['T-N1', 'T-N2', 'T-N3', 'T-N4'] as const) {
+    await triggerQueue.upsertJobScheduler(
+      `${id.toLowerCase()}-scan`,
+      { every: 5 * 60 * 1000 },
+      { name: 'scan', data: { triggerId: id } },
+    )
+  }
+  // ── Psychological triggers (Phase 1c.2b.1) — every 5 min ──
+  for (const id of ['T-P1', 'T-P2', 'T-P3', 'T-P4'] as const) {
+    await triggerQueue.upsertJobScheduler(
+      `${id.toLowerCase()}-scan`,
+      { every: 5 * 60 * 1000 },
+      { name: 'scan', data: { triggerId: id } },
+    )
+  }
 
   console.log('[candidate-generator-worker] repeatable schedulers registered')
 }

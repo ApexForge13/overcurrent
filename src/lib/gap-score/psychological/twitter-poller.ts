@@ -23,6 +23,7 @@ import { fetchTwitterDiscourse, type TwitterDiscoursePost } from '@/ingestion/tw
 import { getAliasIndex } from '@/lib/entity-extraction/alias-index'
 import { extractEntities } from '@/lib/entity-extraction/extract-from-text'
 import { writeObservations, type ObservationInput } from '@/lib/gap-score/narrative/observation-writer'
+import { writeMissingKeyHeartbeat } from '@/lib/gap-score/missing-key-heartbeat'
 
 const SOURCE_TYPE = 'twitter_post'
 
@@ -42,6 +43,7 @@ export async function pollTwitterForQueries(
 ): Promise<TwitterPollResult> {
   const keyMissing = !process.env.TWITTER_BEARER_TOKEN
   if (keyMissing) {
+    await writeMissingKeyHeartbeat(prisma, 'twitter', 'TWITTER_BEARER_TOKEN')
     return {
       queryCount: queries.length,
       postsFetched: 0,

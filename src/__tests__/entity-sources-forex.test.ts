@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { FOREX_CATALOG, loadForexEntities } from '@/lib/entities/sources/forex'
 
 describe('FOREX_CATALOG', () => {
-  it('contains 19 pairs (7 G10 + 4 crosses + 6 EM + 2 metal spots)', () => {
-    expect(FOREX_CATALOG).toHaveLength(19)
+  it('contains 20 pairs (7 G10 + 4 crosses + 7 EM + 2 metal spots)', () => {
+    expect(FOREX_CATALOG).toHaveLength(20)
+  })
+
+  it('includes USD/SGD as the Phase 1c.2a 20th pair', () => {
+    const sgd = FOREX_CATALOG.find((f) => f.pair === 'USD/SGD')
+    expect(sgd).toBeDefined()
+    expect(sgd?.subcategory).toBe('emerging')
   })
 
   it('has no duplicate pairs', () => {

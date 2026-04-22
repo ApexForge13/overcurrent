@@ -29,7 +29,7 @@ interface FutureSpec {
   subcategory: 'energy' | 'metals' | 'grains' | 'softs' | 'livestock' | 'equity_index' | 'treasury' | 'fx' | 'crypto'
   aliases: string[]
   exchange: 'CME' | 'ICE' | 'CBOT' | 'NYMEX' | 'COMEX'
-  category: 'commodity' | 'fx' | 'equity' | 'crypto'
+  category: 'commodity' | 'fx' | 'equity' | 'crypto' | 'yield'
 }
 
 const COMMODITY_TRIGGERS = Object.freeze(['T-GT4', 'T-GT5', 'T-GT6', 'T-GT7', 'T-GT8'])
@@ -73,11 +73,13 @@ export const FUTURES_CATALOG: readonly FutureSpec[] = Object.freeze([
   { symbol: 'NQ',  name: 'Nasdaq-100 E-mini',       subcategory: 'equity_index', exchange: 'CME', category: 'equity', aliases: ['Nasdaq Future', 'NQ'] },
   { symbol: 'YM',  name: 'Dow Jones E-mini',        subcategory: 'equity_index', exchange: 'CBOT', category: 'equity', aliases: ['Dow Future', 'YM'] },
   { symbol: 'RTY', name: 'Russell 2000 E-mini',     subcategory: 'equity_index', exchange: 'CME', category: 'equity', aliases: ['Russell Future', 'RTY'] },
-  // ── Treasury ──
-  { symbol: 'ZB',  name: '30-Year Treasury Bond',   subcategory: 'treasury', exchange: 'CBOT', category: 'fx', aliases: ['30Y Treasury', 'Long Bond'] },
-  { symbol: 'ZN',  name: '10-Year Treasury Note',   subcategory: 'treasury', exchange: 'CBOT', category: 'fx', aliases: ['10Y Treasury'] },
-  { symbol: 'ZT',  name: '2-Year Treasury Note',    subcategory: 'treasury', exchange: 'CBOT', category: 'fx', aliases: ['2Y Treasury'] },
-  { symbol: 'ZF',  name: '5-Year Treasury Note',    subcategory: 'treasury', exchange: 'CBOT', category: 'fx', aliases: ['5Y Treasury'] },
+  // ── Treasury (Phase 1c.2a: recategorized fx → yield; rate-sensitive
+  // instrument, not a currency pair. Direction mappings stay the same;
+  // only the top-level category changes for filtering semantics.) ──
+  { symbol: 'ZB',  name: '30-Year Treasury Bond',   subcategory: 'treasury', exchange: 'CBOT', category: 'yield', aliases: ['30Y Treasury', 'Long Bond'] },
+  { symbol: 'ZN',  name: '10-Year Treasury Note',   subcategory: 'treasury', exchange: 'CBOT', category: 'yield', aliases: ['10Y Treasury'] },
+  { symbol: 'ZT',  name: '2-Year Treasury Note',    subcategory: 'treasury', exchange: 'CBOT', category: 'yield', aliases: ['2Y Treasury'] },
+  { symbol: 'ZF',  name: '5-Year Treasury Note',    subcategory: 'treasury', exchange: 'CBOT', category: 'yield', aliases: ['5Y Treasury'] },
   // ── FX ──
   { symbol: '6E',  name: 'Euro FX Future',          subcategory: 'fx', exchange: 'CME', category: 'fx', aliases: ['EUR', 'EUR/USD Future'] },
   { symbol: '6J',  name: 'Japanese Yen Future',     subcategory: 'fx', exchange: 'CME', category: 'fx', aliases: ['JPY', 'Yen Future'] },
@@ -95,9 +97,10 @@ export function loadFuturesEntities(): TrackedEntityInput[] {
     let triggers: readonly string[]
     switch (spec.category) {
       case 'commodity': triggers = COMMODITY_TRIGGERS; break
-      case 'fx':        triggers = spec.subcategory === 'treasury' ? TREASURY_TRIGGERS : FX_TRIGGERS; break
+      case 'fx':        triggers = FX_TRIGGERS; break
       case 'equity':    triggers = INDEX_TRIGGERS; break
       case 'crypto':    triggers = CRYPTO_FUTURES_TRIGGERS; break
+      case 'yield':     triggers = TREASURY_TRIGGERS; break
     }
     const identifier = `${spec.symbol}=F`
     return {

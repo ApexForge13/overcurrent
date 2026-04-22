@@ -4,7 +4,7 @@
  * Scope:
  *   - G10 majors (7): EUR/USD, USD/JPY, GBP/USD, USD/CHF, AUD/USD, USD/CAD, NZD/USD
  *   - Crosses (4):    EUR/JPY, EUR/GBP, GBP/JPY, AUD/JPY
- *   - Emerging (6):   USD/CNY, USD/INR, USD/BRL, USD/MXN, USD/ZAR, USD/TRY
+ *   - Emerging (7):   USD/CNY, USD/INR, USD/BRL, USD/MXN, USD/ZAR, USD/TRY, USD/SGD
  *   - Metals (2):     XAU/USD (gold spot), XAG/USD (silver spot)
  *
  * Identifier format: slash form (e.g., "EUR/USD"). providerIds.fxSymbol
@@ -48,6 +48,9 @@ export const FOREX_CATALOG: readonly ForexSpec[] = Object.freeze([
   { pair: 'USD/MXN', name: 'US Dollar / Mexican Peso',        subcategory: 'emerging',  aliases: ['Peso', 'USDMXN'] },
   { pair: 'USD/ZAR', name: 'US Dollar / South African Rand',  subcategory: 'emerging',  aliases: ['Rand', 'USDZAR'] },
   { pair: 'USD/TRY', name: 'US Dollar / Turkish Lira',        subcategory: 'emerging',  aliases: ['Lira', 'USDTRY'] },
+  // Phase 1c.2a: 20th pair — MAS-managed basket gives cleaner Asia signal
+  // than USD/HKD's hard peg (which barely moves except under extreme stress).
+  { pair: 'USD/SGD', name: 'US Dollar / Singapore Dollar',    subcategory: 'emerging',  aliases: ['Singapore Dollar', 'USDSGD', 'Sing Dollar'] },
   // Metals (spot, priced in USD)
   { pair: 'XAU/USD', name: 'Gold Spot (USD)',                 subcategory: 'metal_spot',aliases: ['Gold spot', 'XAUUSD'] },
   { pair: 'XAG/USD', name: 'Silver Spot (USD)',               subcategory: 'metal_spot',aliases: ['Silver spot', 'XAGUSD'] },

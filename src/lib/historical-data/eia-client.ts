@@ -46,9 +46,15 @@ export const EIA_INDICATORS: readonly EiaIndicatorSpec[] = Object.freeze([
     relevantAssets: ['CL=F', 'BZ=F', 'XOM', 'CVX', 'USO', 'XLE'],
     apiPath: 'petroleum/stoc/wstk/data',
     valueColumn: 'value',
+    // Phase 1c.2a: narrowed from EPC0+NUS (returned multi-series across
+    // subregions + SPR + in-transit) to SAX (process code: "Stocks at
+    // Tank Farms & Pipelines, Commercial") — the canonical weekly
+    // commercial crude stocks series excluding SPR. One clean series
+    // per release.
     extraParams: {
       'facets[product][]': 'EPC0',        // Crude oil
       'facets[duoarea][]': 'NUS',         // US total
+      'facets[process][]': 'SAX',         // Commercial stocks at tank farms/pipelines (excl. SPR)
       'frequency': 'weekly',
       'data[0]': 'value',
       'sort[0][column]': 'period',

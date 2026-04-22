@@ -70,4 +70,25 @@ describe('loadFuturesEntities', () => {
     const mbt = entities.find((e) => e.identifier === 'MBT=F')
     expect(mbt!.groundTruthMap.applicableTriggers).not.toContain('T-GT8')
   })
+
+  it('Treasury futures (ZB/ZN/ZT/ZF) are category=yield post-1c.2a recategorization', () => {
+    for (const sym of ['ZB', 'ZN', 'ZT', 'ZF']) {
+      const e = entities.find((x) => x.identifier === `${sym}=F`)
+      expect(e).toBeDefined()
+      expect(e!.category).toBe('yield')
+      expect(e!.subcategory).toBe('treasury')
+    }
+  })
+
+  it('Treasury futures still get the rate-sensitive trigger set (T-GT5/6/9)', () => {
+    const zn = entities.find((e) => e.identifier === 'ZN=F')
+    expect(zn!.groundTruthMap.applicableTriggers).toEqual(expect.arrayContaining(['T-GT5', 'T-GT6', 'T-GT9']))
+  })
+
+  it('FX futures (6E, 6J, 6B, 6A, 6C, 6S) remain category=fx', () => {
+    for (const sym of ['6E', '6J', '6B', '6A', '6C', '6S']) {
+      const e = entities.find((x) => x.identifier === `${sym}=F`)
+      expect(e!.category).toBe('fx')
+    }
+  })
 })

@@ -2,15 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { QUEUE_NAMES, ALL_QUEUE_NAMES } from '@/lib/queue/names'
 
 describe('queue names contract', () => {
-  it('exposes exactly 10 queues (3 gap-score + 2 phase-1c trigger infra + 1 consensus + 4 paper-trading)', () => {
-    expect(Object.keys(QUEUE_NAMES)).toHaveLength(10)
-    expect(ALL_QUEUE_NAMES).toHaveLength(10)
+  it('exposes exactly 13 queues (4 gap-score + 2 phase-1c trigger infra + 1 consensus + 2 ingestion + 4 paper-trading)', () => {
+    expect(Object.keys(QUEUE_NAMES)).toHaveLength(13)
+    expect(ALL_QUEUE_NAMES).toHaveLength(13)
   })
 
   it('every value is lowercase kebab-case with no colon (BullMQ constraint)', () => {
     // BullMQ rejects queue names containing ':'. Our convention is dashes
     // only, starting with one of the recognized domain prefixes.
-    const pattern = /^(gap-score|paper-trading|candidate-generator|trigger-scan|macro-consensus-scrape)(-[a-z-]+)?$/
+    const pattern = /^(gap-score|paper-trading|candidate-generator|trigger-scan|macro-consensus-scrape|narrative-ingest|psych-ingest)(-[a-z-]+)?$/
     for (const value of Object.values(QUEUE_NAMES)) {
       expect(value).toMatch(pattern)
       expect(value).not.toContain(':')
@@ -27,7 +27,7 @@ describe('queue names contract', () => {
       Object.values(QUEUE_NAMES).map((v) => {
         if (v.startsWith('gap-score-')) return 'gap-score'
         if (v.startsWith('paper-trading-')) return 'paper-trading'
-        return v // candidate-generator, trigger-scan, macro-consensus-scrape are their own prefixes
+        return v // single-queue prefixes use their own value as the key
       }),
     )
     expect(prefixes).toEqual(
@@ -37,6 +37,8 @@ describe('queue names contract', () => {
         'candidate-generator',
         'trigger-scan',
         'macro-consensus-scrape',
+        'narrative-ingest',
+        'psych-ingest',
       ]),
     )
   })

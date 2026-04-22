@@ -1605,15 +1605,17 @@ model TrackedEntity {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  scoredSignals    ScoredSignal[]
-  gapScores        GapScore[]
-  caseStudies      CaseStudy[]
-  triggerEvents    TriggerEvent[]
-  entityBaselines  EntityBaseline[]
-  watchlists       Watchlist[]
-  alerts           Alert[]
-  rawSignalLayers  RawSignalLayer[]
-  rawSignalQueues  RawSignalQueue[]
+  scoredSignals        ScoredSignal[]
+  gapScores            GapScore[]
+  caseStudies          CaseStudy[]
+  triggerEvents        TriggerEvent[]
+  entityBaselines      EntityBaseline[]
+  watchlists           Watchlist[]
+  alerts               Alert[]
+  rawSignalLayers      RawSignalLayer[]
+  rawSignalQueues      RawSignalQueue[]
+  observations         EntityObservation[]
+  observationsHourly   EntityObservationHourly[]
 
   @@index([identifier])
   @@index([category, active])
@@ -1883,5 +1885,88 @@ model TriggerCursor {
 
   @@unique([triggerId, cursorType])
   @@index([triggerId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1c.2b.1 — NARRATIVE + PSYCHOLOGICAL OBSERVATION STREAM + CFTC COT
+// ═══════════════════════════════════════════════════════════════════════════
+
+// One row per (entity, timestamp, sourceType) observation. Written by the
+// GDELT/RSS/Reddit/Twitter pollers after entity extraction. Rolling stream —
+// the nightly cleanup drops rows older than 30 days. Baselines compute from
+// the hourly rollup (EntityObservationHourly), not this raw table, so
+// retention doesn't affect baseline accuracy.
+model EntityObservation {
+  id           String   @id @default(cuid())
+  entityId     String
+  entity       TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  // "gdelt_article" | "rss_article" | "reddit_post" | "twitter_post"
+  sourceType   String
+  // Outlet name (for GDELT/RSS) or subreddit/screen_name (for social).
+  // Used by T-N2 (cross-outlet amplification) DISTINCT count.
+  outlet       String?
+  // Original URL or post permalink; dedup key combined with entityId.
+  sourceUrl    String?
+  // Headline text / post title — stored for downstream keyword matching.
+  title        String?
+  // Engagement counts on the source content (likes/upvotes + replies/comments).
+  // Used by T-P2 (engagement velocity acceleration). Null for narrative.
+  engagement   Int?
+  // Observed-at ISO — the publishedAt from the source, not the fetch time.
+  observedAt   DateTime
+  createdAt    DateTime @default(now())
+
+  @@unique([entityId, sourceType, sourceUrl])
+  @@index([entityId, observedAt])
+  @@index([sourceType, observedAt])
+  @@index([observedAt])
+}
+
+// Pre-aggregated hourly counts — feeds baseline workers directly without
+// scanning every EntityObservation. Upsert keyed on (entityId, metricName,
+// hourStart). Kept 90 days rolling for baseline computation (narrative
+// uses 7 days, psych uses 14 days; the extra 76-day headroom covers
+// catch-up recomputes when a worker falls behind).
+model EntityObservationHourly {
+  id          String   @id @default(cuid())
+  entityId    String
+  entity      TrackedEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  // "article_volume_hourly" | "cashtag_velocity_hourly" | "engagement_hourly"
+  metricName  String
+  hourStart   DateTime // ISO, truncated to the top of the hour (UTC)
+  count       Int      @default(0) // Count of observations in the hour
+  // For engagement_hourly: sum of EntityObservation.engagement in the hour.
+  // For article/cashtag metrics: null.
+  engagementSum Int?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([entityId, metricName, hourStart])
+  @@index([metricName, hourStart])
+  @@index([entityId, metricName])
+}
+
+// Weekly CFTC Commitments of Traders disaggregated report snapshot.
+// T-GT4 fires on week-over-week managed-money net position delta. Upsert
+// keyed on (marketCode, exchangeCode, reportDate). Historical rows kept
+// indefinitely — trend analysis uses the full series.
+model CftcPosition {
+  id                     String   @id @default(cuid())
+  marketCode             String   // "CL" | "HG" | "ZC" | etc. — CFTC CFTC_Contract_Market_Code
+  exchangeCode           String   // "NYMEX" | "COMEX" | "CBT" | etc.
+  marketName             String   // Free-text market name from the CFTC CSV
+  reportDate             DateTime // Tuesday of the reporting week
+  // Managed money net long (long - short) as a percentage of total open interest.
+  // This is the primary signal field for T-GT4; prior-week delta drives fires.
+  managedMoneyNetPct     Float
+  managedMoneyLongPct    Float
+  managedMoneyShortPct   Float
+  producerNetPct         Float?
+  swapDealerNetPct       Float?
+  openInterestTotal      Int
+  createdAt              DateTime @default(now())
+
+  @@unique([marketCode, exchangeCode, reportDate])
+  @@index([marketCode, reportDate])
+  @@index([reportDate])
 }
 

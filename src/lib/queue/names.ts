@@ -27,6 +27,8 @@ export const QUEUE_NAMES = {
   GAP_SCORE_FEATURED_BASELINE: 'gap-score-featured-baseline',
   GAP_SCORE_CANDIDATE_COMPUTE: 'gap-score-candidate-compute',
   GAP_SCORE_BACKFILL: 'gap-score-backfill',
+  // Phase 1c.2b.1: per-entity baseline recompute worker tick.
+  GAP_SCORE_BASELINE_COMPUTE: 'gap-score-baseline-compute',
 
   // ── Trigger + Candidate infrastructure (Phase 1c) ──
   CANDIDATE_GENERATOR: 'candidate-generator',
@@ -36,6 +38,12 @@ export const QUEUE_NAMES = {
   // Distinct queue from trigger-scan: different retry semantics (long
   // backoff on HTML scraper failures) and independent concurrency tuning.
   MACRO_CONSENSUS_SCRAPE: 'macro-consensus-scrape',
+
+  // ── Narrative + Psych ingestion (Phase 1c.2b.1) ──
+  // Separate queue domain so narrative/psych pollers can scale with
+  // different concurrency + retry than trigger-scan + consensus scraping.
+  NARRATIVE_INGEST: 'narrative-ingest',
+  PSYCH_INGEST: 'psych-ingest',
 
   // ── Paper Trading (Phase 11 §11.8) ──
   PAPER_TRADING_STRATEGY_GENERATE: 'paper-trading-strategy-generate',

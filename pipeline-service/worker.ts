@@ -32,9 +32,12 @@ const CONCURRENCY: Record<QueueName, number> = {
   [QUEUE_NAMES.GAP_SCORE_FEATURED_BASELINE]: 3,
   [QUEUE_NAMES.GAP_SCORE_CANDIDATE_COMPUTE]: 10,
   [QUEUE_NAMES.GAP_SCORE_BACKFILL]: 2,
+  [QUEUE_NAMES.GAP_SCORE_BASELINE_COMPUTE]: 1, // single-runner hourly cron
   [QUEUE_NAMES.CANDIDATE_GENERATOR]: 1, // single-runner cron, no concurrency
   [QUEUE_NAMES.TRIGGER_SCAN]: 3, // parallel trigger scans (e.g., SEC + Congress + Macro)
   [QUEUE_NAMES.MACRO_CONSENSUS_SCRAPE]: 1, // sequential — HTML scrapers rate-sensitive
+  [QUEUE_NAMES.NARRATIVE_INGEST]: 2, // GDELT + RSS pollers run in parallel
+  [QUEUE_NAMES.PSYCH_INGEST]: 2, // Reddit + Twitter pollers run in parallel
   [QUEUE_NAMES.PAPER_TRADING_STRATEGY_GENERATE]: 5,
   [QUEUE_NAMES.PAPER_TRADING_EXECUTE]: 3,
   [QUEUE_NAMES.PAPER_TRADING_MONITOR_POSITIONS]: 1,

@@ -34,6 +34,7 @@ const CONCURRENCY: Record<QueueName, number> = {
   [QUEUE_NAMES.GAP_SCORE_BACKFILL]: 2,
   [QUEUE_NAMES.CANDIDATE_GENERATOR]: 1, // single-runner cron, no concurrency
   [QUEUE_NAMES.TRIGGER_SCAN]: 3, // parallel trigger scans (e.g., SEC + Congress + Macro)
+  [QUEUE_NAMES.MACRO_CONSENSUS_SCRAPE]: 1, // sequential — HTML scrapers rate-sensitive
   [QUEUE_NAMES.PAPER_TRADING_STRATEGY_GENERATE]: 5,
   [QUEUE_NAMES.PAPER_TRADING_EXECUTE]: 3,
   [QUEUE_NAMES.PAPER_TRADING_MONITOR_POSITIONS]: 1,

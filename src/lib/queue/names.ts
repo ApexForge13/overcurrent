@@ -32,6 +32,11 @@ export const QUEUE_NAMES = {
   CANDIDATE_GENERATOR: 'candidate-generator',
   TRIGGER_SCAN: 'trigger-scan',
 
+  // ── Macro consensus scraping (Phase 1c.2a) ──
+  // Distinct queue from trigger-scan: different retry semantics (long
+  // backoff on HTML scraper failures) and independent concurrency tuning.
+  MACRO_CONSENSUS_SCRAPE: 'macro-consensus-scrape',
+
   // ── Paper Trading (Phase 11 §11.8) ──
   PAPER_TRADING_STRATEGY_GENERATE: 'paper-trading-strategy-generate',
   PAPER_TRADING_EXECUTE: 'paper-trading-execute',

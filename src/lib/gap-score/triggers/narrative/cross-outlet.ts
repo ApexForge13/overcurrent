@@ -6,14 +6,20 @@
  * to 1.0 at 10+.
  *
  * Phase 1 addendum A1.2 T-N2 calls for "AND NOT during a known
- * scheduled event (earnings, Fed day)". That guard is deferred to
- * 1c.2b.2 when we have an earnings + FOMC calendar to check against.
- * Documented gap; acceptable false-positive risk in the interim.
+ * scheduled event (earnings, Fed day)". Phase 1c.2b.2 M7 wires the
+ * guard: FOMC hardcoded 12-month array + EarningsSchedule-based
+ * per-entity check. Entities in quiet period are suppressed from
+ * emitting fires; metadata records which entities were suppressed.
  *
  * No baseline required — absolute threshold.
  */
 
 import type { TriggerContext, TriggerFireEvent } from '../types'
+import {
+  isInFomcQuietPeriod,
+  getEntitiesInEarningsQuietPeriod,
+  maybeEmitFomcStaleHeartbeat,
+} from './quiet-period-calendar'
 
 const TRIGGER_ID = 'T-N2'
 const WINDOW_MINUTES = 30
@@ -52,10 +58,26 @@ export async function crossOutletTrigger(
   })
   const alreadyFired = new Set(recentFires.map((f) => f.entityId))
 
+  // Quiet-period guard (Phase 1c.2b.2): suppress entities in their
+  // FOMC day or earnings ±24h window. Surface suppression in metadata.
+  await maybeEmitFomcStaleHeartbeat(ctx.prisma, ctx.now)
+  const fomcQuiet = isInFomcQuietPeriod(ctx.now)
+  const candidateEntityIds = Array.from(outletsByEntity.keys())
+  const earningsQuietSet = await getEntitiesInEarningsQuietPeriod(
+    ctx.prisma,
+    candidateEntityIds,
+    ctx.now,
+  )
+
   const fires: TriggerFireEvent[] = []
+  const suppressedEntities: string[] = []
   for (const [entityId, outlets] of outletsByEntity.entries()) {
     if (outlets.size < MIN_DISTINCT_OUTLETS) continue
     if (alreadyFired.has(entityId)) continue
+    if (fomcQuiet || earningsQuietSet.has(entityId)) {
+      suppressedEntities.push(entityId)
+      continue
+    }
 
     // Severity 0.5 at 5 → 1.0 at 10+ (linear)
     const above = outlets.size - MIN_DISTINCT_OUTLETS
@@ -71,8 +93,8 @@ export async function crossOutletTrigger(
         distinct_outlets: outlets.size,
         outlets: Array.from(outlets).slice(0, 10),
         window_minutes: WINDOW_MINUTES,
-        // TODO(1c.2b.2): scheduled-event quiet-period guard not applied
-        // in 1c.2b.1 — earnings + FOMC calendar required.
+        quiet_period_suppressed: suppressedEntities,
+        fomc_quiet: fomcQuiet,
         direction: 0,
       },
     })

@@ -137,6 +137,7 @@ Return JSON only:
 { "relevantSatellites": 0, "repositioningSignal": false, "description": "" }`
 
 export const spaceTrackRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const updates = await fetchRecentMilitaryUpdates(cluster.firstDetectedAt)
 

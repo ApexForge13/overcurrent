@@ -52,6 +52,7 @@ Return JSON only:
 { "volatileMove": false, "narrativeGap": false, "description": "" }`
 
 export const coinGeckoRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const readings: Reading[] = []
   for (const coin of COINS) {

@@ -16,6 +16,7 @@
 import type { IntegrationRunner } from '../runner'
 
 export const netBlocksRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   console.log(
     `[raw-signals/netblocks] Stub — requires scrape or Phase 9 Twitter/X wiring. Cluster=${ctx.cluster.id.substring(0, 8)}`,
   )

@@ -82,6 +82,7 @@ Return JSON only:
 { "militaryCount": 0, "specialMissionCount": 0, "narrativeGap": false, "description": "" }`
 
 export const adsbExchangeRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
   const geo = await extractGeoForSignal(signalType, cluster.entities, cluster.headline, cluster.synopsis)
   let aircraft = await fetchAircraft(geo.boundingBox)

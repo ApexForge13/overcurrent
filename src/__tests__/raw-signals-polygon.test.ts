@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { polygonRunner } from '@/lib/raw-signals/integrations/polygon'
-import type { RunnerContext } from '@/lib/raw-signals/runner'
+import type { ClusterRunnerContext } from '@/lib/raw-signals/runner'
 
-const baseCtx: RunnerContext = {
+const baseCtx: ClusterRunnerContext = {
+  scope: 'cluster',
   queueId: 'q1',
   storyClusterId: 'cluster1',
+  entityId: null,
   umbrellaArcId: null,
   signalType: 'financial_equity',
   triggerLayer: 'category_trigger',
@@ -18,6 +20,7 @@ const baseCtx: RunnerContext = {
     entities: ['Apple Inc'],
     signalCategory: 'corporate_scandal',
   },
+  entity: null,
 }
 
 describe('polygonRunner', () => {

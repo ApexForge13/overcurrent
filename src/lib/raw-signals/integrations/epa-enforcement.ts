@@ -71,6 +71,7 @@ Return JSON only:
 { "relevantFacilities": 0, "violatorsInSNC": 0, "narrativeGap": false, "description": "" }`
 
 export const epaEnforcementRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
   const geo = await extractGeoForSignal(signalType, cluster.entities, cluster.headline, cluster.synopsis)
   const facilities = await searchFacilities(cluster.entities)

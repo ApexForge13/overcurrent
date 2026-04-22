@@ -77,6 +77,7 @@ Return JSON only:
 { "materialChange": false, "narrativeGap": false, "description": "" }`
 
 export const unhcrRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const countries = resolveCountries(cluster.entities)
   if (countries.length === 0) {

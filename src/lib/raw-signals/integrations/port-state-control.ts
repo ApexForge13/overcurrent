@@ -16,6 +16,7 @@
 import type { IntegrationRunner } from '../runner'
 
 export const portStateControlRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   console.log(
     `[raw-signals/port-state] Stub — requires Phase 10 scraping pipeline for Tokyo/Paris MOU HTML tables. Cluster=${ctx.cluster.id.substring(0, 8)}`,
   )

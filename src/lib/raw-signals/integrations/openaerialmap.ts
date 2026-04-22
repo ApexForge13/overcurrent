@@ -68,6 +68,7 @@ Return JSON only:
 { "relevantImagery": 0, "description": "" }`
 
 export const openAerialMapRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
   const geo = await extractGeoForSignal(signalType, cluster.entities, cluster.headline, cluster.synopsis)
   const imagery = await fetchImagery(geo.boundingBox, cluster.firstDetectedAt)

@@ -76,6 +76,7 @@ Return JSON only:
 { "articlesRelevant": 0, "materialRules": 0, "narrativeGap": false, "gapDescription": "" }`
 
 export const federalRegisterRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   if (!cluster.entities.length) {
     return {

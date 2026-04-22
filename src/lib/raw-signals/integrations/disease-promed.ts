@@ -61,6 +61,7 @@ Return JSON only:
 { "relevantReports": 0, "leadTimeDays": 0, "materialOmission": false, "description": "" }`
 
 export const promedRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const reports = await fetchReports()
   if (reports.length === 0) {

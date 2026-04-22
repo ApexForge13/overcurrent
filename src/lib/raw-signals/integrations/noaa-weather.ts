@@ -68,6 +68,7 @@ Return JSON only:
 { "relevantAlerts": 0, "extremeAlerts": 0, "narrativeGap": false, "description": "" }`
 
 export const noaaWeatherRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
   const geo = await extractGeoForSignal(signalType, cluster.entities, cluster.headline, cluster.synopsis)
   const alerts = await fetchAlerts(geo.boundingBox)

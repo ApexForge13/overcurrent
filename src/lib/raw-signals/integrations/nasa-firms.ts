@@ -127,6 +127,7 @@ Return JSON only:
 }`
 
 export const nasaFirmsRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
 
   const geo = await extractGeoForSignal(

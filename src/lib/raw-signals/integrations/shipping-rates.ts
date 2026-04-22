@@ -48,6 +48,7 @@ Return JSON only:
 { "directionMatch": true, "narrativeGap": false, "description": "" }`
 
 export const shippingRatesRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const readings = await fetchFbx()
   if (readings.length === 0) {

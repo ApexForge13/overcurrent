@@ -59,6 +59,7 @@ Return JSON only:
 { "relevantItems": 0, "emergencySignal": false, "description": "" }`
 
 export const unSecurityCouncilRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const items = await fetchCoverage()
 

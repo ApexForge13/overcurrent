@@ -16,6 +16,7 @@
 import type { IntegrationRunner } from '../runner'
 
 export const armsSipriRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   // Returning null marks the queue entry as 'skipped' with the reason below.
   console.log(

@@ -82,6 +82,7 @@ Return JSON only:
 { "trueMatches": 0, "storyAcknowledgesOffshoreTie": false, "narrativeGap": false, "description": "" }`
 
 export const icijOffshoreRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   if (!cluster.entities.length) {
     return {

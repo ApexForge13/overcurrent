@@ -15,6 +15,7 @@
 import type { IntegrationRunner } from '../runner'
 
 export const fewsNetRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   console.log(
     `[raw-signals/fews-net] Stub — requires Phase 10 local data cache (FEWS publishes shapefiles/PDFs only). Cluster=${ctx.cluster.id.substring(0, 8)}`,
   )

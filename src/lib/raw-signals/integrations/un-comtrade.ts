@@ -89,6 +89,7 @@ Return JSON only:
 { "flowChangePercent": 0, "narrativeGap": false, "description": "" }`
 
 export const unComtradeRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const codes = resolveCodes(cluster.entities)
   if (codes.length < 2) {

@@ -65,6 +65,7 @@ Return JSON only:
 { "relevantActivations": 0, "activationOmitted": false, "description": "" }`
 
 export const copernicusEmergencyRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const activations = await fetchActivations()
   if (activations.length === 0) {

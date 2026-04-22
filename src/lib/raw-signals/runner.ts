@@ -11,29 +11,72 @@
  *   - PACER integrations (signalType='legal_pacer') require approvedByAdmin=true
  *     — we double-check at call site AND at the top of the runner.
  *   - Admin-only. Never returns data to public-facing routes.
+ *
+ * Phase 1c.2a: accepts BOTH cluster-scoped (legacy pipeline) and entity-
+ * scoped (trigger pipeline) queue rows. Exactly one of storyClusterId or
+ * entityId must be set on the queue row. Cluster-scoped rows populate
+ * ctx.cluster; entity-scoped rows populate ctx.entity. Adapters that only
+ * make sense in one mode should check which is populated and return null
+ * (skipped) if invoked in the wrong mode.
  */
 
 import { prisma } from '@/lib/db'
 import type { SignalType } from './types'
 
-export interface RunnerContext {
+export interface RunnerEntityContext {
+  id: string
+  identifier: string
+  name: string
+  category: string
+  aliases: string[]
+}
+
+export interface RunnerClusterData {
+  id: string
+  headline: string
+  synopsis: string
+  firstDetectedAt: Date
+  entities: string[]
+  signalCategory: string | null
+}
+
+interface BaseRunnerContext {
   queueId: string
-  storyClusterId: string
   umbrellaArcId: string | null
   signalType: SignalType
   triggerLayer: string
   triggerReason: string
   approvedByAdmin: boolean
-  // Cluster data passed through to integrations
-  cluster: {
-    id: string
-    headline: string
-    synopsis: string
-    firstDetectedAt: Date
-    entities: string[]
-    signalCategory: string | null
-  }
 }
+
+/**
+ * Cluster-scoped runner context — legacy debate pipeline adapters.
+ * Adapters that only work in cluster mode narrow with:
+ *   if (ctx.scope !== 'cluster') return null
+ * TS then treats `ctx.cluster` as non-null throughout the function.
+ */
+export interface ClusterRunnerContext extends BaseRunnerContext {
+  scope: 'cluster'
+  storyClusterId: string
+  entityId: null
+  cluster: RunnerClusterData
+  entity: null
+}
+
+/**
+ * Entity-scoped runner context — Phase 1c.2a trigger pipeline.
+ * Adapters that only work in entity mode narrow with:
+ *   if (ctx.scope !== 'entity') return null
+ */
+export interface EntityRunnerContext extends BaseRunnerContext {
+  scope: 'entity'
+  storyClusterId: null
+  entityId: string
+  cluster: null
+  entity: RunnerEntityContext
+}
+
+export type RunnerContext = ClusterRunnerContext | EntityRunnerContext
 
 // Return value of every integration runner
 export interface IntegrationResult {
@@ -114,67 +157,144 @@ export async function processQueueEntry(queueId: string): Promise<void> {
     return
   }
 
+  // Enforce the runner invariant: exactly one of (storyClusterId, entityId)
+  // must be present. Both-null rows are a programmer error from whoever
+  // enqueued the job; both-set is an attempted dual-scope write we can't
+  // sensibly dispatch.
+  const hasCluster = Boolean(entry.storyClusterId)
+  const hasEntity = Boolean(entry.entityId)
+  if (hasCluster === hasEntity) {
+    await prisma.rawSignalQueue.update({
+      where: { id: queueId },
+      data: {
+        status: 'failed',
+        errorMessage: hasCluster
+          ? 'Both storyClusterId and entityId set — runner scope ambiguous'
+          : 'Neither storyClusterId nor entityId set — runner scope missing',
+      },
+    })
+    return
+  }
+
   // Mark running
   await prisma.rawSignalQueue.update({
     where: { id: queueId },
     data: { status: 'running' },
   })
 
-  // Load cluster data
-  const cluster = await prisma.storyCluster.findUnique({
-    where: { id: entry.storyClusterId },
-  })
-  if (!cluster) {
-    await prisma.rawSignalQueue.update({
-      where: { id: queueId },
-      data: {
-        status: 'failed',
-        errorMessage: 'StoryCluster not found',
-      },
-    })
-    return
-  }
+  let ctx: RunnerContext
 
-  // Load latest story in cluster for headline/synopsis
-  const latestStory = await prisma.story.findFirst({
-    where: { storyClusterId: entry.storyClusterId },
-    orderBy: { createdAt: 'desc' },
-  })
-  if (!latestStory) {
-    await prisma.rawSignalQueue.update({
-      where: { id: queueId },
-      data: {
-        status: 'failed',
-        errorMessage: 'No analyses for cluster',
-      },
-    })
-    return
-  }
-
-  let entities: string[] = []
-  try {
-    const parsed = JSON.parse(cluster.clusterKeywords)
-    if (Array.isArray(parsed)) entities = parsed.map((e) => String(e))
-  } catch {
-    entities = []
-  }
-
-  const ctx: RunnerContext = {
+  const base: BaseRunnerContext = {
     queueId: entry.id,
-    storyClusterId: entry.storyClusterId,
     umbrellaArcId: entry.umbrellaArcId,
     signalType: entry.signalType as SignalType,
     triggerLayer: entry.triggerLayer,
     triggerReason: entry.triggerReason,
     approvedByAdmin: entry.approvedByAdmin,
-    cluster: {
-      id: cluster.id,
-      headline: latestStory.headline,
-      synopsis: latestStory.synopsis,
-      firstDetectedAt: cluster.firstDetectedAt,
-      entities,
-      signalCategory: cluster.signalCategory ?? latestStory.signalCategory,
-    },
+  }
+
+  if (hasCluster && entry.storyClusterId) {
+    // Legacy cluster-scoped path — load cluster + latest story.
+    const cluster = await prisma.storyCluster.findUnique({
+      where: { id: entry.storyClusterId },
+    })
+    if (!cluster) {
+      await prisma.rawSignalQueue.update({
+        where: { id: queueId },
+        data: {
+          status: 'failed',
+          errorMessage: 'StoryCluster not found',
+        },
+      })
+      return
+    }
+    const latestStory = await prisma.story.findFirst({
+      where: { storyClusterId: entry.storyClusterId },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!latestStory) {
+      await prisma.rawSignalQueue.update({
+        where: { id: queueId },
+        data: {
+          status: 'failed',
+          errorMessage: 'No analyses for cluster',
+        },
+      })
+      return
+    }
+    let entities: string[] = []
+    try {
+      const parsed = JSON.parse(cluster.clusterKeywords)
+      if (Array.isArray(parsed)) entities = parsed.map((e) => String(e))
+    } catch {
+      entities = []
+    }
+    ctx = {
+      ...base,
+      scope: 'cluster',
+      storyClusterId: entry.storyClusterId,
+      entityId: null,
+      cluster: {
+        id: cluster.id,
+        headline: latestStory.headline,
+        synopsis: latestStory.synopsis,
+        firstDetectedAt: cluster.firstDetectedAt,
+        entities,
+        signalCategory: cluster.signalCategory ?? latestStory.signalCategory,
+      },
+      entity: null,
+    }
+  } else if (hasEntity && entry.entityId) {
+    // Phase 1c.2a entity-scoped path — load TrackedEntity + aliases.
+    const trackedEntity = await prisma.trackedEntity.findUnique({
+      where: { id: entry.entityId },
+      select: {
+        id: true,
+        identifier: true,
+        name: true,
+        category: true,
+        entityStrings: true,
+      },
+    })
+    if (!trackedEntity) {
+      await prisma.rawSignalQueue.update({
+        where: { id: queueId },
+        data: {
+          status: 'failed',
+          errorMessage: 'TrackedEntity not found',
+        },
+      })
+      return
+    }
+    const strings = trackedEntity.entityStrings as { aliases?: unknown } | null
+    const aliases = Array.isArray(strings?.aliases)
+      ? strings!.aliases.map((a) => String(a))
+      : [trackedEntity.identifier, trackedEntity.name]
+    ctx = {
+      ...base,
+      scope: 'entity',
+      storyClusterId: null,
+      entityId: entry.entityId,
+      cluster: null,
+      entity: {
+        id: trackedEntity.id,
+        identifier: trackedEntity.identifier,
+        name: trackedEntity.name,
+        category: trackedEntity.category,
+        aliases,
+      },
+    }
+  } else {
+    // Unreachable — invariant guard above prevents this branch. Defensive
+    // fallthrough to satisfy TS exhaustiveness.
+    await prisma.rawSignalQueue.update({
+      where: { id: queueId },
+      data: {
+        status: 'failed',
+        errorMessage: 'Unreachable runner scope branch',
+      },
+    })
+    return
   }
 
   try {
@@ -191,10 +311,13 @@ export async function processQueueEntry(queueId: string): Promise<void> {
       return
     }
 
-    // Write RawSignalLayer row
+    // Write RawSignalLayer row. Exactly one of storyClusterId/entityId is
+    // set by the invariant check above — pass both through; the null side
+    // is stored as NULL.
     const signalLayer = await prisma.rawSignalLayer.create({
       data: {
         storyClusterId: entry.storyClusterId,
+        entityId: entry.entityId,
         umbrellaArcId: entry.umbrellaArcId,
         signalType: entry.signalType,
         signalSource: result.signalSource,

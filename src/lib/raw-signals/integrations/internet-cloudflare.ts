@@ -82,6 +82,7 @@ Return JSON only:
 { "anomalyDetected": false, "narrativeGap": false, "description": "" }`
 
 export const cloudflareRadarRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const countries = resolveCountries(cluster.entities)
   if (countries.length === 0) {

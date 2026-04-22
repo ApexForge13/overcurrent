@@ -73,6 +73,7 @@ Return JSON only:
 { "trueMatches": 0, "unnamedOwners": 0, "narrativeGap": false, "description": "" }`
 
 export const openOwnershipRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   if (!cluster.entities.length) {
     return {

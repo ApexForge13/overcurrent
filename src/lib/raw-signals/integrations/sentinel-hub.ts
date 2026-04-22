@@ -198,6 +198,7 @@ function buildRunner(
   sensor: 'optical' | 'radar',
 ): IntegrationRunner {
   return async (ctx) => {
+    if (ctx.scope !== 'cluster') return null
     const { cluster, signalType } = ctx
 
     const geo = await extractGeoForSignal(

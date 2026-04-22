@@ -302,6 +302,7 @@ function inWindow(filedAt: string, reference: Date, windowDays: number): boolean
 }
 
 export const secEdgarRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const signalSource = 'sec-edgar'
   const captureDate = ctx.cluster.firstDetectedAt
 

@@ -233,6 +233,7 @@ async function fetchSeries(
 }
 
 export const fredMacroRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const apiKey = process.env.FRED_API_KEY
   const signalSource = 'fred-macro'
   const captureDate = ctx.cluster.firstDetectedAt

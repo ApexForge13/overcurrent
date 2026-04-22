@@ -85,6 +85,7 @@ Return JSON only:
 { "materialIndicators": 0, "indicatorsOmitted": false, "description": "" }`
 
 export const worldBankRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const countries = resolveCountries(cluster.entities)
   if (countries.length === 0) {

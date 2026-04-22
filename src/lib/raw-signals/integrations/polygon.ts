@@ -240,6 +240,7 @@ async function resolveTickersForCluster(entities: string[]): Promise<ResolvedTic
 }
 
 export const polygonRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const apiKey = process.env.POLYGON_API_KEY
 
   if (!apiKey) {

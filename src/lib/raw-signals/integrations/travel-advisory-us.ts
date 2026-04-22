@@ -79,6 +79,7 @@ Return JSON only:
 { "relevantAdvisories": 0, "maxLevel": null, "levelChangeOmitted": false, "description": "" }`
 
 export const travelAdvisoryUsRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const advisories = await fetchAdvisories()
 

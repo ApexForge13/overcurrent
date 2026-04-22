@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { blsRunner } from '@/lib/raw-signals/integrations/bls'
-import type { RunnerContext } from '@/lib/raw-signals/runner'
+import type { ClusterRunnerContext, RunnerClusterData } from '@/lib/raw-signals/runner'
 
 // Fixed "today" — deterministic month/year stamping avoids drift flakiness.
 const TODAY = new Date('2026-04-15T12:00:00Z')
 
-function makeCtx(overrides?: Partial<RunnerContext['cluster']>): RunnerContext {
+function makeCtx(overrides?: Partial<RunnerClusterData>): ClusterRunnerContext {
   return {
+    scope: 'cluster',
     queueId: 'q-bls-1',
     storyClusterId: 'cluster-bls-1',
+    entityId: null,
     umbrellaArcId: null,
     // SignalType is strongly typed; bls_economic isn't in the union yet
     // (registry wiring is out of scope for this adapter pivot). Re-use
@@ -27,6 +29,7 @@ function makeCtx(overrides?: Partial<RunnerContext['cluster']>): RunnerContext {
       signalCategory: 'corporate_scandal',
       ...overrides,
     },
+    entity: null,
   }
 }
 

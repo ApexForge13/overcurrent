@@ -878,11 +878,19 @@ model OutletUmbrellaProfile {
 // divergenceFlag is the key column — raised when raw data contradicts or
 // materially adds to narrative coverage.
 model RawSignalLayer {
+  // Phase 1c.2a: storyClusterId became nullable to support entity-scoped
+  // runner invocations (trigger path). Legacy cluster-scoped writes still
+  // populate it; new entity-scoped writes populate entityId instead.
+  // Exactly one of (storyClusterId, entityId) is expected to be non-null in
+  // practice; both-null is a runner bug. No DB-level check constraint — the
+  // runner enforces this invariant at write time.
   id                   String   @id @default(cuid())
-  storyClusterId       String
-  storyCluster         StoryCluster @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
+  storyClusterId       String?
+  storyCluster         StoryCluster? @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
   umbrellaArcId        String?
   umbrellaArc          UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  entityId             String?
+  entity               TrackedEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
   signalType           String                     // gdelt | maritime_ais | aviation_adsb | sec_filing | ... (see lib/raw-signals/types.ts)
   signalSource         String                     // specific provider: "sentinel-hub", "opensky", "marinetraffic", etc.
   captureDate          DateTime                   // when the signal was captured (may predate pipeline run)
@@ -900,6 +908,7 @@ model RawSignalLayer {
   updatedAt            DateTime @updatedAt
 
   @@index([storyClusterId])
+  @@index([entityId])
   @@index([signalType])
   @@index([divergenceFlag])
   @@index([reviewedByAdmin])
@@ -911,11 +920,16 @@ model RawSignalLayer {
 // record exactly why a source was pulled for this cluster.
 // status 'requires_approval' is reserved for gated integrations (PACER).
 model RawSignalQueue {
+  // Phase 1c.2a: storyClusterId became nullable for entity-scoped queuing.
+  // Same invariant as RawSignalLayer — exactly one of (storyClusterId,
+  // entityId) should be non-null. Runner enforces.
   id                    String   @id @default(cuid())
-  storyClusterId        String
-  storyCluster          StoryCluster @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
+  storyClusterId        String?
+  storyCluster          StoryCluster? @relation(fields: [storyClusterId], references: [id], onDelete: Cascade)
   umbrellaArcId         String?
   umbrellaArc           UmbrellaArc? @relation(fields: [umbrellaArcId], references: [id], onDelete: SetNull)
+  entityId              String?
+  entity                TrackedEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
   signalType            String
   triggerLayer          String                    // category_trigger | entity_trigger | keyword_trigger
   triggerReason         String                    // which category/entity/keyword triggered this source
@@ -935,6 +949,7 @@ model RawSignalQueue {
   updatedAt             DateTime @updatedAt
 
   @@index([storyClusterId])
+  @@index([entityId])
   @@index([status])
   @@index([signalType])
   @@index([approvedByAdmin])
@@ -1597,6 +1612,8 @@ model TrackedEntity {
   entityBaselines  EntityBaseline[]
   watchlists       Watchlist[]
   alerts           Alert[]
+  rawSignalLayers  RawSignalLayer[]
+  rawSignalQueues  RawSignalQueue[]
 
   @@index([identifier])
   @@index([category, active])
@@ -1849,5 +1866,22 @@ model MacroIndicatorConfig {
   historicalStddevProxy Boolean  @default(true)
   directionMapping Json                                // { "SPY": {positive: 1, negative: -1}, "TLT": {positive: -1, negative: 1}, ... }
   relevantAssets   String[]                            // TrackedEntity.identifier values impacted by this indicator
+}
+
+// Phase 1c.2a — cursor persistence for triggers that poll external feeds.
+// One row per (triggerId, cursorType). cursorValue is a free-form string —
+// typically an ISO timestamp (SEC EDGAR file_date) or a sequence number.
+// Triggers read the cursor at scan start, advance it to the max seen, write
+// back on success. Keeps re-scans idempotent and prevents re-firing on
+// already-processed filings.
+model TriggerCursor {
+  id          String   @id @default(cuid())
+  triggerId   String                                      // "T-GT1" | "T-GT2" | "T-GT3" | "T-GT10"
+  cursorType  String                                      // "file_date" | "accession" | "disclosure_id" | ...
+  cursorValue String                                      // free-form, interpreted by the trigger
+  updatedAt   DateTime @updatedAt
+
+  @@unique([triggerId, cursorType])
+  @@index([triggerId])
 }
 

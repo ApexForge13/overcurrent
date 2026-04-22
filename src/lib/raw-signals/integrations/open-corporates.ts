@@ -82,6 +82,7 @@ Return JSON only:
 { "trueMatches": 0, "jurisdictionMismatch": false, "inactiveOrDissolved": 0, "narrativeGap": false, "description": "" }`
 
 export const openCorporatesRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   if (!cluster.entities.length) {
     return {

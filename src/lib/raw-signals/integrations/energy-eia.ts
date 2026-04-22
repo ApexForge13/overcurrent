@@ -75,6 +75,7 @@ Return JSON only:
 { "materialMove": false, "narrativeGap": false, "description": "" }`
 
 export const eiaEnergyRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const rows = await fetchSeries()
   if (rows.length === 0) {

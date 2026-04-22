@@ -114,6 +114,7 @@ Return JSON only:
 { "relevantEvents": 0, "suspiciousEncounters": 0, "flagProfile": "", "narrativeGap": false, "description": "" }`
 
 export const globalFishingWatchRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
   const geo = await extractGeoForSignal(signalType, cluster.entities, cluster.headline, cluster.synopsis)
   const events = await fetchEvents(geo.boundingBox, cluster.firstDetectedAt)

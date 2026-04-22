@@ -46,12 +46,22 @@ export async function onRawSignalWritten(rawSignalLayerId: string): Promise<void
       return
     }
 
+    // Phase 1c.2a: entity-scoped signal rows (storyClusterId null) have no
+    // cluster-derived hooks to populate. The entire post-write pipeline here
+    // is cluster-scoped — graph edges reference a cluster, timeline events
+    // attach to a cluster, EntitySignalIndex rows dedupe per cluster. Bail
+    // early and rely on the trigger pipeline's own entity linkage instead.
+    if (!signal.storyClusterId) {
+      return
+    }
+    const clusterId = signal.storyClusterId
+
     const confidenceLevel = signal.confidenceLevel as 'low' | 'medium' | 'high'
 
     // Step 1: graph population (ground_truth stream node + contradicts/corroborates edge)
     await populateRawSignalGraph({
       rawSignalLayerId: signal.id,
-      storyClusterId: signal.storyClusterId,
+      storyClusterId: clusterId,
       signalType: signal.signalType,
       signalSource: signal.signalSource,
       divergenceFlag: signal.divergenceFlag,
@@ -66,7 +76,7 @@ export async function onRawSignalWritten(rawSignalLayerId: string): Promise<void
     // Step 2: ArcTimelineEvent(raw_signal) — ground_truth stream
     await writeRawSignalEvent({
       rawSignalLayerId: signal.id,
-      storyClusterId: signal.storyClusterId,
+      storyClusterId: clusterId,
       umbrellaArcId: signal.umbrellaArcId,
       signalType: signal.signalType,
       signalSource: signal.signalSource,
@@ -85,7 +95,7 @@ export async function onRawSignalWritten(rawSignalLayerId: string): Promise<void
     // behavior: entities build up a complete record of every raw signal
     // observed while they are in the news cycle.
     await populateEntitySignalIndexForCluster({
-      storyClusterId: signal.storyClusterId,
+      storyClusterId: clusterId,
       rawSignalLayerId: signal.id,
       signalType: signal.signalType,
       signalDate: signal.captureDate,

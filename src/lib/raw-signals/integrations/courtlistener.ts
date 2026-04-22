@@ -116,6 +116,7 @@ Return JSON only:
 }`
 
 export const courtListenerRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
 
   if (!cluster.entities || cluster.entities.length === 0) {

@@ -60,6 +60,7 @@ Return JSON only:
 { "relevantOutbreaks": 0, "materialOmission": false, "description": "" }`
 
 export const whoDiseaseRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const outbreaks = await fetchOutbreaks()
   if (outbreaks.length === 0) {

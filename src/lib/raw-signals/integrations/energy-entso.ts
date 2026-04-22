@@ -21,6 +21,7 @@ const TIMEOUT_MS = 20_000
 const API_URL = 'https://web-api.tp.entsoe.eu/api'
 
 export const entsoEnergyRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   const key = process.env.ENTSOE_API_KEY
   if (!key) {

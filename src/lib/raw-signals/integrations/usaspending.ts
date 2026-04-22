@@ -93,6 +93,7 @@ Return JSON only:
 { "awardsRelevant": 0, "totalAmountUsd": 0, "narrativeGap": false, "gapDescription": "" }`
 
 export const usaSpendingRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster } = ctx
   if (!cluster.entities.length) {
     return {

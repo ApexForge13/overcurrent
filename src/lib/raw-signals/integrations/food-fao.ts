@@ -15,6 +15,7 @@
 import type { IntegrationRunner } from '../runner'
 
 export const faoFoodPriceRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   console.log(
     `[raw-signals/fao-food] Stub — requires Phase 10 local FPI cache (FAO publishes monthly CSV). Cluster=${ctx.cluster.id.substring(0, 8)}`,
   )

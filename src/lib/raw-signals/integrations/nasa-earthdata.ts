@@ -104,6 +104,7 @@ Return JSON only:
 { "granulesRelevant": 0, "clearImageryAvailable": false, "narrativeGap": false, "description": "" }`
 
 export const nasaEarthdataRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
   const geo = await extractGeoForSignal(signalType, cluster.entities, cluster.headline, cluster.synopsis)
   const granules = await fetchGranules(geo.boundingBox, cluster.firstDetectedAt)

@@ -131,6 +131,7 @@ Return JSON only:
 }`
 
 export const gdeltRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
 
   // Geo extraction

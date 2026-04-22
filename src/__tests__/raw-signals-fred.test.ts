@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fredMacroRunner } from '@/lib/raw-signals/integrations/fred-macro'
-import type { RunnerContext } from '@/lib/raw-signals/runner'
+import type { ClusterRunnerContext, RunnerClusterData } from '@/lib/raw-signals/runner'
 
 // Fixed "today" used across the cluster; lets us hand-craft deterministic
 // observation dates for each series without date-drift flakiness.
 const TODAY = new Date('2026-04-15T12:00:00Z')
 
-function makeCtx(overrides?: Partial<RunnerContext['cluster']>): RunnerContext {
+function makeCtx(overrides?: Partial<RunnerClusterData>): ClusterRunnerContext {
   return {
+    scope: 'cluster',
     queueId: 'q-fred-1',
     storyClusterId: 'cluster-fred-1',
+    entityId: null,
     umbrellaArcId: null,
     signalType: 'fred_macro',
     triggerLayer: 'category_trigger',
@@ -24,6 +26,7 @@ function makeCtx(overrides?: Partial<RunnerContext['cluster']>): RunnerContext {
       signalCategory: 'corporate_scandal',
       ...overrides,
     },
+    entity: null,
   }
 }
 

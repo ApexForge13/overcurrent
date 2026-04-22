@@ -143,6 +143,7 @@ Return JSON only:
 { "relevantVessels": 0, "tankerCount": 0, "militaryCount": 0, "cargoCount": 0, "narrativeGap": false, "description": "" }`
 
 export const aisHubRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const { cluster, signalType } = ctx
   const geo = await extractGeoForSignal(signalType, cluster.entities, cluster.headline, cluster.synopsis)
   const vessels = await aisHubFetch(geo.boundingBox)

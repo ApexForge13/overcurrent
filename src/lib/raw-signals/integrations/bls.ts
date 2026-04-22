@@ -244,6 +244,7 @@ function normalizeSeries(raw: {
 }
 
 export const blsRunner: IntegrationRunner = async (ctx) => {
+  if (ctx.scope !== 'cluster') return null
   const apiKey = process.env.BLS_API_KEY
   const signalSource = 'bls'
   const captureDate = ctx.cluster.firstDetectedAt

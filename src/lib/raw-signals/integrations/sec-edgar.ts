@@ -2,46 +2,22 @@
  * SEC EDGAR — public filings (Form 4 insider trades, 13F institutional
  * holdings, 13D/G activist stakes, plus 8-K / DEF 14A for narrative context).
  *
+ * Phase 1c.2a: HTTP + parse moved to src/lib/raw-signals/clients/sec-edgar-client.ts
+ * so the trigger-pipeline code (T-GT1/T-GT2/T-GT3) can share the same
+ * primitive without inheriting the cluster-context Haiku assessment.
+ *
+ * This adapter is the legacy cluster-scoped path — it layers Haiku
+ * materiality assessment, divergence classification, and confidence
+ * laddering on top of the raw filings.
+ *
  * ── Environment Variables ─────────────────────────────────────────────
  *   SEC_EDGAR_USER_AGENT (recommended; defaults to admin email)
- *
- * ── Cost ──────────────────────────────────────────────────────────────
- * Free. SEC requires a descriptive User-Agent identifying the requester.
- * A generic or missing UA triggers 403 — routed here as auth_failed.
- *
- * ── Match-time normalization ─────────────────────────────────────────
- * SEC EDGAR full-text search is case-insensitive and tokenizes on its own
- * side, so cluster entities go in as-is with no client-side normalization.
- * This is the normalization-direction choice: pre-query capitalization /
- * accent handling is SEC's responsibility, not ours. No per-entity CIK
- * resolution step either — we rely on full-text match across display_names.
- *
- * ── SEC_EDGAR_USER_AGENT pre-production flag ─────────────────────────
- * Default UA embeds Conner's personal email. Before Production cutover
- * this should flip to a domain address (ops@overcurrent.news or similar).
- * Non-blocking; flagged in the adapter-pivot plan §6.
- *
- * ── Structured-extension scope note ──────────────────────────────────
- * This adapter captures filing metadata (filer identity, filing date,
- * accession number, form type). Form 4 XML deep-parse — transaction
- * code, shares, price-per-share — is a follow-up task. Divergence on
- * insider activity therefore uses a COUNT threshold (≥3 Form 4 in the
- * 30-day pre-window), not a dollar-volume threshold.
  *
  * ── Error routing (canonical error-shape) ─────────────────────────────
  * Every failure path writes a RawSignalLayer row via safeErrorRow with
  * confidenceLevel='unavailable' and a RawSignalError discriminated-union
- * literal:
- *
- *   HTTP 403                     → auth_failed          (provider: 'sec_edgar')
- *   HTTP 429                     → rate_limited         (+ retryAfterSec)
- *   HTTP 4xx (non-429) / 5xx     → external_api_error   (+ statusCode)
- *   AbortError / /timeout/i      → timeout              (+ timeoutMs)
- *   200 but `hits` missing       → parse_error
- *   Entities degenerate (<3 chr) → resolution_failed    (+ attemptedKey)
- *   Uncaught                     → unknown
- *
- * rawSignalQueueId is carried on every variant (Phase 11 dossier FK).
+ * literal — see sec-edgar-client.ts for the full outcome table. Client
+ * outcomes are translated to the RawSignalError canonical shape below.
  *
  * ── Divergence rule (aggregate, not per-form) ─────────────────────────
  * divergenceFlag is TRUE when any of:
@@ -55,227 +31,19 @@
  */
 
 import { callClaude, HAIKU, parseJSON } from '@/lib/anthropic'
-import { fetchWithTimeout } from '@/lib/utils'
 import type { IntegrationResult, IntegrationRunner } from '../runner'
 import { safeErrorRow, safeStringify, ERROR_VERSION } from '../error-shape'
+import {
+  searchByEntity,
+  bucketHits,
+  type SecFetchOutcome,
+} from '../clients/sec-edgar-client'
 
-const TIMEOUT_MS = 20_000
-const FULL_TEXT_SEARCH_URL = 'https://efts.sec.gov/LATEST/search-index'
-const USER_AGENT =
-  process.env.SEC_EDGAR_USER_AGENT ?? 'Overcurrent/1.0 connermhecht13@gmail.com'
 const WINDOW_DAYS = 90
 const DIVERGENCE_WINDOW_DAYS = 30
 const FORM4_DIVERGENCE_COUNT = 3
 const MAX_HITS = 25
-
-type Form4Type = '4' | '4/A'
-type F13Type = '13F-HR' | '13F-HR/A'
-type D13Type = 'SC 13D' | 'SC 13G' | 'SC 13D/A' | 'SC 13G/A'
-
-interface Form4Trade {
-  filerCik?: string
-  filerName: string
-  ticker?: string
-  filingDate: string
-  formType: Form4Type
-  accessionNumber: string
-  absoluteUrl: string
-}
-
-interface F13Holding {
-  filerCik?: string
-  filerName: string
-  filingDate: string
-  reportDate?: string
-  formType: F13Type
-  accessionNumber: string
-  absoluteUrl: string
-}
-
-interface D13Filing {
-  filerCik?: string
-  filerName: string
-  ticker?: string
-  filingDate: string
-  formType: D13Type
-  accessionNumber: string
-  absoluteUrl: string
-}
-
-interface RawHit {
-  accessionNumber: string
-  filedAt: string
-  formType: string
-  displayNames: string[]
-  ciks: string[]
-  tickers: string[]
-  periodOfReport?: string
-  summary?: string
-}
-
-type FetchOutcome =
-  | { ok: true; hits: RawHit[] }
-  | { ok: false; errorType: 'auth_failed' }
-  | { ok: false; errorType: 'rate_limited'; retryAfterSec?: number }
-  | { ok: false; errorType: 'external_api_error'; statusCode: number }
-  | { ok: false; errorType: 'timeout' }
-  | { ok: false; errorType: 'parse_error'; message: string }
-  | { ok: false; errorType: 'unknown'; message: string }
-
-function parseRetryAfter(headers: { get: (name: string) => string | null }): number | undefined {
-  const raw = headers.get('retry-after') ?? headers.get('Retry-After')
-  if (!raw) return undefined
-  const n = parseInt(raw, 10)
-  return Number.isFinite(n) && n > 0 ? n : undefined
-}
-
-function isTimeoutError(err: unknown): boolean {
-  if (err instanceof Error) {
-    if (err.name === 'AbortError') return true
-    if (/timeout/i.test(err.message)) return true
-  }
-  return false
-}
-
-/**
- * Build EDGAR absolute URL for a filing from the accession number.
- * Format: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&...
- * simplified here to the canonical archives URL pattern.
- */
-function accessionToUrl(accession: string, cik?: string): string {
-  const noDashes = accession.replace(/-/g, '')
-  const cikPath = cik ? cik.replace(/^0+/, '') : ''
-  if (cikPath) {
-    return `https://www.sec.gov/Archives/edgar/data/${cikPath}/${noDashes}/${accession}-index.htm`
-  }
-  return `https://efts.sec.gov/LATEST/search-index?q=${accession}`
-}
-
-/**
- * Extract readable filer name from EDGAR's display_names format:
- *   "Acme Corporation (CIK 0000000123) (Filer)"
- * Strips the "(CIK …)" and "(Filer)" parenthetical suffixes.
- */
-function cleanFilerName(raw: string): string {
-  return raw.replace(/\s*\(CIK[^)]*\)/gi, '').replace(/\s*\(Filer\)/gi, '').trim()
-}
-
-async function runEdgarSearch(entities: string[], since: Date): Promise<FetchOutcome> {
-  const start = new Date(since.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000)
-  const params = new URLSearchParams({
-    q: `"${entities.join('" OR "')}"`,
-    forms: '8-K,4,13F-HR,SC 13D,SC 13G,DEF 14A',
-    dateRange: 'custom',
-    startdt: start.toISOString().split('T')[0],
-    enddt: since.toISOString().split('T')[0],
-  })
-
-  let res: Response
-  try {
-    res = await fetchWithTimeout(`${FULL_TEXT_SEARCH_URL}?${params}`, TIMEOUT_MS, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-    })
-  } catch (err) {
-    if (isTimeoutError(err)) return { ok: false, errorType: 'timeout' }
-    return { ok: false, errorType: 'unknown', message: safeStringify(err) }
-  }
-
-  if (!res.ok) {
-    if (res.status === 403) return { ok: false, errorType: 'auth_failed' }
-    if (res.status === 429) {
-      return { ok: false, errorType: 'rate_limited', retryAfterSec: parseRetryAfter(res.headers) }
-    }
-    return { ok: false, errorType: 'external_api_error', statusCode: res.status }
-  }
-
-  let data: { hits?: { hits?: Array<{ _source?: Record<string, unknown> }> } }
-  try {
-    data = (await res.json()) as typeof data
-  } catch (err) {
-    return { ok: false, errorType: 'parse_error', message: safeStringify(err) }
-  }
-
-  const rawHits = data.hits?.hits
-  if (!Array.isArray(rawHits)) {
-    return { ok: false, errorType: 'parse_error', message: 'missing hits.hits array' }
-  }
-
-  const hits: RawHit[] = rawHits.slice(0, MAX_HITS).map((h) => {
-    const s = h._source ?? {}
-    return {
-      accessionNumber: String(s.adsh ?? ''),
-      filedAt: String(s.file_date ?? ''),
-      formType: String(s.form ?? ''),
-      displayNames: Array.isArray(s.display_names) ? (s.display_names as string[]) : [],
-      ciks: Array.isArray(s.ciks) ? (s.ciks as string[]) : [],
-      tickers: Array.isArray(s.tickers) ? (s.tickers as string[]) : [],
-      periodOfReport: s.period_of_report ? String(s.period_of_report) : undefined,
-      summary: s.xsl ? String(s.xsl).substring(0, 200) : undefined,
-    }
-  })
-  return { ok: true, hits }
-}
-
-/**
- * Bucket raw hits into structured per-form arrays. Hits whose form type
- * doesn't match any bucket (8-K, DEF 14A, etc.) are dropped from the
- * structured arrays but still factor into the raw hit count that Haiku
- * sees and that feeds the confidence ladder.
- *
- * Note on ticker extraction: EDGAR's full-text search doesn't guarantee a
- * `tickers` field on every hit — only certain form types and only when the
- * issuer is exchange-listed. When absent we leave ticker: undefined and
- * let the Phase 11 dossier renderer fall back to filer-only rows.
- */
-function bucketHits(hits: RawHit[]): {
-  form4Trades: Form4Trade[]
-  f13Holdings: F13Holding[]
-  d13Filings: D13Filing[]
-} {
-  const form4Trades: Form4Trade[] = []
-  const f13Holdings: F13Holding[] = []
-  const d13Filings: D13Filing[] = []
-
-  for (const h of hits) {
-    const filerName = cleanFilerName(h.displayNames[0] ?? '')
-    const filerCik = h.ciks[0] ?? undefined
-    const ticker = h.tickers[0]
-    const url = accessionToUrl(h.accessionNumber, filerCik)
-
-    if (h.formType === '4' || h.formType === '4/A') {
-      form4Trades.push({
-        filerCik,
-        filerName,
-        ticker,
-        filingDate: h.filedAt,
-        formType: h.formType as Form4Type,
-        accessionNumber: h.accessionNumber,
-        absoluteUrl: url,
-      })
-    } else if (h.formType === '13F-HR' || h.formType === '13F-HR/A') {
-      f13Holdings.push({
-        filerCik,
-        filerName,
-        filingDate: h.filedAt,
-        reportDate: h.periodOfReport,
-        formType: h.formType as F13Type,
-        accessionNumber: h.accessionNumber,
-        absoluteUrl: url,
-      })
-    } else if (h.formType.startsWith('SC 13D') || h.formType.startsWith('SC 13G')) {
-      d13Filings.push({
-        filerCik,
-        filerName,
-        ticker,
-        filingDate: h.filedAt,
-        formType: h.formType as D13Type,
-        accessionNumber: h.accessionNumber,
-        absoluteUrl: url,
-      })
-    }
-  }
-  return { form4Trades, f13Holdings, d13Filings }
-}
+const LEGACY_FORMS = ['8-K', '4', '13F-HR', 'SC 13D', 'SC 13G', 'DEF 14A']
 
 const HAIKU_SYSTEM = `You assess SEC EDGAR filings against news coverage.
 Given a story and filings matching cluster entities in the 90-day pre-story window, return:
@@ -337,12 +105,18 @@ export const secEdgarRunner: IntegrationRunner = async (ctx) => {
     })
   }
 
-  // ── Upstream fetch ─────────────────────────────────────────────────
-  let outcome: FetchOutcome
+  // ── Upstream fetch (delegated to client) ───────────────────────────
+  let outcome: SecFetchOutcome
   try {
-    outcome = await runEdgarSearch(keywords, ctx.cluster.firstDetectedAt)
+    outcome = await searchByEntity({
+      entities: keywords,
+      since: ctx.cluster.firstDetectedAt,
+      windowDays: WINDOW_DAYS,
+      forms: LEGACY_FORMS,
+      maxHits: MAX_HITS,
+    })
   } catch (err) {
-    // runEdgarSearch catches its own errors; anything escaping here is
+    // Client catches its own errors; anything escaping here is
     // pathological (shouldn't happen, but route it through canonical shape).
     return safeErrorRow({
       error: {
@@ -394,7 +168,7 @@ export const secEdgarRunner: IntegrationRunner = async (ctx) => {
           errorType: 'timeout',
           provider: 'sec_edgar',
           rawSignalQueueId: ctx.queueId,
-          timeoutMs: TIMEOUT_MS,
+          timeoutMs: 20_000,
           message: 'EDGAR full-text search request timed out',
         },
         signalSource,
